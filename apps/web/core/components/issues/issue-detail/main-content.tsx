@@ -23,6 +23,8 @@ import useReloadConfirmations from "@/hooks/use-reload-confirmation";
 import useSize from "@/hooks/use-window-size";
 // services
 import { WorkItemVersionService } from "@/services/issue";
+// components
+import { ServiceLogSection } from "@/components/service-logs";
 // local imports
 import { IssueDetailWidgets } from "../issue-detail-widgets";
 import { NameDescriptionUpdateStatus } from "../issue-update-status";
@@ -180,6 +182,19 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
           disabled={!isEditable || isArchived}
         />
       )}
+
+      {/*
+        The work log section, phase 3 of the service desk feature. Placed between the
+        widgets and the activity feed deliberately: it describes the work item, while
+        the feed below records changes made to it -- including, per rule R8, the work
+        log activity this section produces.
+      */}
+      <ServiceLogSection
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+        issueId={issueId}
+        disabled={!isEditable || isArchived}
+      />
 
       <IssueActivity workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} disabled={isArchived} />
     </>
