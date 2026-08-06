@@ -12,22 +12,28 @@ resolvidas e o código do fork foi auditado.
 
 ## Como usar em uma nova sessão do Kiro
 
-O contexto mestre está em `.kiro/steering/worklog-contexto.md` com
-`inclusion: always` — o Kiro o carrega automaticamente em toda sessão neste
-repositório. Você **não** precisa pedir para ele ler esse arquivo.
-
-Para cada fase, use este prompt, trocando apenas o número e o nome do arquivo:
+**Diga só isto:**
 
 ```
-Vamos implementar a Fase 1 do work log.
-
-Leia:
-- docs/worklog/01-fundacao-clientes.md          (a fase em si)
-- docs/worklog/ACHADOS-DO-CODIGO.md             (padrões reais do repositório)
-
-Siga o processo da seção 7 do contexto mestre: apresente primeiro o modelo de
-dados e as decisões de arquitetura, e aguarde meu OK antes de escrever código.
+Leia docs/worklog/PROXIMA-SESSAO.md e siga.
 ```
+
+`PROXIMA-SESSAO.md` é reescrito ao fim de cada fase e sempre descreve a próxima:
+o que ler, o estado do repositório, a última migração, o baseline da suíte e as
+dívidas que vencem naquela fase. O caminho nunca muda, então é o único que vale
+memorizar — útil especialmente quando não se pode copiar um prompt longo.
+
+Ele aponta para `CONVENCOES-DE-TRABALHO.md`, que reúne o que vale para **todas**
+as fases: filosofia de teste, regras de modelagem, convenções de PR e o mecanismo
+de critérios herdados.
+
+> **Correção importante.** Este arquivo afirmava que o contexto mestre em
+> `.kiro/steering/worklog-contexto.md`, por ser `inclusion: always`, é carregado
+> automaticamente e não precisa ser lido. **Isso só vale quando o Kiro roda com
+> `plane-lab` como raiz do workspace.** No sandbox web o repositório fica numa
+> subpasta, o diretório `.kiro/` lido é o da raiz do workspace, e o contexto mestre
+> **não é carregado** — foi verificado. Por isso `PROXIMA-SESSAO.md` manda lê-lo
+> explicitamente. Assumir o carregamento é como se perdem as regras financeiras.
 
 Sugestões práticas:
 
@@ -48,18 +54,18 @@ Sugestões práticas:
 
 ### Núcleo — Fases 1 a 9
 
-| Fase | Arquivo | Entrega | Depende de |
-|---|---|---|---|
-| 1 | `01-fundacao-clientes.md` | Entidade Cliente ancorada a projects do Plane | — |
-| 2 | `02-catalogos-configuraveis.md` | Tipo de Hora (multiplicador) e Tipo de Atendimento (rota de faturamento) | 1 |
-| 2b | `02b-calendario-janelas-classificacao.md` | Feriados, janelas de classificação e motor de segmentação | 2 |
-| 3 | `03-worklog-core.md` | Parser, arredondamento, modo duração/intervalo, CRUD, totais | 2b |
-| 4 | `04-contratos-e-pools.md` | Contratos, pool mensal, acúmulo, excedente, renovação, alertas | 3 |
-| 5 | `05-bolsa-por-workitem.md` | Bolsa de horas isolada por chamado | 4 |
-| 6 | `06-avulso-precificacao.md` | Preços por cliente, valor em R$, faturamento de excedente | 3 e 4 |
-| 7 | `07-permissoes-delegacao.md` | Permissões de apontamento, delegação, auditoria | 3 |
-| 8 | `08-portal-do-cliente.md` | GUEST estendido por project, escopo, allowlist de campos | 1, 7 |
-| 9 | `09-dashboards-consumo.md` | Gráficos de consumo, alertas e relatórios de faturamento | 4, 5, 6 |
+| Fase | Arquivo                                   | Entrega                                                                  | Depende de |
+| ---- | ----------------------------------------- | ------------------------------------------------------------------------ | ---------- |
+| 1    | `01-fundacao-clientes.md`                 | Entidade Cliente ancorada a projects do Plane                            | —          |
+| 2    | `02-catalogos-configuraveis.md`           | Tipo de Hora (multiplicador) e Tipo de Atendimento (rota de faturamento) | 1          |
+| 2b   | `02b-calendario-janelas-classificacao.md` | Feriados, janelas de classificação e motor de segmentação                | 2          |
+| 3    | `03-worklog-core.md`                      | Parser, arredondamento, modo duração/intervalo, CRUD, totais             | 2b         |
+| 4    | `04-contratos-e-pools.md`                 | Contratos, pool mensal, acúmulo, excedente, renovação, alertas           | 3          |
+| 5    | `05-bolsa-por-workitem.md`                | Bolsa de horas isolada por chamado                                       | 4          |
+| 6    | `06-avulso-precificacao.md`               | Preços por cliente, valor em R$, faturamento de excedente                | 3 e 4      |
+| 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          |
+| 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       |
+| 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    |
 
 A Fase 6 depende da 4 apenas para o faturamento de excedente (seção 6); as seções
 1 a 5 só precisam da Fase 3. A Fase 7 é independente das 4, 5 e 6 e pode ser feita
@@ -70,24 +76,24 @@ em paralelo.
 Ainda **não** têm prompt escrito. Detalhamento e justificativa em
 `OPORTUNIDADES.md`.
 
-| Ordem | Melhoria | Por que | Já existe código? |
-|---|---|---|---|
-| 10 | **Timesheet semanal** | Hoje todo apontamento é dentro do work item; um técnico com 15 chamados/dia abriria 15 telas. Todo o faturamento depende da qualidade desse dado | Não. Construir |
-| 11 | **Work Item Types** | Tipos de chamado (Incidente, Requisição, Mudança). Pré-requisito natural de SLA | **Sim, quase pronto** — modelos `IssueType`/`ProjectIssueType`, `Issue.type` FK, flag `is_issue_type_enabled` e ~10 arquivos de frontend. Falta CRUD e tela |
-| 12 | **SLA de atendimento** | Contrato com pool de horas quase sempre tem SLA de resposta e solução. Escopo atual tem zero | Não. Mas as janelas de classificação da Fase 2b são exatamente o calendário que o SLA precisa — metade já vem construída |
-| 13 | **Abertura de chamado por e-mail** | Básico para service desk. Hoje o cliente precisa logar no portal | Parcial: família `Integration`/`Slack`/`Github` toda modelada, **sem nenhuma view** |
-| — | Timer play/stop, entidade de Fatura, notificações ao cliente, capacidade por técnico | Ver `OPORTUNIDADES.md`, Parte B | Variado |
+| Ordem | Melhoria                                                                             | Por que                                                                                                                                          | Já existe código?                                                                                                                                           |
+| ----- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10    | **Timesheet semanal**                                                                | Hoje todo apontamento é dentro do work item; um técnico com 15 chamados/dia abriria 15 telas. Todo o faturamento depende da qualidade desse dado | Não. Construir                                                                                                                                              |
+| 11    | **Work Item Types**                                                                  | Tipos de chamado (Incidente, Requisição, Mudança). Pré-requisito natural de SLA                                                                  | **Sim, quase pronto** — modelos `IssueType`/`ProjectIssueType`, `Issue.type` FK, flag `is_issue_type_enabled` e ~10 arquivos de frontend. Falta CRUD e tela |
+| 12    | **SLA de atendimento**                                                               | Contrato com pool de horas quase sempre tem SLA de resposta e solução. Escopo atual tem zero                                                     | Não. Mas as janelas de classificação da Fase 2b são exatamente o calendário que o SLA precisa — metade já vem construída                                    |
+| 13    | **Abertura de chamado por e-mail**                                                   | Básico para service desk. Hoje o cliente precisa logar no portal                                                                                 | Parcial: família `Integration`/`Slack`/`Github` toda modelada, **sem nenhuma view**                                                                         |
+| —     | Timer play/stop, entidade de Fatura, notificações ao cliente, capacidade por técnico | Ver `OPORTUNIDADES.md`, Parte B                                                                                                                  | Variado                                                                                                                                                     |
 
 ---
 
 ## Documentos de apoio
 
-| Arquivo | O que é |
-|---|---|
+| Arquivo                              | O que é                                                                                                                                                                                                           |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `.kiro/steering/worklog-contexto.md` | **Contexto mestre.** 11 regras invioláveis, as 4 grandezas de tempo, a especificação de precisão numérica (seção 4b), arquitetura de Cliente, restrições técnicas reais do repositório. Carregado automaticamente |
-| `ACHADOS-DO-CODIGO.md` | Auditoria do fork em 14 seções, com arquivo e linha. Papéis reais, flags mortas, padrões de model/API/teste, stack de gráficos |
-| `DECISOES.md` | As 20 decisões de negócio tomadas, com o registro de por que quatro delas mudaram a arquitetura |
-| `OPORTUNIDADES.md` | Ganchos mortos no fork (resquícios da edição paga) e lacunas do escopo, com prioridade |
+| `ACHADOS-DO-CODIGO.md`               | Auditoria do fork em 14 seções, com arquivo e linha. Papéis reais, flags mortas, padrões de model/API/teste, stack de gráficos                                                                                    |
+| `DECISOES.md`                        | As 20 decisões de negócio tomadas, com o registro de por que quatro delas mudaram a arquitetura                                                                                                                   |
+| `OPORTUNIDADES.md`                   | Ganchos mortos no fork (resquícios da edição paga) e lacunas do escopo, com prioridade                                                                                                                            |
 
 ---
 
@@ -106,22 +112,22 @@ grandezas.
 
 Configuração inicial (seed), não código:
 
-| Quando | Tipo de Hora | Mult. |
-|---|---|---|
-| Seg–sex 08:00–18:00 | Horário comercial | 1.0 |
-| Seg–sex 18:00 → 08:00 do dia seguinte | Fora do expediente | 1.5 |
-| Sábado, dia inteiro | Fora do expediente | 1.5 |
-| Domingo, dia inteiro | Domingos e feriados | 2.0 |
-| Feriado, dia inteiro | Domingos e feriados | 2.0 |
+| Quando                                | Tipo de Hora        | Mult. |
+| ------------------------------------- | ------------------- | ----- |
+| Seg–sex 08:00–18:00                   | Horário comercial   | 1.0   |
+| Seg–sex 18:00 → 08:00 do dia seguinte | Fora do expediente  | 1.5   |
+| Sábado, dia inteiro                   | Fora do expediente  | 1.5   |
+| Domingo, dia inteiro                  | Domingos e feriados | 2.0   |
+| Feriado, dia inteiro                  | Domingos e feriados | 2.0   |
 
 ## Cenário de referência
 
 Usado como caso de teste em várias fases:
 
-| Cliente | Project | Contrato | Usuário do portal |
-|---|---|---|---|
-| Marubeni (matriz) | `Marubeni` | 10h/mês, 12 meses | Marcel |
-| Terlogs (adquirida pela Marubeni) | `Terlogs` | 30h/mês, 36 meses | Adriano |
+| Cliente                           | Project    | Contrato          | Usuário do portal |
+| --------------------------------- | ---------- | ----------------- | ----------------- |
+| Marubeni (matriz)                 | `Marubeni` | 10h/mês, 12 meses | Marcel            |
+| Terlogs (adquirida pela Marubeni) | `Terlogs`  | 30h/mês, 36 meses | Adriano           |
 
 Marcel é Guest nos dois projects e alterna entre eles pelo seletor nativo do
 Plane, vendo o dashboard de contrato de cada um. Adriano só vê a Terlogs. Os dois
@@ -143,5 +149,5 @@ vale validar as obrigações dessa licença com apoio jurídico. Existem também
 edições Commercial e Airgapped com termos distintos —
 [ver documentação de edições](https://developers.plane.so/self-hosting/editions-and-versions).
 
-*Conteúdo das referências externas foi parafraseado e resumido para conformidade
-com licenciamento.*
+_Conteúdo das referências externas foi parafraseado e resumido para conformidade
+com licenciamento._
