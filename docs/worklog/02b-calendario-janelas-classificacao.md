@@ -53,6 +53,7 @@ janelas é extensível com um escopo opcional. Não construir isso agora.
 ### 1. Calendário de feriados
 
 Cadastro no painel de administração de apontamentos, restrito a Admin:
+
 - Nome do feriado
 - Data
 - **Recorrência anual** — flag. Natal repete todo ano na mesma data; Carnaval
@@ -62,6 +63,7 @@ Cadastro no painel de administração de apontamentos, restrito a Admin:
 - Ativo / inativo
 
 Requisitos:
+
 - Importação em lote (CSV) e visão de calendário anual para conferência
 - Não permitir duas entradas ativas para a mesma data e abrangência
 - Alterar o calendário **não** reclassifica apontamentos já registrados (R4)
@@ -72,6 +74,7 @@ Cada Tipo de Hora recebe um conjunto de janelas, e o motor resolve por
 prioridade.
 
 Entidade Janela de Classificação:
+
 - Tipo de Hora (FK)
 - Escopo do dia — enum: `SEGUNDA` … `DOMINGO`, `FERIADO`
 - Hora de início e hora de fim (suportar `00:00–24:00` para dia inteiro e
@@ -83,11 +86,11 @@ nenhuma janela nunca é sugerido — apenas selecionável manualmente.
 
 Seed inicial, coerente com as regras de negócio acima:
 
-| Tipo de Hora | Mult. | Prio. | Janelas |
-|---|---|---|---|
-| Domingos e feriados | 2.0 | 10 | `FERIADO` dia inteiro; `DOMINGO` dia inteiro |
-| Fora do expediente | 1.5 | 20 | `SABADO` dia inteiro; `SEGUNDA`–`SEXTA` 18:00–08:00 |
-| Horário comercial | 1.0 | 30 | `SEGUNDA`–`SEXTA` 08:00–18:00 |
+| Tipo de Hora        | Mult. | Prio. | Janelas                                             |
+| ------------------- | ----- | ----- | --------------------------------------------------- |
+| Domingos e feriados | 2.0   | 10    | `FERIADO` dia inteiro; `DOMINGO` dia inteiro        |
+| Fora do expediente  | 1.5   | 20    | `SABADO` dia inteiro; `SEGUNDA`–`SEXTA` 18:00–08:00 |
+| Horário comercial   | 1.0   | 30    | `SEGUNDA`–`SEXTA` 08:00–18:00                       |
 
 `FERIADO` tem a maior prioridade e portanto vence sobre a janela do dia da
 semana — um feriado que cai numa quarta-feira é classificado como 2.0 no dia
@@ -119,12 +122,14 @@ motivo).
 Comportamento por modo de entrada (regra R9):
 
 **Modo Intervalo** (hora início e fim informadas) — classificação completa:
+
 - Percorrer a linha de tempo contínua do início ao fim
 - Resolver a janela vigente em cada instante, por prioridade
 - Emitir um segmento a cada **mudança de classificação**
 - Não quebrar na meia-noite quando a classificação não muda
 
 **Modo Duração** (apenas o total de horas) — classificação apenas por data:
+
 - Se a data é feriado, domingo ou sábado, o Tipo de Hora é determinado pela
   janela de dia inteiro correspondente
 - Em dia útil, não há como saber o horário: **o técnico seleciona o Tipo de
@@ -135,20 +140,20 @@ Comportamento por modo de entrada (regra R9):
 
 Usar exatamente como suíte de testes:
 
-| Cenário | Resultado esperado |
-|---|---|
-| Seg 14:00–16:00 | 1 segmento: 2h Horário comercial |
-| Seg 17:00–20:00 | 2 segmentos: 1h Comercial + 2h Fora do expediente |
-| Seg 22:00 → Ter 01:00 | 1 segmento: 3h Fora do expediente (atravessa a meia-noite sem dividir) |
-| Sex 17:00 → Sáb 02:00 | 2 segmentos: 1h Comercial + 8h Fora do expediente |
-| Sáb 22:00 → Dom 02:00 | 2 segmentos: 2h Fora do expediente + 2h Domingos e feriados |
-| Dom 23:00 → Seg 02:00 | 2 segmentos: 1h Domingos e feriados + 2h Fora do expediente |
-| Feriado 10:00–12:00 | 1 segmento: 2h Domingos e feriados |
-| Qua 10:00–12:00, sendo a Qua um feriado | 1 segmento: 2h Domingos e feriados |
-| Sáb 09:00–11:00 | 1 segmento: 2h Fora do expediente (1.5, não 2.0) |
-| Seg 07:00–09:00 | 2 segmentos: 1h Fora do expediente + 1h Comercial |
-| Modo Duração, `3h`, em um domingo | 1 apontamento, Domingos e feriados |
-| Modo Duração, `3h`, em uma terça | 1 apontamento, técnico escolhe o tipo |
+| Cenário                                 | Resultado esperado                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| Seg 14:00–16:00                         | 1 segmento: 2h Horário comercial                                       |
+| Seg 17:00–20:00                         | 2 segmentos: 1h Comercial + 2h Fora do expediente                      |
+| Seg 22:00 → Ter 01:00                   | 1 segmento: 3h Fora do expediente (atravessa a meia-noite sem dividir) |
+| Sex 17:00 → Sáb 02:00                   | 2 segmentos: 1h Comercial + 8h Fora do expediente                      |
+| Sáb 22:00 → Dom 02:00                   | 2 segmentos: 2h Fora do expediente + 2h Domingos e feriados            |
+| Dom 23:00 → Seg 02:00                   | 2 segmentos: 1h Domingos e feriados + 2h Fora do expediente            |
+| Feriado 10:00–12:00                     | 1 segmento: 2h Domingos e feriados                                     |
+| Qua 10:00–12:00, sendo a Qua um feriado | 1 segmento: 2h Domingos e feriados                                     |
+| Sáb 09:00–11:00                         | 1 segmento: 2h Fora do expediente (1.5, não 2.0)                       |
+| Seg 07:00–09:00                         | 2 segmentos: 1h Fora do expediente + 1h Comercial                      |
+| Modo Duração, `3h`, em um domingo       | 1 apontamento, Domingos e feriados                                     |
+| Modo Duração, `3h`, em uma terça        | 1 apontamento, técnico escolhe o tipo                                  |
 
 Testar também os limites exatos: apontamento terminando às 18:00 em ponto
 (inteiramente comercial) e começando às 08:00 em ponto (inteiramente comercial).
@@ -162,6 +167,36 @@ Isso é obrigatório por causa da regra R7: um apontamento de 31/01 23:00 a 01/0
 01:00 gera segmentos em competências diferentes, e cada um deve debitar o pool
 do seu mês. Usar a data de início para os dois causaria erro de faturamento na
 virada do mês.
+
+### 5b. Estratégia de fuso horário — definir aqui
+
+O contexto mestre exige "definir e documentar a estratégia de fuso". A Fase 1 não
+tocou nisso de propósito: `ServiceClient` não tem nenhum campo de data de negócio,
+então não havia decisão a tomar sem inventar requisito. **Esta é a fase em que a
+decisão se torna inevitável**, porque é aqui que entram faixas horárias, viradas
+de meia-noite e feriados que valem "o dia inteiro".
+
+Pontos que a decisão precisa cobrir:
+
+- `Workspace` e `Project` **já têm campo `timezone`** (`db/models/project.py`, e o
+  `save()` do Project herda o do workspace na criação). Usar um deles, não criar
+  outro — instrução explícita do contexto mestre.
+- Qual dos dois é a fonte da verdade para classificar um apontamento. Como as
+  janelas são parâmetro comercial **do workspace** (D16), o fuso do workspace é o
+  candidato coerente: usar o do project faria a mesma hora trabalhada cair em
+  faixas diferentes conforme o project.
+- O que significa "dia inteiro" para feriado, sábado e domingo: os limites do dia
+  no fuso escolhido, não em UTC. Um apontamento de domingo 23:00 em São Paulo é
+  segunda 02:00 em UTC; classificar em UTC cobraria 1.0 em vez de 2.0.
+- Como a janela contínua 18:00→08:00 é avaliada na travessia de meia-noite, e o
+  que acontece em dias de mudança de horário de verão, caso volte a existir.
+- `TimezoneMixin` (`plane/app/views/base.py`) ativa o fuso **do usuário** por
+  requisição. Isso é bom para exibição e **perigoso para cálculo**: a
+  classificação não pode depender de quem abriu a tela. O motor precisa fixar o
+  fuso explicitamente em vez de herdar o ativo.
+
+Documentar a decisão junto do motor, e cobrir com teste ao menos: domingo 23:00,
+sábado 22:00 → domingo 02:00, e um feriado inteiro.
 
 ### 6. Arredondamento aplicado a segmentos
 
