@@ -16,6 +16,7 @@ utilizado acumule, e que o excedente seja tratado sem bloquear o trabalho.
 ### 1. Entidade Contrato
 
 Vinculada a um Cliente. Campos:
+
 - Identificação / número do contrato
 - Horas mensais contratadas (Decimal)
 - Data de início e data de fim
@@ -40,6 +41,7 @@ contrato de suporte 10h/mês e um contrato de infraestrutura 20h/mês, com pools
 separados.
 
 Modelagem:
+
 - Cada Cliente tem um **contrato padrão** (flag no contrato ou FK no Cliente)
 - Cada **project** pode fixar um contrato específico. Como o Cliente já vem do
   project (contexto mestre, seção 2b), fixar o contrato no project resolve o caso
@@ -63,6 +65,7 @@ uma pendência comercial.
 ### 2. Período de competência (pool mensal)
 
 Entidade que representa o pool de um mês específico de um contrato:
+
 - contrato, mês/ano de competência
 - horas contratadas do mês
 - **horas transportadas** do período anterior (positivas ou negativas)
@@ -99,6 +102,7 @@ O tratamento do saldo remanescente no encerramento do contrato está na seção 
 ser registrado; bloquear gera apontamento perdido, que é pior que saldo negativo.
 
 Comportamento:
+
 - O apontamento é salvo normalmente e o saldo do período fica negativo
 - Alerta visível no work item, na tela do Cliente e no painel operacional
 - Ao fechar o período com déficit, o Admin escolhe entre duas saídas:
@@ -121,6 +125,7 @@ deixe a interface preparada e documentada.
 ### 5. Motor de débito
 
 Ao salvar um apontamento cuja rota de faturamento é `DEBIT_POOL`:
+
 1. Resolver o Cliente a partir do **project** do work item (contexto mestre,
    seção 2b)
 2. Resolver o contrato: contrato fixado no project → contrato padrão do Cliente,
@@ -170,12 +175,13 @@ histórico e de negociação futura.
 **(c) Encerrar e criar contrato novo** — o contrato antigo é desativado e um novo
 é criado, referenciando o anterior. Ao criar, o Admin decide o destino do saldo
 remanescente:
-  - transferir para o novo contrato
-  - expirar
-  - **converter em bolsa de horas de um work item** — o cliente usa as horas que
-   sobraram em um projeto pontual, em vez de perdê-las. Usa o mecanismo da
-   Fase 5; deixe a interface preparada e documentada se a Fase 5 ainda não
-   estiver implementada
+
+- transferir para o novo contrato
+- expirar
+- **converter em bolsa de horas de um work item** — o cliente usa as horas que
+  sobraram em um projeto pontual, em vez de perdê-las. Usa o mecanismo da
+  Fase 5; deixe a interface preparada e documentada se a Fase 5 ainda não
+  estiver implementada
 
 Em todos os caminhos: registrar em auditoria quem decidiu, quando, e o destino
 das horas. Nunca fazer o saldo desaparecer sem registro.
@@ -186,11 +192,13 @@ Painel visível aos técnicos e ao Admin, sinalizando clientes que exigem ação
 **dois extremos** de consumo:
 
 **Alto consumo** — risco de estouro e de trabalho não remunerado:
+
 - consumo acima do limite configurado antes do meio do mês
 - saldo do mês negativo
 - tendência que projeta estouro antes do fim do mês
 
 **Baixo consumo** — risco comercial de não renovação:
+
 - consumo abaixo do limite configurado ao fim do mês
 - saldo acumulado acima de N meses de horas contratadas
 - horas descartadas por teto de acúmulo
@@ -208,14 +216,14 @@ período, para não virar ruído.
 
 Abreviações dos arquivos de teste:
 
-| Sigla | Arquivo                                                             |
-| ----- | ------------------------------------------------------------------- |
-| `U`   | `plane/tests/unit/utils/test_service_pool.py`                        |
-| `UA`  | `plane/tests/unit/utils/test_service_pool_alerts.py`                 |
-| `UC`  | `plane/tests/unit/utils/test_service_pool_concurrency.py`            |
-| `UM`  | `plane/tests/unit/models/test_service_contract_model.py`             |
-| `UD`  | `plane/tests/unit/bg_tasks/test_service_pool_deletion_cascade.py`    |
-| `C`   | `plane/tests/contract/app/test_service_contract_app.py`              |
+| Sigla | Arquivo                                                           |
+| ----- | ----------------------------------------------------------------- |
+| `U`   | `plane/tests/unit/utils/test_service_pool.py`                     |
+| `UA`  | `plane/tests/unit/utils/test_service_pool_alerts.py`              |
+| `UC`  | `plane/tests/unit/utils/test_service_pool_concurrency.py`         |
+| `UM`  | `plane/tests/unit/models/test_service_contract_model.py`          |
+| `UD`  | `plane/tests/unit/bg_tasks/test_service_pool_deletion_cascade.py` |
+| `C`   | `plane/tests/contract/app/test_service_contract_app.py`           |
 
 1. ✅ Contrato de 30h/mês com vigência de 12 meses gera períodos de competência
    corretos — `U::test_a_twelve_month_contract_generates_twelve_periods` afirma os
@@ -283,18 +291,21 @@ Abreviações dos arquivos de teste:
 16. ✅ Renovar o contrato mantendo-o (caminho a) transporta o saldo acumulado para o
     novo período — `U::test_renewing_in_place_carries_the_accumulated_balance`,
     `C::test_renewing_in_place_extends_the_vigency`
-17. ⚠️ **Parcialmente atendido — o terceiro destino é fechado na Fase 5.** Transferir e
-    expirar estão implementados e auditados
+17. ✅ **Atendido por inteiro — o terceiro destino foi fechado na Fase 5.** Transferir e
+    expirar já estavam implementados e auditados
     (`U::test_a_successor_can_receive_the_transferred_balance`,
     `U::test_a_successor_can_expire_the_balance_with_an_audit_row`,
     `C::test_creating_a_successor_transfers_the_balance`). **Converter em bolsa de horas de
-    um chamado depende da entidade da Fase 5**, que não existe: a interface, o tipo de
-    lançamento `CONVERTED_TO_ISSUE_ALLOWANCE` e o argumento `target_issue` já estão
-    prontos, e a chamada devolve `ISSUE_ALLOWANCE_NOT_AVAILABLE` com HTTP 501 — um código
-    explícito, não um no-op silencioso
-    (`U::test_converting_to_a_work_item_allowance_is_not_available_yet`,
-    `C::test_converting_to_a_work_item_allowance_returns_not_implemented`). Registrado como
-    critério herdado em `05-bolsa-por-workitem.md`
+    um chamado** dependia da entidade da Fase 5 e passou a funcionar quando ela chegou:
+    `U::test_converting_the_remaining_balance_into_a_work_item_allowance` atravessa o mesmo
+    caminho do usuário — o saldo remanescente sai do período de origem, a bolsa do chamado
+    recebe exatamente as mesmas horas, e cada `CREDIT` conserva em `origin_period` a
+    competência de onde veio, então a procedência fica consultável. Pelo endpoint,
+    `C::test_converting_to_a_work_item_allowance_credits_the_issue`. As duas asserções de
+    indisponibilidade que fixavam o HTTP 501 foram **removidas**, e a única falha que
+    sobrou naquele destino é não informar o chamado
+    (`ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE`, com controle positivo em
+    `U::test_converting_without_naming_a_work_item_is_refused`)
 18. ✅ Cliente com consumo de 90% do pool no dia 10 aparece no painel de alto
     consumo — `UA::test_ninety_percent_on_the_tenth_raises_the_high_consumption_alert` e
     `C::test_high_consumption_before_midmonth_appears`, com `reference_date` explícito para
@@ -305,7 +316,7 @@ Abreviações dos arquivos de teste:
     `C::test_a_contract_with_no_logs_appears_in_low_consumption`
 20. ✅ Saldo nunca desaparece sem registro de auditoria em nenhum dos fluxos de
     renovação, expiração ou teto — atendido **por construção**, não por diligência: não
-    existe caminho que reduza saldo sem inserir linha no livro-caixa, porque a redução *é*
+    existe caminho que reduza saldo sem inserir linha no livro-caixa, porque a redução _é_
     a linha. O invariante que o prova é
     `U::test_a_closed_period_ledger_sums_to_exactly_zero` (um período fechado soma zero:
     tudo saiu, foi faturado ou foi baixado, e cada um desses é uma linha). Cada caminho de
@@ -334,13 +345,13 @@ Abreviações dos arquivos de teste:
 
 ## Critérios que a Fase 4 deixa herdados
 
-| Critério                             | O que falta                                                                             | Onde fecha            |
-| ------------------------------------ | --------------------------------------------------------------------------------------- | --------------------- |
-| 17, terceiro destino do saldo        | A entidade de bolsa de horas por work item. Interface, tipo de lançamento e argumento `target_issue` prontos; hoje devolve `ISSUE_ALLOWANCE_NOT_AVAILABLE` | **Fase 5**, seção 3   |
+| Critério                      | O que falta                                                                                                                                                | Onde fecha          |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| 17, terceiro destino do saldo | A entidade de bolsa de horas por work item. Interface, tipo de lançamento e argumento `target_issue` prontos; hoje devolve `ISSUE_ALLOWANCE_NOT_AVAILABLE` | **Fase 5**, seção 3 |
 
 Nenhum critério de fase anterior pôde ser fechado aqui. O **critério 10 da Fase 1**
 (mover um chamado com apontamentos entre clientes) permanece em aberto pelo mesmo motivo
-registrado na Fase 3: não existe caminho de *move* de work item no backend. A Fase 4 não o
+registrado na Fase 3: não existe caminho de _move_ de work item no backend. A Fase 4 não o
 cria, então a detecção continua escrita e testada em `service_client_change_alert` sem
 consumidor.
 
@@ -348,20 +359,20 @@ consumidor.
 
 Os cinco pontos onde o dinheiro vaza, quebrados de propósito, com o resultado real:
 
-| Sabotagem                                        | Ficou vermelho?                                                            |
-| ------------------------------------------------ | -------------------------------------------------------------------------- |
-| remover `select_for_update`                      | **Não sozinho** — ver a nota abaixo                                        |
-| remover o `F()` do `consumed_hours`              | **Não sozinho** — ver a nota abaixo                                        |
-| remover **os dois** ao mesmo tempo               | Sim: 8h viraram 1h, sete débitos de oito perdidos                          |
-| remover a unique parcial do `DEBIT`              | Sim, 2 testes (débito duplicado)                                           |
-| inverter o FIFO                                  | Sim, 3 testes (critérios 6 e 15)                                           |
-| quebrar o snapshot de `contracted_hours`         | Sim, 3 testes                                                              |
-| remover o estorno                                | Sim, 7 testes (critérios 11 e 12)                                          |
+| Sabotagem                                | Ficou vermelho?                                   |
+| ---------------------------------------- | ------------------------------------------------- |
+| remover `select_for_update`              | **Não sozinho** — ver a nota abaixo               |
+| remover o `F()` do `consumed_hours`      | **Não sozinho** — ver a nota abaixo               |
+| remover **os dois** ao mesmo tempo       | Sim: 8h viraram 1h, sete débitos de oito perdidos |
+| remover a unique parcial do `DEBIT`      | Sim, 2 testes (débito duplicado)                  |
+| inverter o FIFO                          | Sim, 3 testes (critérios 6 e 15)                  |
+| quebrar o snapshot de `contracted_hours` | Sim, 3 testes                                     |
+| remover o estorno                        | Sim, 7 testes (critérios 11 e 12)                 |
 
 **O que a sabotagem do critério 14 revelou, e é a notícia mais importante desta seção.**
 O plano previa que o lock e o `F()` fossem "duas metades de uma garantia" e que um teste
 sabotasse cada metade independentemente. **Isso é falso, e uma versão anterior do docstring
-de `_lock_period` afirmava exatamente isso.** As duas são *independentemente suficientes*
+de `_lock_period` afirmava exatamente isso.** As duas são _independentemente suficientes_
 para a aritmética: sem o lock, o `F()` faz o incremento no SQL; sem o `F()`, o lock
 serializa o ler-somar-gravar. Nenhum teste pode distinguir as duas, porque com qualquer uma
 presente o comportamento está correto. O teste original passava com cada uma removida — era
