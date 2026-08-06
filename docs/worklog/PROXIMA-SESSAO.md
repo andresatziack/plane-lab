@@ -179,29 +179,39 @@ precificação nunca ligado, e esses são bugs diferentes.
 
 ---
 
-# A dívida de processo: agora ela bloqueia
+# As cláusulas contratuais: respondidas
 
-As Fases 4 e 5 responderam **oito** ambiguidades com defaults razoáveis e testes de
-caracterização. Todas são **cláusulas contratuais**, não decisões de software, e as respostas
-estão nos contratos reais com os clientes.
+A dívida de processo que bloqueava esta fase **foi paga**. As oito ambiguidades que as
+Fases 4 e 5 responderam com defaults razoáveis foram levadas ao cliente e respondidas com
+as cláusulas reais, e estão registradas em `DECISOES.md` como **D31 a D36**.
 
-Isto deixou de ser recomendação: **a Fase 6 é a fase do dinheiro em R$**, e várias destas
-mudam o valor de uma fatura.
+**Leia-as antes de propor o modelo.** Elas substituem os defaults, e três exigem mudança
+de código — duas delas nesta fase.
 
-| Ambiguidade                            | O que foi assumido                                                 |
-| -------------------------------------- | ------------------------------------------------------------------ |
-| Pro-rata do primeiro mês               | Nenhum. `contracted_hours` é editável em período aberto (D26)      |
-| Teto de déficit                        | Não existe teto; só alerta, com re-disparo a cada 5h de piora      |
-| O que "suspenso" significa             | Nada além de um código de alerta distinto                          |
-| Ordem de descarte pelo teto de acúmulo | Descarta as parcelas mais novas (D25)                              |
-| Bloquear apontamento sem contrato      | Não bloqueia (D27)                                                 |
-| Bolsa herdada por sub-tarefa           | Herda, ancestral mais próximo primeiro, limite de 10 (D28)         |
-| Pai e filho ambos com bolsa            | O filho vence                                                      |
-| Saldo positivo de bolsa encerrada      | Baixado e perdido; **nunca** vai para o pool do contrato (§3, D30) |
+| Decisão | Cláusula | Muda código? |
+|---|---|---|
+| **D31** | Sem pro-rata; vigência começa dia 1º. Apontamento anterior ao início **debita o primeiro período**, e nenhum período é materializado fora da vigência | **Sim.** Hoje materializaria um 13º período com cota cheia — 390h num contrato de 360h |
+| **D32** | Não existe teto de déficit; só alerta | Não, confirma o default |
+| **D33** | **Pool não resolvível fatura avulso, com o motivo registrado.** Vale para cliente sem contrato, contrato suspenso e contrato vencido. Vigência futura é a única exceção (debita, ver D31) | **Sim, nesta fase** |
+| **D34** | Saldo acumulado é **preservado**; nada é descartado por teto nem por idade | Não, é cadastro: `accrual_cap_mode = NONE`, `carryover_months = NULL`. Mas garantir que o alerta de saldo acumulado alto exista passou a ser requisito, porque virou o único controle |
+| **D35** | Bolsa encerrada tem **30 dias de carência** contados do fechamento do chamado | **Sim, mas FORA desta fase** — exige tarefa periódica. Dívida nomeada |
+| **D36** | **Excedente de bolsa é a quarta origem de receita** no consolidado | **Sim, nesta fase** |
 
-Extraí-las para o `DECISOES.md` com a resposta real antes de desenhar a precificação evita
-que a fase pergunte as mesmas coisas de novo — e evita defaults razoáveis sendo propostos
-para regras que já existem em papel.
+As duas perguntas sobre bolsa em sub-tarefa já estavam respondidas pela D28 e não voltam.
+
+## O que a D33 pede de você, e é a parte delicada
+
+A rota de faturamento é snapshot no apontamento (`applied_billing_route`), derivada do Tipo
+de Atendimento escolhido. Nos três casos da D33 o tipo escolhido é "Contrato"
+(`DEBIT_POOL`) mas o resultado aplicado é avulso.
+
+**Os dois precisam ser recuperáveis** — o que foi escolhido e o que foi aplicado — mais o
+motivo do desvio. Sobrescrever o snapshot em silêncio perderia a informação de que houve
+desvio, e é justamente essa informação que permite ao consolidado distinguir "avulso porque
+o cliente é avulso" de "avulso porque o contrato venceu e ninguém renovou". A primeira é o
+modelo de negócio do cliente; a segunda é pendência comercial com prazo.
+
+Decida isso no desenho, não na implementação.
 
 ## Depois da Fase 6
 

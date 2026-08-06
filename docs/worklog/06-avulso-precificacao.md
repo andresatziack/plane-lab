@@ -82,10 +82,17 @@ retry e download. Ver `docs/worklog/OPORTUNIDADES.md`, seção A2.
 
 Respeitar a regra R7: a competência é a data do atendimento.
 
-O consolidado deve separar claramente três origens de receita:
+O consolidado deve separar claramente **quatro** origens de receita (D36):
 - apontamentos avulsos
 - apontamentos fora de escopo de clientes com contrato
 - excedente de contrato faturado (seção 6)
+- **excedente de bolsa de horas** faturado — não se mistura com o de contrato: excedente de
+  contrato é suporte consumido acima do contratado, excedente de bolsa é projeto entregue
+  acima do orçado. Fundi-los esconderia o indicador de qualidade da sua estimativa
+
+Note que apontamentos podem cair em avulso por três motivos distintos (D33): o cliente é
+avulso, o contrato está suspenso, ou o contrato venceu. O **motivo** precisa aparecer no
+consolidado, porque os dois últimos são pendência comercial com prazo.
 
 ### 6. Faturamento de excedente de contrato
 
