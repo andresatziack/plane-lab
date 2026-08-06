@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useMemo } from "react";
-import { AtSign, Briefcase } from "lucide-react";
+import { AtSign, Briefcase, Building2 } from "lucide-react";
 // plane imports
 import { Logo } from "@plane/propel/emoji-icon-picker";
 import {
@@ -45,6 +45,7 @@ import {
   getModuleFilterConfig,
   getPriorityFilterConfig,
   getProjectFilterConfig,
+  getServiceClientFilterConfig,
   getStartDateFilterConfig,
   getStateFilterConfig,
   getStateGroupFilterConfig,
@@ -60,6 +61,7 @@ import { useMember } from "@/hooks/store/use-member";
 import { useModule } from "@/hooks/store/use-module";
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
+import { useServiceClient } from "@/hooks/store/use-service-client";
 // plane web imports
 import { useFiltersOperatorConfigs } from "@/hooks/rich-filters/use-filters-operator-configs";
 
@@ -97,6 +99,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
   const { getLabelById } = useLabel();
   const { getModuleById } = useModule();
   const { getStateById } = useProjectState();
+  const { activeServiceClients } = useServiceClient();
   const { getUserDetails } = useMember();
   // derived values
   const operatorConfigs = useFiltersOperatorConfigs({ workspaceSlug });
@@ -362,6 +365,22 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
     [isFilterEnabled, projects, operatorConfigs]
   );
 
+  // service client filter config
+  // Only active clients are offered: an inactive client is not something new
+  // work should be attributed to, and historical items remain reachable through
+  // their project.
+  const serviceClientFilterConfig = useMemo(
+    () =>
+      getServiceClientFilterConfig<TWorkItemFilterProperty>("service_client_id")({
+        isEnabled: isFilterEnabled("service_client_id") && activeServiceClients.length > 0,
+        filterIcon: Building2,
+        serviceClients: activeServiceClients,
+        getOptionIcon: () => <Building2 className="size-3 flex-shrink-0" />,
+        ...operatorConfigs,
+      }),
+    [isFilterEnabled, activeServiceClients, operatorConfigs]
+  );
+
   return {
     areAllConfigsInitialized,
     configs: [
@@ -370,6 +389,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
       assigneeFilterConfig,
       priorityFilterConfig,
       projectFilterConfig,
+      serviceClientFilterConfig,
       mentionFilterConfig,
       labelFilterConfig,
       cycleFilterConfig,
@@ -397,6 +417,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
       target_date: targetDateFilterConfig,
       created_at: createdAtFilterConfig,
       updated_at: updatedAtFilterConfig,
+      service_client_id: serviceClientFilterConfig,
     },
     isFilterEnabled,
     members: members ?? [],

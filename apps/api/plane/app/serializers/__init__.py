@@ -45,6 +45,12 @@ from .project import (
     ProjectMemberRoleSerializer,
     ProjectMemberPreferenceSerializer,
 )
+from .service_client import (
+    ServiceClientSerializer,
+    ServiceClientLiteSerializer,
+    ServiceClientProjectAssignSerializer,
+    ProjectLiteWithServiceClientSerializer,
+)
 from .state import StateSerializer, StateLiteSerializer
 from .view import IssueViewSerializer, ViewIssueListSerializer
 from .cycle import (

@@ -23,6 +23,7 @@ class LegacyToRichFiltersConverter:
         "state_group": "state_group",
         "priority": "priority",
         "project": "project_id",
+        "service_client": "service_client_id",
         "start_date": "start_date",
         "target_date": "target_date",
     }
@@ -37,6 +38,7 @@ class LegacyToRichFiltersConverter:
         "mention_id",
         "created_by_id",
         "project_id",
+        "service_client_id",
     }
 
     # Default valid choices for choice fields

@@ -521,6 +521,23 @@
           }
         }
       }
+    },
+    "service_client": {
+      "label": "Cliente",
+      "hint": "O cliente para o qual este project presta atendimento. Os chamados herdam o cliente do project.",
+      "internal_work": "Trabalho interno (sem cliente)",
+      "confirm": {
+        "title": "Configurar o project para usuários do cliente",
+        "description": "Você está vinculando este project a {name}. Recomendamos habilitar as opções abaixo para que os usuários do cliente vejam o quadro completo.",
+        "guest_view_all": "Permitir que usuários do cliente vejam todos os chamados deste project",
+        "guest_view_all_hint": "Sem isso, o usuário do cliente vê apenas os chamados que ele mesmo criou, e não os abertos por colegas ou pelos técnicos em nome dele.",
+        "time_tracking": "Habilitar apontamento de horas neste project",
+        "time_tracking_hint": "Necessário para registrar horas nos chamados deste cliente."
+      },
+      "toasts": {
+        "updated": "Cliente do project atualizado com sucesso.",
+        "failed": "Não foi possível atualizar o cliente do project."
+      }
     }
   }
 }

@@ -5,6 +5,7 @@
  */
 
 import { observer } from "mobx-react";
+import { Building2 } from "lucide-react";
 // i18n
 import { useTranslation } from "@plane/i18n";
 // ui
@@ -41,6 +42,7 @@ import { SidebarPropertyListItem } from "@/components/common/layout/sidebar/prop
 import { IssueCycleSelect } from "./cycle-select";
 import { IssueLabel } from "./label";
 import { IssueModuleSelect } from "./module-select";
+import { IssueServiceClientProperty } from "./service-client-property";
 import type { TIssueOperations } from "./root";
 
 type Props = {
@@ -97,6 +99,14 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                 dropdownArrowClassName="h-3.5 w-3.5 hidden group-hover:inline"
               />
             </SidebarPropertyListItem>
+
+            {/* Client company, derived from the project. Read only: changing it
+                means moving the work item to a project of another client. */}
+            {projectId && projectDetails?.service_client && (
+              <SidebarPropertyListItem icon={Building2} label={t("common.service_client")}>
+                <IssueServiceClientProperty workspaceSlug={workspaceSlug} projectId={projectId} />
+              </SidebarPropertyListItem>
+            )}
 
             <SidebarPropertyListItem icon={MembersPropertyIcon} label={t("common.assignees")}>
               <MemberDropdown

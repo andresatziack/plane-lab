@@ -33,8 +33,15 @@ export enum EIssueGroupByToServerOptions {
   "cycle" = "cycle_id",
   "module" = "issue_module__module_id",
   "target_date" = "target_date",
+  // team_project intentionally shares this value: both group by the project
+  // column server side. The suppression sits here because the rule reports on
+  // the first initializer, not on the duplicate.
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   "project" = "project_id",
   "created_by" = "created_by",
+  // The client is derived from the project, so the server groups by the
+  // traversed column rather than a column on the work item.
+  "service_client" = "project__service_client_id",
   // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   "team_project" = "project_id",
 }
@@ -50,6 +57,7 @@ export enum EIssueGroupBYServerToProperty {
   "target_date" = "target_date",
   "project_id" = "project_id",
   "created_by" = "created_by",
+  "project__service_client_id" = "service_client_id",
 }
 
 export enum EIssueCommentAccessSpecifier {
@@ -124,6 +132,7 @@ export const ISSUE_GROUP_BY_OPTIONS: {
   { key: "labels", titleTranslationKey: "common.labels" },
   { key: "assignees", titleTranslationKey: "common.assignees" },
   { key: "created_by", titleTranslationKey: "common.created_by" },
+  { key: "service_client", titleTranslationKey: "common.service_client" },
   { key: null, titleTranslationKey: "common.none" },
 ];
 

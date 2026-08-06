@@ -83,6 +83,7 @@ from .workspace.cycle import WorkspaceCyclesEndpoint
 from .workspace.quick_link import QuickLinkViewSet
 from .workspace.sticky import WorkspaceStickyViewSet
 
+from .service_client.base import ServiceClientViewSet, UserServiceClientEndpoint
 from .state.base import StateViewSet, IntakeStateEndpoint
 from .view.base import (
     WorkspaceViewViewSet,

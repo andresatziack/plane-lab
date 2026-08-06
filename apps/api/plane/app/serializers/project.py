@@ -74,6 +74,26 @@ class ProjectSerializer(BaseSerializer):
 
         return identifier
 
+    def validate_service_client(self, service_client):
+        """Keep the client link inside the project's own workspace.
+
+        This serializer uses fields = "__all__", so the service_client foreign
+        key added for the service desk is writable here, and its default
+        PrimaryKeyRelatedField queryset spans every workspace. Without this
+        check, a project admin could link their project to another workspace's
+        client just by sending its id, which would break workspace isolation and
+        attribute the project's work to a client its admins cannot even see.
+        """
+        if service_client is None:
+            return None
+
+        workspace_id = self.context.get("workspace_id")
+
+        if workspace_id and str(service_client.workspace_id) != str(workspace_id):
+            raise serializers.ValidationError(detail="SERVICE_CLIENT_MUST_BELONG_TO_SAME_WORKSPACE")
+
+        return service_client
+
     def validate(self, data):
         # Validate description content for security
         if "description_html" in data and data["description_html"]:

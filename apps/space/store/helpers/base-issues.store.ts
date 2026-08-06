@@ -27,7 +27,14 @@ import type { RootStore } from "../root.store";
 // constants
 // helpers
 
-export type TIssueDisplayFilterOptions = Exclude<TIssueGroupByOptions, null | "team_project"> | "target_date";
+// "service_client" is excluded here on purpose. This app serves the public,
+// unauthenticated deploy boards, and the client company is an internal billing
+// concept: grouping a public board by client would disclose which companies the
+// workspace serves. A board also covers a single project, which belongs to at
+// most one client, so the grouping would carry no information anyway.
+export type TIssueDisplayFilterOptions =
+  | Exclude<TIssueGroupByOptions, null | "team_project" | "service_client">
+  | "target_date";
 
 export enum EIssueGroupedAction {
   ADD = "ADD",

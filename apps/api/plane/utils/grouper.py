@@ -16,6 +16,7 @@ from plane.db.models import (
     Module,
     Project,
     ProjectMember,
+    ServiceClient,
     State,
     WorkspaceMember,
     IssueAssignee,
@@ -127,6 +128,13 @@ def issue_on_results(
         "is_draft",
         "archived_at",
         "state__group",
+        # Client company, derived from the project rather than stored on the work
+        # item. It must be projected here, and under exactly the name used as the
+        # group_by key, because BasePaginator.paginate applies on_results (this
+        # function) BEFORE process_results, and the grouped paginators then read
+        # result[group_by_field_name] from these dicts. Omitting it would not
+        # raise: every work item would silently land in the "None" bucket.
+        "project__service_client_id",
     ]
 
     if group_by in FIELD_MAPPER:
@@ -186,6 +194,16 @@ def issue_group_values(
     if field == "project_id":
         queryset = Project.objects.filter(workspace__slug=slug).values_list("id", flat=True)
         return list(queryset)
+
+    if field == "project__service_client_id":
+        # "None" is appended because the link is nullable: work items in projects
+        # with no client are internal work and need a bucket of their own.
+        # Without it, GroupedOffsetPaginator would silently drop them, since
+        # __query_grouper keeps only results whose group key was seeded here.
+        service_clients = ServiceClient.objects.filter(workspace__slug=slug).values_list("id", flat=True)
+        if project_id:
+            service_clients = service_clients.filter(projects__id=project_id)
+        return list(service_clients) + ["None"]
 
     if field == "priority":
         return ["low", "medium", "high", "urgent", "none"]

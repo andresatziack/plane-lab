@@ -19,23 +19,24 @@ cálculo de horas equivalentes já pronto, que é a base das duas.
 Adicionar ao menu de ações do work item a opção **"Adicionar work log"**, que
 abre um formulário com:
 
-| Campo | Tipo | Obrigatório | Observação |
-|---|---|---|---|
-| Modo de entrada | Toggle: Duração / Intervalo | Sim | Regra R9 |
-| Tempo | Texto com parser | Sim, no modo Duração | Regra R1. Preview em tempo real |
-| Hora início / Hora fim | Time pickers | Sim, no modo Intervalo | Regra R9 |
-| Data do atendimento | Date picker | Sim | Não permitir data futura |
-| Descrição | Textarea | Sim | Detalhes do que foi feito |
-| Garantia | Checkbox | Não | Regra R5 |
-| Tipo de Hora | Dropdown (catálogo) | Sim | Pré-selecionado pela detecção da Fase 2b |
-| Tipo de Atendimento | Dropdown (catálogo) | Sim | Pré-selecionado pelo padrão do Cliente |
-| Autor | Seletor de membro | Não | Só visível com permissão de delegação (Fase 7) |
+| Campo                  | Tipo                        | Obrigatório            | Observação                                     |
+| ---------------------- | --------------------------- | ---------------------- | ---------------------------------------------- |
+| Modo de entrada        | Toggle: Duração / Intervalo | Sim                    | Regra R9                                       |
+| Tempo                  | Texto com parser            | Sim, no modo Duração   | Regra R1. Preview em tempo real                |
+| Hora início / Hora fim | Time pickers                | Sim, no modo Intervalo | Regra R9                                       |
+| Data do atendimento    | Date picker                 | Sim                    | Não permitir data futura                       |
+| Descrição              | Textarea                    | Sim                    | Detalhes do que foi feito                      |
+| Garantia               | Checkbox                    | Não                    | Regra R5                                       |
+| Tipo de Hora           | Dropdown (catálogo)         | Sim                    | Pré-selecionado pela detecção da Fase 2b       |
+| Tipo de Atendimento    | Dropdown (catálogo)         | Sim                    | Pré-selecionado pelo padrão do Cliente         |
+| Autor                  | Seletor de membro           | Não                    | Só visível com permissão de delegação (Fase 7) |
 
 O modo escolhido deve ser lembrado como preferência do usuário.
 
 ### 2. Camada de domínio
 
 Implementar em módulo puro, sem dependência de Django views ou DRF:
+
 - `parse_duracao(texto) -> minutos: int` — regra R1
 - `duracao_de_intervalo(inicio, fim) -> minutos: int` — regra R9, segundos
   truncados, tratar virada de meia-noite
@@ -84,6 +85,7 @@ Para a trilha de auditoria da regra R8, usar os mecanismos que já existem:
 próprio.
 
 Campos do apontamento, no mínimo:
+
 - work item, autor, criador, data do atendimento, descrição
 - campo de **origem** do registro (manual, importado, API) — barato agora e caro
   depois, previsto na decisão D12
@@ -107,6 +109,7 @@ explícita antes de salvar, para prevenir erro de digitação.
 ### 6. Visão no work item
 
 Seção de apontamentos exibindo, **na visão do técnico e do Admin**:
+
 - Lista: data, horário (quando houver), autor, tempo formatado, tipo de hora,
   tipo de atendimento, descrição, indicador visual de garantia
 - Ordenação por data do atendimento, mais recente primeiro
@@ -160,6 +163,36 @@ recalcular apontamento por apontamento.
     apontamentos já salvos
 16. Editar um apontamento recalcula os totais do work item corretamente e
     registra a alteração na trilha de auditoria
+
+## Herdado da Fase 1: dois critérios que só podem ser fechados aqui
+
+A Fase 1 foi implementada, mas **dois dos seus critérios de aceite dependem da
+existência de apontamentos** e por isso ficaram sem efeito. Eles são
+responsabilidade desta fase:
+
+| Critério da Fase 1                                                                         | O que falta                                                                                  |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| 11 — "Remover o Cliente de um project com apontamentos é rejeitado"                        | rejeitar o `PATCH` de project que zera `service_client` quando o project já tem apontamentos |
+| 10 — "Mover um chamado com apontamentos para um project de outro Cliente alerta o usuário" | detectar a troca de cliente no move e devolver o alerta                                      |
+
+**Nada foi deixado no código para isso** — nem função vazia, nem `TODO`. A
+decisão foi implementar os dois de uma vez, aqui, junto com o modelo que os torna
+verificáveis. Os pontos de alteração são:
+
+1. **Critério 11** — `ProjectSerializer` (`plane/app/serializers/project.py`) já
+   tem um `validate_service_client` que garante que o cliente pertence ao mesmo
+   workspace. Estender esse mesmo método: se `service_client` está sendo mudado
+   para `None` (ou para outro cliente) e `Worklog.objects.filter(project=...)`
+   existe, levantar `ValidationError`. É o único lugar por onde o vínculo é
+   gravado, porque a UI usa o `PATCH` de project e não um endpoint dedicado.
+
+2. **Critério 10** — o move de work item entre projects. Comparar
+   `origem.project.service_client_id` com `destino.project.service_client_id`; se
+   diferirem e o work item tiver apontamentos, devolver o alerta. As Fases 4 a 6
+   acrescentam a isso o estorno no contrato de origem e o débito no de destino,
+   com auditoria.
+
+Ao fechar os dois, marcar os critérios 10 e 11 da Fase 1 como atendidos.
 
 ## Entregar
 

@@ -484,6 +484,54 @@
         "heading": "Skripty",
         "new_script": "Nový skript",
         "description": "Automatizujte své pracovní postupy pomocí vlastních skriptů a pravidel automatizace."
+      },
+      "service_clients": {
+        "title": "Clients",
+        "description": "Client companies that service desk work is delivered to and billed for. A project belongs to one client; a client can have several projects.",
+        "add": "Add client",
+        "inactive": "Inactive",
+        "project_count": "{count} project(s)",
+        "parent_of": "Parent: {name}",
+        "billing_mode": {
+          "contract": "Contract",
+          "ad_hoc": "Ad hoc"
+        },
+        "empty": {
+          "title": "No clients yet",
+          "description": "Create a client to start attributing projects and work to a company."
+        },
+        "form": {
+          "create_title": "Add client",
+          "edit_title": "Edit client",
+          "name": "Legal name",
+          "name_placeholder": "Company legal name",
+          "name_required": "Name is required",
+          "name_too_long": "Name must be 255 characters or fewer",
+          "trade_name": "Trade name",
+          "trade_name_placeholder": "Name the company is known by",
+          "tax_id": "CNPJ",
+          "tax_id_invalid": "Enter a valid CNPJ",
+          "default_billing_mode": "Default billing mode",
+          "default_billing_mode_hint": "Default route for work logged on this client's projects. Individual entries can use another route.",
+          "parent": "Parent company",
+          "parent_hint": "Records a shareholding relationship only. It does not affect billing or visibility.",
+          "contact_name": "Contact name",
+          "contact_email": "Contact email",
+          "contact_phone": "Contact phone",
+          "notes": "Notes"
+        },
+        "delete_modal": {
+          "title": "Delete client",
+          "content": "Are you sure you want to delete {name}? This action cannot be undone.",
+          "blocked": "This client has {count} linked project(s) and cannot be deleted. Deactivate it instead to keep its history intact."
+        },
+        "toasts": {
+          "created": "Client created successfully.",
+          "updated": "Client updated successfully.",
+          "deleted": "Client deleted successfully.",
+          "save_failed": "The client could not be saved. Please try again.",
+          "delete_failed": "The client could not be deleted. Please try again."
+        }
       }
     },
     "empty_state": {

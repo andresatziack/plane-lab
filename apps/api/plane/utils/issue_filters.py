@@ -317,6 +317,32 @@ def filter_project(params, issue_filter, method, prefix=""):
     return issue_filter
 
 
+def filter_service_client(params, issue_filter, method, prefix=""):
+    """Filter work items by the client company of their project.
+
+    The client is derived: it lives on the project, never on the work item, so
+    this is a single hop through a forward foreign key. That needs no distinct()
+    because a work item belongs to exactly one project.
+
+    "None" selects internal work, that is, projects with no client.
+    """
+    if method == "GET":
+        service_clients = [item for item in params.get("service_client").split(",") if item != "null"]
+        if "None" in service_clients:
+            issue_filter[f"{prefix}project__service_client_id__isnull"] = True
+        service_clients = filter_valid_uuids(service_clients)
+        if len(service_clients) and "" not in service_clients:
+            issue_filter[f"{prefix}project__service_client_id__in"] = service_clients
+    else:
+        if (
+            params.get("service_client", None)
+            and len(params.get("service_client"))
+            and params.get("service_client") != "null"
+        ):
+            issue_filter[f"{prefix}project__service_client_id__in"] = params.get("service_client")
+    return issue_filter
+
+
 def filter_cycle(params, issue_filter, method, prefix=""):
     if method == "GET":
         cycles = [item for item in params.get("cycle").split(",") if item != "null"]
@@ -447,6 +473,7 @@ def issue_filters(query_params, method, prefix=""):
         "completed_at": filter_completed_at,
         "type": filter_issue_state_type,
         "project": filter_project,
+        "service_client": filter_service_client,
         "cycle": filter_cycle,
         "module": filter_module,
         "intake_status": filter_intake_status,

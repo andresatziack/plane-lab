@@ -10,7 +10,7 @@ import { extractInstruction } from "@atlaskit/pragmatic-drag-and-drop-hitbox/tre
 import { clone, isNil, pull, uniq, concat } from "lodash-es";
 import scrollIntoView from "smooth-scroll-into-view-if-needed";
 import type { FC } from "react";
-import { CalendarDays, LayersIcon, Paperclip } from "lucide-react";
+import { Building2, CalendarDays, LayersIcon, Paperclip } from "lucide-react";
 // plane types
 import { EIconSize, ISSUE_PRIORITIES, STATE_GROUPS } from "@plane/constants";
 import { Logo } from "@plane/propel/emoji-icon-picker";
@@ -152,6 +152,7 @@ export const getGroupByColumns = ({
     assignees: getAssigneeColumns,
     created_by: getCreatedByColumns,
     team_project: getTeamProjectColumns,
+    service_client: getServiceClientColumns,
   };
 
   // Get and return the columns for the specified group by option
@@ -179,6 +180,50 @@ const getProjectColumns = (): IGroupByColumn[] | undefined => {
       };
     })
     .filter((column) => column !== undefined) as IGroupByColumn[];
+};
+
+/**
+ * Columns for grouping work items by client company.
+ *
+ * The client is derived from the work item's project, so there is no payload:
+ * dropping a work item into a client column would have to move it between
+ * projects, which is an explicit action with billing consequences and not
+ * something a drag should do silently. An empty payload leaves the drop a no-op,
+ * matching how the "None" column of other derived groupings behaves.
+ */
+const getServiceClientColumns = (): IGroupByColumn[] | undefined => {
+  const { serviceClients, activeServiceClients } = store.workspaceRoot.serviceClient;
+  // Not fetched yet: let the caller keep showing its loader.
+  if (!serviceClients) return;
+
+  const columns: IGroupByColumn[] = activeServiceClients.map((serviceClient) => ({
+    id: serviceClient.id,
+    name: serviceClient.trade_name || serviceClient.name,
+    icon: (
+      <div className="grid h-6 w-6 flex-shrink-0 place-items-center">
+        <Building2 className="h-3.5 w-3.5" />
+      </div>
+    ),
+    payload: {},
+    isDropDisabled: true,
+    dropErrorMessage: "To change the client of a work item, move it to a project of that client",
+  }));
+
+  // Work items in projects with no client are internal work.
+  columns.push({
+    id: "None",
+    name: "None",
+    icon: (
+      <div className="grid h-6 w-6 flex-shrink-0 place-items-center">
+        <Building2 className="h-3.5 w-3.5" />
+      </div>
+    ),
+    payload: {},
+    isDropDisabled: true,
+    dropErrorMessage: "To change the client of a work item, move it to a project of that client",
+  });
+
+  return columns;
 };
 
 const getCycleColumns = (): IGroupByColumn[] | undefined => {

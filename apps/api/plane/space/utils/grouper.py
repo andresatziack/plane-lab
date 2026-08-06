@@ -19,6 +19,7 @@ from plane.db.models import (
     Module,
     Project,
     ProjectMember,
+    ServiceClient,
     State,
     WorkspaceMember,
 )
@@ -95,6 +96,11 @@ def issue_on_results(
         "cycle_id",
         "created_by",
         "state__group",
+        # Projected under the exact name used as the group_by key, because
+        # on_results runs before process_results and the grouped paginators read
+        # result[group_by_field_name] from these dicts. See the same note in
+        # plane/utils/grouper.py.
+        "project__service_client_id",
     ]
 
     if group_by in FIELD_MAPPER:
@@ -224,6 +230,19 @@ def issue_group_values(
     if field == "project_id":
         queryset = Project.objects.filter(workspace__slug=slug).values_list("id", flat=True)
         return list(queryset)
+    if field == "project__service_client_id":
+        # This module serves the public, unauthenticated deploy boards, so the
+        # group domain is scoped to the board's own project instead of the whole
+        # workspace. Returning every client of the workspace here, as the
+        # authenticated grouper does, would disclose how many client companies
+        # exist to any anonymous visitor. A deploy board covers a single project,
+        # which belongs to at most one client, so nothing is lost.
+        service_clients = ServiceClient.objects.filter(workspace__slug=slug)
+        if project_id:
+            service_clients = service_clients.filter(projects__id=project_id)
+        else:
+            return ["None"]
+        return list(service_clients.values_list("id", flat=True).distinct()) + ["None"]
     if field == "priority":
         return ["low", "medium", "high", "urgent", "none"]
     if field == "state__group":

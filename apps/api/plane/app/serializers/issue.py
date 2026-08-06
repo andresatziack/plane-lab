@@ -781,6 +781,13 @@ class IssueSerializer(DynamicBaseSerializer):
     attachment_count = serializers.IntegerField(read_only=True)
     link_count = serializers.IntegerField(read_only=True)
 
+    # Derived, never stored on the work item. The client of a work item is
+    # resolved from its project, so it cannot disagree with the project it lives
+    # in and there is nothing to keep in sync when an item is moved. Changing the
+    # client of an item means moving it to the right project.
+    # See docs/worklog/DECISOES.md, D19.
+    service_client_id = serializers.UUIDField(source="project.service_client_id", read_only=True)
+
     class Meta:
         model = Issue
         fields = [
@@ -809,6 +816,7 @@ class IssueSerializer(DynamicBaseSerializer):
             "link_count",
             "is_draft",
             "archived_at",
+            "service_client_id",
         ]
         read_only_fields = fields
 
@@ -867,6 +875,8 @@ class IssueListDetailSerializer(serializers.Serializer):
             "sub_issues_count": instance.sub_issues_count,
             "attachment_count": instance.attachment_count,
             "link_count": instance.link_count,
+            # Derived from the project, never stored on the work item (D19).
+            "service_client_id": instance.project.service_client_id,
         }
 
         # Handle expanded fields only when requested - using direct field access

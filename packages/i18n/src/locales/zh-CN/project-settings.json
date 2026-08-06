@@ -521,6 +521,23 @@
           }
         }
       }
+    },
+    "service_client": {
+      "label": "Client",
+      "hint": "The client this project delivers work for. Work items inherit it from the project.",
+      "internal_work": "Internal work (no client)",
+      "confirm": {
+        "title": "Configure project for client users",
+        "description": "You are linking this project to {name}. We recommend enabling the settings below so the client's users see the whole picture.",
+        "guest_view_all": "Let client users see all work items in this project",
+        "guest_view_all_hint": "Without this, a client user only sees work items they created themselves, not those opened by colleagues or by technicians on their behalf.",
+        "time_tracking": "Enable time tracking on this project",
+        "time_tracking_hint": "Required for logging hours against this client's work items."
+      },
+      "toasts": {
+        "updated": "Project client updated successfully.",
+        "failed": "The project client could not be updated."
+      }
     }
   }
 }
