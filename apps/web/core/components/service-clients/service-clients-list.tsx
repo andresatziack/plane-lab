@@ -15,6 +15,7 @@ import type { IServiceClient } from "@plane/types";
 import { CustomMenu, ToggleSwitch } from "@plane/ui";
 import { formatCNPJ } from "@plane/utils";
 // hooks
+import { useServiceCatalog } from "@/hooks/store/use-service-catalog";
 import { useServiceClient } from "@/hooks/store/use-service-client";
 // local imports
 import { DeleteServiceClientModal } from "./delete-service-client-modal";
@@ -34,6 +35,7 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
   const { t } = useTranslation();
   // store hooks
   const { updateServiceClient, getServiceClientById } = useServiceClient();
+  const { getBillingTypeNameById, defaultBillingType } = useServiceCatalog();
 
   const parent = getServiceClientById(serviceClient.parent);
   const hasLinkedProjects = serviceClient.project_count > 0;
@@ -96,8 +98,15 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
             <div className="text-xs mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-tertiary">
               {serviceClient.trade_name && <span className="truncate">{serviceClient.trade_name}</span>}
               {serviceClient.tax_id && <span>{formatCNPJ(serviceClient.tax_id)}</span>}
+              {/* An unset default means the catalogue default applies, so show which
+                  one that is rather than leaving the row silent about billing. */}
               <span>
-                {t("workspace_settings.settings.service_clients.billing_mode." + serviceClient.default_billing_mode)}
+                {getBillingTypeNameById(serviceClient.default_billing_type) ??
+                  (defaultBillingType
+                    ? t("workspace_settings.settings.service_clients.billing_type_inherited", {
+                        name: defaultBillingType.name,
+                      })
+                    : t("workspace_settings.settings.service_clients.form.default_billing_type_inherit"))}
               </span>
               <span>
                 {t("workspace_settings.settings.service_clients.project_count", {

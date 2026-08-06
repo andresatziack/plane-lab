@@ -9,7 +9,7 @@ import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { Input } from "@plane/propel/input";
-import type { IServiceClient, TServiceClientBillingMode } from "@plane/types";
+import type { IServiceBillingType, IServiceClient } from "@plane/types";
 import { CustomSelect } from "@plane/ui";
 import { formatCNPJ, isValidCNPJ } from "@plane/utils";
 
@@ -17,7 +17,7 @@ export type TServiceClientFormValues = {
   name: string;
   trade_name: string;
   tax_id: string;
-  default_billing_mode: TServiceClientBillingMode;
+  default_billing_type: string | null;
   parent: string | null;
   contact_name: string;
   contact_email: string;
@@ -30,6 +30,14 @@ type Props = {
   data?: IServiceClient;
   /** Other clients of the workspace, offered as the corporate parent. */
   parentOptions: IServiceClient[];
+  /**
+   * Active billing types of the workspace.
+   *
+   * Replaces the two-value billing mode dropdown this form had before the catalogue
+   * existed, so a client can now default to any configured route -- including one an
+   * admin created, which the old enum could not express.
+   */
+  billingTypeOptions: IServiceBillingType[];
   handleClose: () => void;
   onSubmit: (values: TServiceClientFormValues) => Promise<void>;
 };
@@ -38,7 +46,8 @@ const DEFAULT_VALUES: TServiceClientFormValues = {
   name: "",
   trade_name: "",
   tax_id: "",
-  default_billing_mode: "contract",
+  // null means "use the catalogue default", resolved at work log time.
+  default_billing_type: null,
   parent: null,
   contact_name: "",
   contact_email: "",
@@ -48,7 +57,7 @@ const DEFAULT_VALUES: TServiceClientFormValues = {
 };
 
 export function ServiceClientForm(props: Props) {
-  const { data, parentOptions, handleClose, onSubmit } = props;
+  const { data, parentOptions, billingTypeOptions, handleClose, onSubmit } = props;
   // plane hooks
   const { t } = useTranslation();
   // form
@@ -63,7 +72,7 @@ export function ServiceClientForm(props: Props) {
           name: data.name,
           trade_name: data.trade_name ?? "",
           tax_id: data.tax_id ? formatCNPJ(data.tax_id) : "",
-          default_billing_mode: data.default_billing_mode,
+          default_billing_type: data.default_billing_type ?? null,
           parent: data.parent ?? null,
           contact_name: data.contact_name ?? "",
           contact_email: data.contact_email ?? "",
@@ -73,11 +82,6 @@ export function ServiceClientForm(props: Props) {
         }
       : DEFAULT_VALUES,
   });
-
-  const billingModeLabels: Record<TServiceClientBillingMode, string> = {
-    contract: t("workspace_settings.settings.service_clients.billing_mode.contract"),
-    ad_hoc: t("workspace_settings.settings.service_clients.billing_mode.ad_hoc"),
-  };
 
   return (
     <form
@@ -151,27 +155,38 @@ export function ServiceClientForm(props: Props) {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-sm mb-1 block font-medium text-secondary" htmlFor="default_billing_mode">
-                {t("workspace_settings.settings.service_clients.form.default_billing_mode")}
+              <label className="text-sm mb-1 block font-medium text-secondary" htmlFor="default_billing_type">
+                {t("workspace_settings.settings.service_clients.form.default_billing_type")}
               </label>
               <Controller
                 control={control}
-                name="default_billing_mode"
+                name="default_billing_type"
                 render={({ field: { value, onChange } }) => (
                   <CustomSelect
                     value={value}
-                    label={<span className="text-sm">{billingModeLabels[value]}</span>}
+                    label={
+                      <span className="text-sm">
+                        {billingTypeOptions.find((option) => option.id === value)?.name ??
+                          t("workspace_settings.settings.service_clients.form.default_billing_type_inherit")}
+                      </span>
+                    }
                     onChange={onChange}
                     buttonClassName="w-full justify-between"
                     input
                   >
-                    <CustomSelect.Option value="contract">{billingModeLabels.contract}</CustomSelect.Option>
-                    <CustomSelect.Option value="ad_hoc">{billingModeLabels.ad_hoc}</CustomSelect.Option>
+                    <CustomSelect.Option value={null}>
+                      {t("workspace_settings.settings.service_clients.form.default_billing_type_inherit")}
+                    </CustomSelect.Option>
+                    {billingTypeOptions.map((option) => (
+                      <CustomSelect.Option key={option.id} value={option.id}>
+                        {option.name}
+                      </CustomSelect.Option>
+                    ))}
                   </CustomSelect>
                 )}
               />
               <span className="text-xs mt-1 block text-tertiary">
-                {t("workspace_settings.settings.service_clients.form.default_billing_mode_hint")}
+                {t("workspace_settings.settings.service_clients.form.default_billing_type_hint")}
               </span>
             </div>
 

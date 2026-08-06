@@ -18,6 +18,7 @@ import { SettingsContentWrapper } from "@/components/settings/content-wrapper";
 import { SettingsHeading } from "@/components/settings/heading";
 import { ServiceClientModal, ServiceClientsList } from "@/components/service-clients";
 // hooks
+import { useServiceCatalog } from "@/hooks/store/use-service-catalog";
 import { useServiceClient } from "@/hooks/store/use-service-client";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useWorkspace } from "@/hooks/store/use-workspace";
@@ -35,6 +36,7 @@ function ServiceClientsSettingsPage({ params }: Route.ComponentProps) {
   // mobx store
   const { workspaceUserInfo, allowPermissions } = useUserPermissions();
   const { serviceClients, serviceClientIds, fetchServiceClients } = useServiceClient();
+  const { fetchBillingTypes } = useServiceCatalog();
   const { currentWorkspace } = useWorkspace();
   // derived values
   const canPerformWorkspaceAdminActions = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
@@ -42,6 +44,13 @@ function ServiceClientsSettingsPage({ params }: Route.ComponentProps) {
   useSWR(
     canPerformWorkspaceAdminActions ? `SERVICE_CLIENTS_LIST_${workspaceSlug}` : null,
     canPerformWorkspaceAdminActions ? () => fetchServiceClients(workspaceSlug) : null
+  );
+
+  // The client form's default billing type dropdown and the list's inherited-default
+  // label both read from the catalogue, so it has to be loaded on this screen too.
+  useSWR(
+    canPerformWorkspaceAdminActions ? `SERVICE_BILLING_TYPES_${workspaceSlug}` : null,
+    canPerformWorkspaceAdminActions ? () => fetchBillingTypes(workspaceSlug) : null
   );
 
   const pageTitle = currentWorkspace?.name
