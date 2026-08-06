@@ -102,7 +102,7 @@ A tela do chamado mostra consumo de horas, não valores em R$.
 do mês seguinte referente aos atendimentos do mês anterior. Os valores de hora
 são personalizáveis por cliente.
 
-## 4. As três grandezas de tempo (conceito central)
+## 4. As grandezas de tempo (conceito central)
 
 Esta separação é obrigatória e deve estar explícita no modelo de dados:
 
@@ -122,6 +122,54 @@ cliente de contrato e R$ 300,00 em vez de R$ 200,00 para o cliente avulso. O
 multiplicador é o mesmo nos dois casos — um único parâmetro configurável
 resolve as duas regras, em vez de duas tabelas de preço independentes que
 podem divergir.
+
+### 4b. Precisão numérica — vale para todas as fases
+
+Especificação fechada. Não redecidir por fase.
+
+| Campo | Tipo |
+|---|---|
+| `duracao_bruta_minutos` | `IntegerField` |
+| `horas_apontadas` | `DecimalField(max_digits=10, decimal_places=4)` |
+| `horas_equivalentes` | `DecimalField(max_digits=10, decimal_places=4)` |
+| `horas_debitadas` | `DecimalField(max_digits=10, decimal_places=4)` |
+| `multiplicador_aplicado` e o multiplicador do catálogo | `DecimalField(max_digits=4, decimal_places=2)` |
+| Pool: `horas_contratadas`, `horas_transportadas`, `horas_concedidas`, `horas_consumidas`, `saldo` | `DecimalField(max_digits=10, decimal_places=4)` |
+| `valor_hora_base`, `valor_hora_aplicado`, `valor` | `DecimalField(max_digits=12, decimal_places=2)` |
+
+**Por que 4 casas para horas, e por que exatamente 4.** Não é margem de
+segurança, é o mínimo comprovadamente suficiente: `horas_apontadas` é sempre
+múltiplo de 15 min, logo `p/4`; o multiplicador tem 2 casas, logo `m/100`; o
+produto é `p·m/400` e `400 = 2⁴·5²`, portanto termina em **no máximo 4 casas
+decimais**. O pior caso é atingido: `0.25 × 1.01 = 0.2525`.
+
+**Acoplamento a preservar.** As 4 casas são consequência de duas restrições:
+blocos de 15 minutos (R2) e multiplicador de 2 casas. Se o multiplicador algum
+dia passar a 3 casas, serão necessárias 5 (`0.25 × 1.001 = 0.25025`). Registrar
+esse comentário no modelo, para ninguém ampliar o multiplicador e truncar o
+cálculo sem perceber.
+
+**Uniformidade proposital.** `horas_apontadas` só *precisa* de 2 casas — é exata
+por construção. Usa 4 de qualquer forma: todo campo de hora com a mesma escala
+elimina truncamento acidental quando valores são copiados ou somados entre
+entidades.
+
+**Os campos do pool também têm 4 casas, e isso não é opcional.** Acumular
+débitos de 4 casas em campo de 2 arredonda a cada lançamento: 4 apontamentos de
+`1.875h` somam exatamente `7.500h`, mas com campo de 2 casas viram
+`1.88 × 4 = 7.52h` — infla `0.02h` a cada 4 lançamentos. Num contrato de 30h/mês
+isso é divergência silenciosa no fechamento.
+
+**Arredondamento monetário acontece uma vez, por apontamento — não no total.**
+Calcular o valor do apontamento, arredondar para 2 casas com `ROUND_HALF_UP`, e
+persistir (já exigido pelo snapshot da R4). Todo total é **soma dos valores
+persistidos**, nunca recalculado a partir das horas. Arredondar só no total faria
+a soma das linhas da fatura não fechar com o total exibido — exatamente a
+divergência de centavos que o critério de aceite da Fase 6 proíbe.
+
+**Horas nunca são arredondadas além da regra R2.** O único arredondamento de
+tempo no sistema é o de blocos de 15 minutos. Em nenhum outro ponto se
+arredonda hora.
 
 ## 5. Regras invioláveis
 
@@ -371,8 +419,9 @@ O único mecanismo de granularidade para papéis baixos é o boolean por project
 - Toda lógica de domínio (parser, arredondamento, multiplicador, classificação de
   tipo de hora, débito de pool, precificação) em camada de serviço/domínio pura e
   testável, isolada de views e serializers.
-- Cálculo financeiro com `Decimal`, nunca `float`. Duas casas para moeda,
-  `ROUND_HALF_UP`.
+- Cálculo financeiro com `Decimal`, nunca `float`. As escalas de cada campo e as
+  regras de arredondamento estão fechadas na **seção 4b** — segui-las
+  literalmente.
 - Datas e horários: definir e documentar a estratégia de fuso. `Workspace` e
   `Project` já têm campo `timezone` — usar, não criar outro.
 - Preferir extensão a modificação do core, para reduzir conflito em merges com o
