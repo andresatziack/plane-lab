@@ -422,5 +422,10 @@
       "label": "Tiêu đề sử thi",
       "required": "Tiêu đề sử thi là bắt buộc"
     }
+  },
+  "work_item": {
+    "service_client": {
+      "tooltip": "Defined by the project. To change it, move this work item to a project of the intended client."
+    }
   }
 }

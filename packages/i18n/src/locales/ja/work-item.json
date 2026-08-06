@@ -422,5 +422,10 @@
       "label": "エピックのタイトル",
       "required": "エピックのタイトルは必須です。"
     }
+  },
+  "work_item": {
+    "service_client": {
+      "tooltip": "Defined by the project. To change it, move this work item to a project of the intended client."
+    }
   }
 }

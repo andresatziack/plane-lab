@@ -422,5 +422,10 @@
       "label": "Título do Épico",
       "required": "O título do épico é obrigatório."
     }
+  },
+  "work_item": {
+    "service_client": {
+      "tooltip": "Definido pelo project. Para alterar, mova este chamado para um project do cliente desejado."
+    }
   }
 }

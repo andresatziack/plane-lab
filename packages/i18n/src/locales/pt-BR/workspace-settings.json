@@ -484,6 +484,54 @@
         "heading": "Scripts",
         "new_script": "Novo Script",
         "description": "Automatize seus fluxos de trabalho com scripts personalizados e regras de automação."
+      },
+      "service_clients": {
+        "title": "Clientes",
+        "description": "Empresas clientes para as quais o atendimento é prestado e faturado. Um project pertence a um cliente; um cliente pode ter vários projects.",
+        "add": "Adicionar cliente",
+        "inactive": "Inativo",
+        "project_count": "{count} project(s)",
+        "parent_of": "Matriz: {name}",
+        "billing_mode": {
+          "contract": "Contrato",
+          "ad_hoc": "Avulso"
+        },
+        "empty": {
+          "title": "Nenhum cliente ainda",
+          "description": "Crie um cliente para começar a vincular projects e atendimentos a uma empresa."
+        },
+        "form": {
+          "create_title": "Adicionar cliente",
+          "edit_title": "Editar cliente",
+          "name": "Razão social",
+          "name_placeholder": "Razão social da empresa",
+          "name_required": "A razão social é obrigatória",
+          "name_too_long": "A razão social deve ter no máximo 255 caracteres",
+          "trade_name": "Nome fantasia",
+          "trade_name_placeholder": "Nome pelo qual a empresa é conhecida",
+          "tax_id": "CNPJ",
+          "tax_id_invalid": "Informe um CNPJ válido",
+          "default_billing_mode": "Modalidade padrão de faturamento",
+          "default_billing_mode_hint": "Rota padrão dos apontamentos dos projects deste cliente. Um apontamento individual pode usar outra rota.",
+          "parent": "Cliente pai",
+          "parent_hint": "Registra apenas a relação societária. Não afeta faturamento nem visibilidade.",
+          "contact_name": "Nome do contato",
+          "contact_email": "E-mail do contato",
+          "contact_phone": "Telefone do contato",
+          "notes": "Observações"
+        },
+        "delete_modal": {
+          "title": "Excluir cliente",
+          "content": "Tem certeza de que deseja excluir {name}? Esta ação não pode ser desfeita.",
+          "blocked": "Este cliente tem {count} project(s) vinculado(s) e não pode ser excluído. Inative-o para preservar o histórico."
+        },
+        "toasts": {
+          "created": "Cliente criado com sucesso.",
+          "updated": "Cliente atualizado com sucesso.",
+          "deleted": "Cliente excluído com sucesso.",
+          "save_failed": "Não foi possível salvar o cliente. Tente novamente.",
+          "delete_failed": "Não foi possível excluir o cliente. Tente novamente."
+        }
       }
     },
     "empty_state": {
