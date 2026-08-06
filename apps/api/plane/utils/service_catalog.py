@@ -23,6 +23,8 @@ from plane.db.models import ServiceBillingType, ServiceConfigActivity
 DEFAULT_CANNOT_BE_UNSET = "DEFAULT_CANNOT_BE_UNSET"
 DEFAULT_CANNOT_BE_DEACTIVATED = "DEFAULT_CANNOT_BE_DEACTIVATED"
 DEFAULT_CANNOT_BE_DELETED = "DEFAULT_CANNOT_BE_DELETED"
+HOUR_TYPE_IN_USE_BY_SERVICE_LOGS = "HOUR_TYPE_IN_USE_BY_SERVICE_LOGS"
+BILLING_TYPE_IN_USE_BY_SERVICE_LOGS = "BILLING_TYPE_IN_USE_BY_SERVICE_LOGS"
 
 
 # ---------------------------------------------------------------------------
@@ -104,9 +106,7 @@ def validate_catalog_delete(instance):
     refused here -- the same reasoning the State model uses for its own default.
 
     EXTENSION POINT, and the only place these checks should be added:
-      * the work log phase adds "in use by work logs", which is the check section 5
-        of the phase brief actually asks for and which cannot be written yet
-        because no work log model exists;
+      * the work log phase adds "in use by work logs" -- DONE, see below;
       * the calendar and windows phase adds "has classification windows";
       * the pricing phase adds "referenced by a client price override".
     All three are reasons to refuse a delete on an hour type, and keeping them in
@@ -114,6 +114,43 @@ def validate_catalog_delete(instance):
     """
     if instance.is_default:
         return DEFAULT_CANNOT_BE_DELETED
+
+    return _in_use_by_service_logs(instance)
+
+
+def _in_use_by_service_logs(instance):
+    """Refuse deleting a catalogue option that a work log points at.
+
+    Phase 2's acceptance criterion 4 -- "Tentar excluir um Tipo de Hora em uso retorna
+    erro explicativo" -- which that phase could not implement because no work log
+    model existed. The work log foreign keys are ``DO_NOTHING``, so without this guard
+    the delete would either succeed and leave a work log unable to render its own
+    label, or fail deep in the database with an ``IntegrityError`` and a 500.
+
+    Counted with ``all_objects``, matching how the client entity counts its
+    references. A soft deleted work log still counts: it can be restored, its hours
+    may already be on an invoice, and the database foreign key does not care that the
+    row is flagged deleted -- a hard delete of the option would still fail.
+
+    An hour type is in use as a *suggestion* too. A row whose ``suggested_hour_type``
+    points here would break the same way, and the audit answer to "what did the engine
+    propose" would be lost.
+
+    Imported inside the function, not at module scope: ``plane.utils.service_log``
+    imports this module's sibling for the billing route check, and a top level import
+    here would make the two modules import each other at load time.
+    """
+    from plane.db.models import ServiceHourType, ServiceLog
+
+    if isinstance(instance, ServiceHourType):
+        in_use = ServiceLog.all_objects.filter(
+            models.Q(hour_type_id=instance.pk) | models.Q(suggested_hour_type_id=instance.pk)
+        ).exists()
+        return HOUR_TYPE_IN_USE_BY_SERVICE_LOGS if in_use else None
+
+    if isinstance(instance, ServiceBillingType):
+        in_use = ServiceLog.all_objects.filter(billing_type_id=instance.pk).exists()
+        return BILLING_TYPE_IN_USE_BY_SERVICE_LOGS if in_use else None
 
     return None
 

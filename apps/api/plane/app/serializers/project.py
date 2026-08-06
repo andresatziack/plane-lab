@@ -25,6 +25,7 @@ from plane.db.models import (
 from plane.utils.content_validator import (
     validate_html_content,
 )
+from plane.utils.service_log import validate_service_client_change
 
 
 class ProjectSerializer(BaseSerializer):
@@ -83,14 +84,31 @@ class ProjectSerializer(BaseSerializer):
         check, a project admin could link their project to another workspace's
         client just by sending its id, which would break workspace isolation and
         attribute the project's work to a client its admins cannot even see.
-        """
-        if service_client is None:
-            return None
 
+        Also refuses to move or clear the link once the project has work logs --
+        Phase 1's acceptance criterion 11, which needed the work log model to exist.
+        Every existing log was recorded against the current client and its contract,
+        so reassigning the project silently reattributes hours that may already have
+        been invoiced.
+
+        NOTE: this is not the only write path for ``service_client``, despite what the
+        phase brief says. ``ServiceClientViewSet.assign_projects`` writes it through a
+        queryset ``update()``, which never reaches a serializer. The same guard is
+        applied there, and both are needed.
+        """
         workspace_id = self.context.get("workspace_id")
 
-        if workspace_id and str(service_client.workspace_id) != str(workspace_id):
+        if service_client is not None and workspace_id and str(service_client.workspace_id) != str(workspace_id):
             raise serializers.ValidationError(detail="SERVICE_CLIENT_MUST_BELONG_TO_SAME_WORKSPACE")
+
+        # Only on update, and only when the value actually differs. DRF does not call
+        # this method at all when the key is absent from a PATCH body, so an edit that
+        # leaves the client alone never gets here.
+        if self.instance is not None:
+            error_code = validate_service_client_change(self.instance, service_client)
+
+            if error_code:
+                raise serializers.ValidationError(detail=error_code)
 
         return service_client
 
