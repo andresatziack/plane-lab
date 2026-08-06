@@ -131,7 +131,7 @@ class TestServiceClientCrudPermissions:
     def test_admin_creates_a_client(self, session_client, workspace):
         response = session_client.post(
             LIST_URL.format(slug=workspace.slug),
-            {"name": "Marubeni", "tax_id": "11.222.333/0001-81", "default_billing_mode": "contract"},
+            {"name": "Marubeni", "tax_id": "11.222.333/0001-81"},
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.data
@@ -535,5 +535,5 @@ class TestClientsOfCurrentUser:
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 1
         payload = response.data[0]
-        for forbidden in ("default_billing_mode", "tax_id", "notes", "parent"):
+        for forbidden in ("default_billing_type", "tax_id", "notes", "parent"):
             assert forbidden not in payload

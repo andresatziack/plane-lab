@@ -34,7 +34,7 @@ class ServiceClientSerializer(BaseSerializer):
             "trade_name",
             "tax_id",
             "is_active",
-            "default_billing_mode",
+            "default_billing_type",
             "parent",
             "contact_name",
             "contact_email",
@@ -67,6 +67,26 @@ class ServiceClientSerializer(BaseSerializer):
             raise serializers.ValidationError("INVALID_CNPJ")
 
         return normalized
+
+    def validate_default_billing_type(self, value):
+        """Keep the default billing type inside the same workspace and usable.
+
+        Replaces the ``default_billing_mode`` enum this serializer exposed before the
+        catalogue existed. An inactive type is refused rather than silently ignored:
+        the resolver would fall back to the catalogue default, so accepting it would
+        set a default that never takes effect.
+        """
+        if value is None:
+            return None
+
+        workspace_id = self.context.get("workspace_id")
+        if workspace_id and str(value.workspace_id) != str(workspace_id):
+            raise serializers.ValidationError("BILLING_TYPE_MUST_BELONG_TO_SAME_WORKSPACE")
+
+        if not value.is_active:
+            raise serializers.ValidationError("BILLING_TYPE_IS_INACTIVE")
+
+        return value
 
     def validate_parent(self, value):
         """Keep the corporate parent inside the same workspace and acyclic.

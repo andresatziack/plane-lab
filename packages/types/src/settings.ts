@@ -16,6 +16,7 @@ export type TWorkspaceSettingsTabs =
   | "billing-and-plans"
   | "export"
   | "service-clients"
+  | "worklog"
   | "webhooks";
 export type TWorkspaceSettingsItem = {
   key: TWorkspaceSettingsTabs;

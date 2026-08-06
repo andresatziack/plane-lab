@@ -12,6 +12,7 @@ import type { IServiceClient } from "@plane/types";
 import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { normalizeCNPJ } from "@plane/utils";
 // hooks
+import { useServiceCatalog } from "@/hooks/store/use-service-catalog";
 import { useServiceClient } from "@/hooks/store/use-service-client";
 // local imports
 import type { TServiceClientFormValues } from "./service-client-form";
@@ -30,6 +31,7 @@ export const ServiceClientModal = observer(function ServiceClientModal(props: Pr
   const { t } = useTranslation();
   // store hooks
   const { createServiceClient, updateServiceClient, serviceClientIds, getServiceClientById } = useServiceClient();
+  const { activeBillingTypes } = useServiceCatalog();
 
   // A client cannot be its own parent, so exclude the record being edited.
   const parentOptions = serviceClientIds
@@ -83,6 +85,7 @@ export const ServiceClientModal = observer(function ServiceClientModal(props: Pr
       <ServiceClientForm
         data={data}
         parentOptions={parentOptions}
+        billingTypeOptions={activeBillingTypes}
         handleClose={handleClose}
         onSubmit={handleFormSubmit}
       />

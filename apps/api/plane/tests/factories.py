@@ -6,13 +6,17 @@ import factory
 from uuid import uuid4
 from django.utils import timezone
 
+from decimal import Decimal
+
 from plane.db.models import (
     User,
     Workspace,
     WorkspaceMember,
     Project,
     ProjectMember,
+    ServiceBillingType,
     ServiceClient,
+    ServiceHourType,
 )
 
 
@@ -25,6 +29,10 @@ class UserFactory(factory.django.DjangoModelFactory):
 
     id = factory.LazyFunction(uuid4)
     email = factory.Sequence(lambda n: f"user{n}@plane.so")
+    # User.username is unique and this factory used to leave it at "", so the second
+    # user built in any test collided on users_username_key. That is why the earlier
+    # contract tests hand-rolled their own user helpers instead of using this factory.
+    username = factory.Sequence(lambda n: f"user{n}")
     password = factory.PostGenerationMethodCall("set_password", "password")
     first_name = factory.Sequence(lambda n: f"First{n}")
     last_name = factory.Sequence(lambda n: f"Last{n}")
@@ -107,6 +115,49 @@ class ServiceClientFactory(factory.django.DjangoModelFactory):
     # would make every extra client in a test collide unless the test cares.
     tax_id = None
     is_active = True
+    workspace = factory.SubFactory(WorkspaceFactory)
+    created_at = factory.LazyFunction(timezone.now)
+    updated_at = factory.LazyFunction(timezone.now)
+
+
+
+class ServiceHourTypeFactory(factory.django.DjangoModelFactory):
+    """Factory for creating ServiceHourType instances.
+
+    Note that the model forces the first live option of a workspace to be the
+    default, so the first instance built for a given workspace will come back with
+    is_default=True whatever this factory passes.
+    """
+
+    class Meta:
+        model = ServiceHourType
+        django_get_or_create = ("name", "workspace")
+
+    id = factory.LazyFunction(uuid4)
+    name = factory.Sequence(lambda n: f"Hour Type {n}")
+    description = ""
+    multiplier = Decimal("1.00")
+    color = "#60646C"
+    is_active = True
+    is_default = False
+    workspace = factory.SubFactory(WorkspaceFactory)
+    created_at = factory.LazyFunction(timezone.now)
+    updated_at = factory.LazyFunction(timezone.now)
+
+
+class ServiceBillingTypeFactory(factory.django.DjangoModelFactory):
+    """Factory for creating ServiceBillingType instances."""
+
+    class Meta:
+        model = ServiceBillingType
+        django_get_or_create = ("name", "workspace")
+
+    id = factory.LazyFunction(uuid4)
+    name = factory.Sequence(lambda n: f"Billing Type {n}")
+    description = ""
+    billing_route = ServiceBillingType.BillingRoute.DEBIT_POOL
+    is_active = True
+    is_default = False
     workspace = factory.SubFactory(WorkspaceFactory)
     created_at = factory.LazyFunction(timezone.now)
     updated_at = factory.LazyFunction(timezone.now)

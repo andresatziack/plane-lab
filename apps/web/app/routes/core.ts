@@ -279,6 +279,10 @@ export const coreRoutes: RouteConfigEntry[] = [
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/service-clients/page.tsx"
           ),
           route(
+            ":workspaceSlug/settings/worklog/:section",
+            "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/worklog/[section]/page.tsx"
+          ),
+          route(
             ":workspaceSlug/settings/webhooks",
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/webhooks/page.tsx"
           ),
@@ -381,6 +385,8 @@ export const coreRoutes: RouteConfigEntry[] = [
 
   // Analytics redirect: /:workspaceSlug/analytics → /:workspaceSlug/analytics/overview
   route(":workspaceSlug/analytics", "routes/redirects/core/analytics.tsx"),
+  // Work log settings redirect: /settings/worklog → /settings/worklog/hour-types
+  route(":workspaceSlug/settings/worklog", "routes/redirects/core/worklog-settings.tsx"),
 
   // API tokens redirect: /:workspaceSlug/settings/api-tokens
   // → /settings/profile/api-tokens

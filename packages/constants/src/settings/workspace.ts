@@ -63,6 +63,17 @@ export const WORKSPACE_SETTINGS: Record<TWorkspaceSettingsTabs, TWorkspaceSettin
     access: [EUserWorkspaceRoles.ADMIN],
     highlight: (pathname: string, baseUrl: string) => pathname.startsWith(`${baseUrl}/settings/service-clients`),
   },
+  worklog: {
+    key: "worklog",
+    i18n_label: "workspace_settings.settings.worklog.title",
+    href: `/settings/worklog/hour-types`,
+    // Admin only: the hour type payload carries the multiplier, which rule R11 keeps
+    // away from clients, and these catalogues parameterise every invoice.
+    access: [EUserWorkspaceRoles.ADMIN],
+    // startsWith, not equality: the panel has one entry and several sections, and the
+    // calendar and windows phase adds two more without touching this.
+    highlight: (pathname: string, baseUrl: string) => pathname.startsWith(`${baseUrl}/settings/worklog`),
+  },
   webhooks: {
     key: "webhooks",
     i18n_label: "workspace_settings.settings.webhooks.title",
@@ -83,6 +94,6 @@ export const GROUPED_WORKSPACE_SETTINGS: Record<WORKSPACE_SETTINGS_CATEGORY, TWo
     WORKSPACE_SETTINGS["billing-and-plans"],
     WORKSPACE_SETTINGS["export"],
   ],
-  [WORKSPACE_SETTINGS_CATEGORY.FEATURES]: [WORKSPACE_SETTINGS["service-clients"]],
+  [WORKSPACE_SETTINGS_CATEGORY.FEATURES]: [WORKSPACE_SETTINGS["service-clients"], WORKSPACE_SETTINGS["worklog"]],
   [WORKSPACE_SETTINGS_CATEGORY.DEVELOPER]: [WORKSPACE_SETTINGS["webhooks"]],
 };

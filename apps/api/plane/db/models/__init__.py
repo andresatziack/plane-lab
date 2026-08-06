@@ -59,7 +59,14 @@ from .project import (
     ProjectPublicMember,
     ProjectUserProperty,
 )
+from .service_catalog import (
+    ServiceBillingType,
+    ServiceCatalogBaseModel,
+    ServiceConfigEntity,
+    ServiceHourType,
+)
 from .service_client import ServiceClient
+from .service_config_activity import ServiceConfigActivity
 from .session import Session
 from .social_connection import SocialLoginConnection
 from .state import State, StateGroup, DEFAULT_STATES

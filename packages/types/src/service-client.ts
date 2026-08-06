@@ -5,14 +5,6 @@
  */
 
 /**
- * Default billing route for work logged against a client's projects.
- *
- * A later phase introduces a configurable Service Type catalog whose billing
- * route supersedes this field; until then this is the client level default.
- */
-export type TServiceClientBillingMode = "contract" | "ad_hoc";
-
-/**
  * A client company that service desk work is delivered to and billed for.
  *
  * Named "service client" rather than "customer" on purpose: Plane ships an
@@ -27,7 +19,18 @@ export interface IServiceClient {
   /** Normalized CNPJ, 14 characters, no mask. Null when not provided. */
   tax_id: string | null;
   is_active: boolean;
-  default_billing_mode: TServiceClientBillingMode;
+  /**
+   * The billing type pre-selected for work logged against this client's projects.
+   *
+   * Replaces the two-value `default_billing_mode` enum this interface carried before
+   * the billing type catalogue existed: keeping both would have been two sources of
+   * truth for one decision, and a foreign key also expresses defaults the enum could
+   * not, such as a client whose standard route is Cortesia.
+   *
+   * Null means "use the catalogue default". Resolution is catalogue default, then
+   * this, then whatever the technician picks on the individual work log.
+   */
+  default_billing_type: string | null;
   /** Corporate parent. Records a shareholding relationship and carries no behaviour. */
   parent: string | null;
   contact_name: string;
