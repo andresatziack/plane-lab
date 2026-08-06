@@ -105,6 +105,11 @@ class ServiceHourTypeSerializer(ServiceCatalogBaseSerializer):
             "name",
             "description",
             "multiplier",
+            # The resolution order the classification engine uses, LOWER WINS. Writable,
+            # because "create an hour type with its own window and priority from the panel,
+            # with no code change" is an acceptance criterion of the calendar phase -- and
+            # without this field in the payload it would be impossible.
+            "priority",
             "color",
             "sequence",
             "is_active",

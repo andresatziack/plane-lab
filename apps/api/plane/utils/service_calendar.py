@@ -57,7 +57,9 @@ test says exactly what changed rather than the invoice saying it.
 """
 
 # Python imports
+import csv
 import datetime
+import io
 from dataclasses import dataclass
 
 # Module imports
@@ -68,6 +70,7 @@ from plane.db.models import (
     ServiceClassificationWindow,
     ServiceDayScope,
     ServiceHoliday,
+    ServiceHolidayScope,
 )
 from plane.utils.service_log_time import MINUTES_PER_DAY, minutes_to_clock
 
@@ -77,6 +80,10 @@ WINDOWS_OVERLAP_AT_SAME_PRIORITY = "WINDOWS_OVERLAP_AT_SAME_PRIORITY"
 WINDOWS_WOULD_NOT_COVER_THE_WEEK = "WINDOWS_WOULD_NOT_COVER_THE_WEEK"
 HOLIDAY_ALREADY_COVERED_BY_RECURRING = "HOLIDAY_ALREADY_COVERED_BY_RECURRING"
 RECURRING_HOLIDAY_COLLIDES_WITH_SPECIFIC = "RECURRING_HOLIDAY_COLLIDES_WITH_SPECIFIC"
+CSV_HEADER_IS_INVALID = "CSV_HEADER_IS_INVALID"
+CSV_ROW_IS_INVALID = "CSV_ROW_IS_INVALID"
+CSV_DATE_IS_INVALID = "CSV_DATE_IS_INVALID"
+CSV_SCOPE_IS_INVALID = "CSV_SCOPE_IS_INVALID"
 
 #: Reason text for an instant no window covers. Surfaced to the technician so a
 #: configuration gap reads as a gap rather than as a silent blank.
@@ -742,3 +749,120 @@ def _classify_interval(*, worked_on, start_time, end_time, windows, holidays):
         )
         for run in runs
     ]
+
+
+
+# ---------------------------------------------------------------------------
+# CSV bulk import -- section 1 of the phase brief
+# ---------------------------------------------------------------------------
+
+#: The columns the import expects. ``name`` and ``date`` are required; the rest default.
+HOLIDAY_CSV_COLUMNS = ("name", "date", "is_recurring", "scope")
+
+#: Accepted date formats. ISO first because it is unambiguous, then the Brazilian form
+#: because that is what a spreadsheet in pt-BR exports.
+_HOLIDAY_CSV_DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y")
+
+_TRUTHY = {"true", "1", "sim", "s", "yes", "y", "verdadeiro"}
+_FALSY = {"false", "0", "nao", "não", "n", "no", "falso", ""}
+
+
+def _parse_csv_date(raw):
+    for date_format in _HOLIDAY_CSV_DATE_FORMATS:
+        try:
+            return datetime.datetime.strptime(raw.strip(), date_format).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_csv_bool(raw):
+    """Returns ``True``/``False``, or ``None`` when the value is not recognisable.
+
+    ``None`` rather than a silent ``False``: a row saying ``is_recurring=maybe`` is a row
+    whose author had an intention, and guessing it wrong means either one day or every
+    future year is priced differently. Better to reject the row and say which.
+    """
+    normalized = (raw or "").strip().lower()
+
+    if normalized in _TRUTHY:
+        return True
+    if normalized in _FALSY:
+        return False
+    return None
+
+
+def parse_holiday_csv(content):
+    """Parse a holiday CSV into rows ready for creation, plus per-row errors.
+
+    Returns ``(rows, errors)``. Each error is ``{"line": n, "error": CODE, "value": ...}``
+    with ``line`` counting the way a spreadsheet does -- the header is line 1 -- so an admin
+    can go straight to the offending row.
+
+    **Parses everything and reports everything.** It does not stop at the first bad row,
+    because an admin pasting a year of holidays wants the whole list of problems, not a
+    dozen round trips. Whether a partially valid import is *applied* is the caller's
+    decision, not this function's.
+
+    Nothing here touches the database, so recurrence collisions between rows of the same
+    file, or against rows already stored, are not detected here. The caller applies
+    ``validate_holiday`` per row, which is the single place that rule lives.
+    """
+    stream = io.StringIO((content or "").strip())
+
+    try:
+        reader = csv.DictReader(stream)
+        fieldnames = [name.strip().lower() for name in (reader.fieldnames or [])]
+    except csv.Error:
+        return [], [{"line": 1, "error": CSV_HEADER_IS_INVALID, "value": None}]
+
+    if "name" not in fieldnames or "date" not in fieldnames:
+        return [], [{"line": 1, "error": CSV_HEADER_IS_INVALID, "value": ",".join(fieldnames)}]
+
+    valid_scopes = {choice[0] for choice in ServiceHolidayScope.choices}
+
+    rows = []
+    errors = []
+
+    for index, raw_row in enumerate(reader, start=2):
+        # DictReader keys carry the original header casing; normalise to match fieldnames.
+        row = {(key or "").strip().lower(): (value or "") for key, value in raw_row.items()}
+
+        name = row.get("name", "").strip()
+        raw_date = row.get("date", "").strip()
+
+        if not name or not raw_date:
+            errors.append({"line": index, "error": CSV_ROW_IS_INVALID, "value": name or raw_date})
+            continue
+
+        parsed_date = _parse_csv_date(raw_date)
+
+        if parsed_date is None:
+            errors.append({"line": index, "error": CSV_DATE_IS_INVALID, "value": raw_date})
+            continue
+
+        is_recurring = _parse_csv_bool(row.get("is_recurring", ""))
+
+        if is_recurring is None:
+            errors.append(
+                {"line": index, "error": CSV_ROW_IS_INVALID, "value": row.get("is_recurring")}
+            )
+            continue
+
+        scope = (row.get("scope", "") or ServiceHolidayScope.NATIONAL).strip().lower()
+
+        if scope not in valid_scopes:
+            errors.append({"line": index, "error": CSV_SCOPE_IS_INVALID, "value": scope})
+            continue
+
+        rows.append(
+            {
+                "line": index,
+                "name": name,
+                "date": parsed_date,
+                "is_recurring": is_recurring,
+                "scope": scope,
+            }
+        )
+
+    return rows, errors

@@ -497,3 +497,135 @@ class TestHourTypeDeletionGuard:
         """Billing types are not classified, so they have no windows to check."""
         billing_type = ServiceBillingType.objects.get(workspace=workspace, name="Avulso")
         assert validate_catalog_delete(billing_type) is None
+
+
+
+class TestParseHolidayCsv:
+    """Section 1's CSV import, parsed without HTTP or a database."""
+
+    def test_a_valid_file_parses_every_row(self):
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, errors = parse_holiday_csv(
+            "name,date,is_recurring,scope\n"
+            "Confraternização Universal,2026-01-01,true,national\n"
+            "Carnaval,2026-02-17,false,national\n"
+        )
+
+        assert errors == []
+        assert [row["name"] for row in rows] == ["Confraternização Universal", "Carnaval"]
+        assert rows[0]["date"] == datetime.date(2026, 1, 1)
+        assert rows[0]["is_recurring"] is True
+        assert rows[1]["is_recurring"] is False
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("2026-12-25", datetime.date(2026, 12, 25)),
+            ("25/12/2026", datetime.date(2026, 12, 25)),
+            ("25-12-2026", datetime.date(2026, 12, 25)),
+        ],
+    )
+    def test_accepted_date_formats(self, raw, expected):
+        """ISO plus the Brazilian form, which is what a pt-BR spreadsheet exports."""
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, errors = parse_holiday_csv(f"name,date\nNatal,{raw}\n")
+
+        assert errors == []
+        assert rows[0]["date"] == expected
+
+    @pytest.mark.parametrize("raw", ["true", "1", "sim", "S", "yes", "verdadeiro"])
+    def test_truthy_recurrence_values(self, raw):
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, _ = parse_holiday_csv(f"name,date,is_recurring\nNatal,2026-12-25,{raw}\n")
+        assert rows[0]["is_recurring"] is True
+
+    @pytest.mark.parametrize("raw", ["false", "0", "nao", "não", "N", "no", ""])
+    def test_falsy_recurrence_values(self, raw):
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, _ = parse_holiday_csv(f"name,date,is_recurring\nNatal,2026-12-25,{raw}\n")
+        assert rows[0]["is_recurring"] is False
+
+    def test_an_unrecognisable_recurrence_value_is_rejected_not_guessed(self):
+        """Guessing wrong means either one day or every future year is priced differently."""
+        from plane.utils.service_calendar import CSV_ROW_IS_INVALID, parse_holiday_csv
+
+        rows, errors = parse_holiday_csv("name,date,is_recurring\nNatal,2026-12-25,talvez\n")
+
+        assert rows == []
+        assert errors[0]["error"] == CSV_ROW_IS_INVALID
+
+    def test_a_missing_header_column_is_reported_on_line_one(self):
+        from plane.utils.service_calendar import CSV_HEADER_IS_INVALID, parse_holiday_csv
+
+        rows, errors = parse_holiday_csv("nome,dia\nNatal,2026-12-25\n")
+
+        assert rows == []
+        assert errors == [
+            {"line": 1, "error": CSV_HEADER_IS_INVALID, "value": "nome,dia"}
+        ]
+
+    def test_every_bad_row_is_reported_rather_than_the_first(self):
+        """An admin pasting a year of holidays wants the whole list of problems."""
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, errors = parse_holiday_csv(
+            "name,date,is_recurring,scope\n"
+            "Sem data,,true,national\n"
+            "Data ruim,nao-e-data,true,national\n"
+            "Escopo ruim,2026-01-01,true,galactic\n"
+            "Boa,2026-05-01,true,national\n"
+        )
+
+        assert len(errors) == 3
+        assert [error["line"] for error in errors] == [2, 3, 4]
+        # The good row still parses; whether a partial import is applied is the caller's call.
+        assert [row["name"] for row in rows] == ["Boa"]
+
+    def test_line_numbers_match_what_a_spreadsheet_shows(self):
+        """The header is line 1, so the first data row is line 2."""
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, _ = parse_holiday_csv("name,date\nNatal,2026-12-25\nAno Novo,2026-01-01\n")
+
+        assert [row["line"] for row in rows] == [2, 3]
+
+    def test_the_scope_defaults_to_national(self):
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, _ = parse_holiday_csv("name,date\nNatal,2026-12-25\n")
+        assert rows[0]["scope"] == ServiceHolidayScope.NATIONAL
+
+    def test_header_casing_and_whitespace_are_tolerated(self):
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, errors = parse_holiday_csv(" Name , Date \nNatal,2026-12-25\n")
+
+        assert errors == []
+        assert rows[0]["name"] == "Natal"
+
+    def test_an_empty_file_yields_a_header_error(self):
+        from plane.utils.service_calendar import CSV_HEADER_IS_INVALID, parse_holiday_csv
+
+        rows, errors = parse_holiday_csv("")
+
+        assert rows == []
+        assert errors[0]["error"] == CSV_HEADER_IS_INVALID
+
+    def test_the_parser_never_touches_the_database(self):
+        """No `db` fixture in this class, so a query would error rather than pass.
+
+        Recurrence collisions are deliberately NOT detected here: that rule lives in
+        `validate_holiday`, and having two implementations of it is how they drift.
+        """
+        from plane.utils.service_calendar import parse_holiday_csv
+
+        rows, errors = parse_holiday_csv(
+            "name,date,is_recurring\nNatal,2026-12-25,true\nNatal,2027-12-25,false\n"
+        )
+
+        assert errors == []
+        assert len(rows) == 2
