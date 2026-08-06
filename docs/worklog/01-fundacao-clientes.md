@@ -17,6 +17,7 @@ qual cliente é o chamado, não há como debitar pool nem faturar.
 Novo módulo em `plane/db/models/`, exportado em `plane/db/models/__init__.py`.
 Herda **`WorkspaceBaseModel`** (workspace obrigatório, project nullable). Soft
 delete e auditoria vêm de graça pela cadeia de abstratos. Campos mínimos:
+
 - Nome / razão social, nome fantasia
 - Identificador fiscal (CNPJ), com validação de formato
 - Status (ativo / inativo)
@@ -42,7 +43,7 @@ projects (ex.: `Marubeni – Suporte` e `Marubeni – Projeto ERP`).
 - Project sem Cliente é trabalho interno: não apontável para faturamento
 - Não permitir remover o Cliente de um project que já tenha apontamentos
 - Ao associar um project a um Cliente, definir **`guest_view_all_features =
-  True`** como padrão. Sem isso, os usuários do cliente veriam apenas os chamados
+True`** como padrão. Sem isso, os usuários do cliente veriam apenas os chamados
   que eles mesmos criaram, e não os abertos por colegas ou pelos técnicos (ver
   `docs/worklog/ACHADOS-DO-CODIGO.md`, seção 2). Deve ser sugerido pela UI, não imposto em
   silêncio
@@ -97,8 +98,19 @@ no painel de administração.
 8. Não existe no modelo de dados tabela de associação usuário↔Cliente
 9. Não existe no modelo de dados campo de Cliente editável no work item
 10. Mover um chamado com apontamentos para um project de outro Cliente alerta o
-    usuário
-11. Remover o Cliente de um project com apontamentos é rejeitado
+    usuário — **em aberto, bloqueado por ausência de feature.** Fechado na Fase 3 até
+    onde era possível: a detecção existe e é testada
+    (`service_client_change_alert`, em `plane/utils/service_log.py`), mas **não existe
+    nenhum caminho no backend que altere `Issue.project_id`** — `project` é
+    `read_only` nos serializers de work item das duas camadas de API, as rotas são
+    aninhadas no project, e o único "move" do produto é de draft. Detalhes e evidência
+    em `03-worklog-core.md`, seção "Critério 10: não existe caminho de move para
+    instrumentar". Permanece em aberto até o move existir
+11. Remover o Cliente de um project com apontamentos é rejeitado — **atendido na
+    Fase 3**, quando passou a existir apontamento para contar. Implementado nos **dois**
+    caminhos de escrita de `service_client` (o `PATCH` de project e a atribuição em lote
+    de `ServiceClientViewSet`, que grava por `.update()` de queryset), e estendido para
+    recusar também a **troca** de cliente, que quebra a mesma coisa que a remoção
 12. Um Cliente com projects vinculados não pode ser excluído fisicamente — apenas
     inativado
 13. O campo Cliente pai aceita valor e não produz nenhum efeito em nenhuma regra
