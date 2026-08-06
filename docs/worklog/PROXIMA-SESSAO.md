@@ -1,4 +1,4 @@
-# Próxima sessão: Fase 5 — Bolsa de horas por work item
+# Próxima sessão: Fase 6 — Avulso, precificação em R$ e excedente
 
 > **Este arquivo é o ponto de entrada.** Para começar uma sessão nova basta dizer:
 >
@@ -9,17 +9,17 @@
 
 ## Sua tarefa
 
-Implemente a **Fase 5**: `docs/worklog/05-bolsa-por-workitem.md` — creditar um pool de
-horas num work item específico, isolado do contrato de suporte do cliente.
+Implemente a **Fase 6**: `docs/worklog/06-avulso-precificacao.md` — converter apontamentos
+em valor monetário, e faturar o excedente que a Fase 4 gravou em horas.
 
 **O modelo de dados ainda NÃO foi apresentado para esta fase.** A §7.1 do contexto mestre
 vale integralmente: **apresente o modelo e as decisões, e aguarde OK antes de escrever
-código.** As fases 1 a 4 tiveram esse passo cumprido em sessões anteriores; esta não teve.
+código.**
 
-O briefing pede explicitamente "modelo de dados primeiro, com atenção especial a como a
-precedência de origem é resolvida e persistida". Essa é a decisão central da fase — leia a
-seção "Onde a Fase 4 já preparou o terreno" abaixo antes de propor qualquer coisa, porque
-metade dela já está escrita e a outra metade tem um lugar reservado.
+O briefing pede "modelo de dados e desenho da **vigência de preços** primeiro". Essa é a
+decisão central da fase, e é a primeira vez nesta série que uma configuração precisa ser
+versionada no tempo em vez de apenas auditada — leia a seção "Onde as fases anteriores já
+prepararam o terreno" antes de propor qualquer coisa.
 
 ## Leia primeiro, nesta ordem
 
@@ -27,191 +27,197 @@ metade dela já está escrita e a outra metade tem um lugar reservado.
    ele se declara `inclusion: always`, mas isso só vale quando o Kiro roda com `plane-lab`
    como raiz do workspace. No sandbox web o repositório fica numa subpasta e o arquivo
    **não é carregado sozinho**. Assumir que foi é como se perdem as regras financeiras.
+   A **§4b** é a parte que esta fase mais usa: escala monetária `(12, 2)`, `ROUND_HALF_UP`,
+   e a regra de que **o arredondamento acontece uma vez por apontamento, nunca no total**.
 2. **`docs/worklog/CONVENCOES-DE-TRABALHO.md`** — fluxo, filosofia de teste, regras de
    modelagem, mecanismo de critérios herdados, convenções de PR.
 3. **`tools/agent-sandbox/README.md`** — como rodar a suíte aqui, e as quatro armadilhas.
    **Os scripts já existem no repositório. Não os recrie.**
-4. **`docs/worklog/05-bolsa-por-workitem.md`** — o briefing, com 9 critérios de aceite
-   **mais um critério herdado da Fase 4** que só pode ser fechado aqui.
-5. **`docs/worklog/DECISOES.md`** — a **R6 é a espinha desta fase**, então leia
-   **D23 a D27** (as da Fase 4) inteiras, e a **D20** (existe exatamente um mecanismo para
-   "não cobrar"). A **D27** está adotada mas é revisável; ver o aviso ao fim deste arquivo.
+4. **`docs/worklog/06-avulso-precificacao.md`** — o briefing, com 13 critérios de aceite.
+5. **`docs/worklog/DECISOES.md`** — a **D6** é a espinha desta fase (preço = valor/hora base
+   × multiplicador, com override absoluto opcional). Leia também a **D20** (existe
+   exatamente um mecanismo para "não cobrar") e a **D22**, que avisa o preço que uma coluna
+   **nullable** rastreada cobra da trilha de auditoria — o override opcional é o caso
+   concreto que ela previu.
 
 ## Estado do repositório
 
 - Repo `andresatziack/plane-lab`, base **`preview`**.
-- Fases **1, 2, 2b, 3 e 4 mescladas.** PRs #1 a #10 fechados, **nenhum PR aberto**.
-- Última migração: **0128**. A sua é a **0129**.
-- Baseline da suíte: **1824 passando, 0 falhando** — medido com `RECREATE_DB=1` **na
-  `preview` já mesclada**. Meça de novo antes de tocar em nada, para não herdar regressão
+- Fases **1, 2, 2b, 3, 4 e 5 mescladas.** PRs #1 a #12 fechados, **nenhum PR aberto**.
+- Última migração: **0129**. A sua é a **0130**.
+- Baseline da suíte: **1913 passando, 0 falhando** — medido com `RECREATE_DB=1` na branch
+  da Fase 5 antes do merge. Meça de novo antes de tocar em nada, para não herdar regressão
   alheia como se fosse sua.
 - **Não existe CI.** As checagens locais são a única verificação.
 - `ruff` **não vem instalado** no venv do sandbox. Instale com
-  `/projects/sandbox/.plane-agent-sandbox/venv-api/bin/python -m pip install ruff` antes de
-  rodar `ruff check apps/api`. Há **3 erros F401 pré-existentes** na `preview`
-  (`app/views/issue/sub_issue.py` ×2, `app/views/project/invite.py`) — não são seus, e
-  corrigi-los produz churn alheio à mudança.
+  `/projects/sandbox/.plane-agent-sandbox/venv-api/bin/python -m pip install ruff`. Há
+  **3 erros F401 pré-existentes** na `preview` (`app/views/issue/sub_issue.py` ×2,
+  `app/views/project/invite.py`) — não são seus, e corrigi-los produz churn alheio.
 
-### Armadilhas do sandbox que custaram tempo na Fase 4
+### Armadilhas do sandbox, e uma que custou caro na Fase 5
 
-- **`/tmp` não persiste entre invocações de shell.** Escreva arquivos de rascunho (corpo de
-  PR, por exemplo) em `/projects/sandbox/`, fora do repositório, e apague depois.
-- **`gh` tem de rodar de `/projects/sandbox`, não de dentro de `plane-lab`**: o
-  `.mise.toml` não é *trusted* e o `mise` aborta o comando.
-- **`git checkout --` não restaura arquivo novo** (untracked). Depois de sabotar um arquivo
-  criado pela sua própria fase, restaure com `sed` e **verifique num comando separado** —
-  encadear com `&&` é a armadilha que o README dos scripts descreve.
+- **`git checkout -- <arquivo>` restaura para o HEAD, não para o seu último estado.** Se o
+  seu trabalho ainda não está commitado, ele é **destruído**. Na Fase 5 isso apagou um
+  arquivo inteiro de domínio no meio da verificação por sabotagem, e ele teve de ser
+  reescrito. **Commite antes de sabotar** — aí o `git checkout --` faz exatamente o que se
+  espera. O README dos scripts avisa sobre não encadear a verificação com `&&`; isto é uma
+  armadilha diferente e pior.
+- **Sabotagem que falha pelo motivo errado não prova nada.** A primeira tentativa de uma das
+  sabotagens da Fase 5 declarou um `from ... import X` dentro de uma função que já usava `X`
+  do escopo do módulo, e o teste quebrou com `UnboundLocalError` antes de chegar ao código
+  sob teste. Confira **a mensagem** de cada falha, não só a cor.
+- **`/tmp` não persiste entre invocações de shell.** Rascunhos vão em `/projects/sandbox/`,
+  fora do repositório, e são apagados depois.
+- **Os serviços nativos são colhidos entre invocações de shell.** Um `psql` numa chamada não
+  encontra o Postgres que a chamada anterior subiu — rode `./start-test-services.sh` na
+  **mesma** invocação. `psql` está em `/usr/bin/psql`.
+- **`gh` tem de rodar de `/projects/sandbox`**, não de dentro de `plane-lab`: o `.mise.toml`
+  não é _trusted_ e o `mise` aborta o comando.
+- **O hook de pre-commit precisa de `pnpm` no PATH.** Antes de commitar algo do frontend:
+  `export PATH="$(ls -d /root/.nvm/versions/node/* | tail -1)/bin:$PATH"` e
+  `corepack enable pnpm`. Sem isso o commit falha com `pnpm: command not found`.
+- O hook roda `oxlint --deny-warnings` nos arquivos em stage e **falha em qualquer
+  advertência**, inclusive uma que já existia. Linte seus caminhos antes de dar `git add`.
 - Nomes de índice do Django têm **limite de 30 caracteres** (`models.E034`).
 
 ---
 
-# Onde a Fase 4 já preparou o terreno para você
+# Onde as fases anteriores já prepararam o terreno para você
 
-Leia isto antes de desenhar o modelo. **Metade da Fase 5 já está escrita**, e propor um
-desenho que a ignore vai colidir com invariantes que já têm teste.
+## O campo que a Fase 4 gravou sem consumidor
 
-## Os dois invariantes da Fase 4 que a Fase 5 não pode quebrar
+`ServiceContract.overage_hour_rate` existe, é auditado, tem escala monetária `(12, 2)` e
+**nada o lê**. Foi gravado então porque é _termo do contrato_: o momento em que um contrato é
+cadastrado é o momento em que o valor é conhecido, e adicionar coluna auditada depois
+significa back-fill de trilha de auditoria que não se faz honestamente.
 
-1. **O período carrega o saldo; o livro-caixa carrega o histórico** (D23). O período tem os
-   totais e é a linha que `select_for_update()` tranca; o livro-caixa append-only tem os
-   movimentos; os dois são escritos **na mesma transação, sempre**.
-2. **Nenhum saldo se move sem uma linha.** Um período **fechado soma exatamente zero** no
-   livro-caixa. `reconcile_period` verifica coluna por coluna.
+A §6 do seu briefing é o consumidor dele, com fallback para o valor/hora base do Cliente —
+que **não existe ainda e é seu**. A Fase 4 deliberadamente não criou um valor/hora em
+`ServiceClient` para não invadir esta fase.
 
-**Decisão de arquitetura que você tem de tomar e justificar:** a bolsa reusa
-`ServiceHourLedgerEntry` ou ganha o seu próprio livro-caixa? Os dois caminhos são
-defensáveis e o briefing não decide. Reusar mantém um só lugar onde horas se movem, mas o
-livro-caixa atual tem FK obrigatória para `contract` e `period`. Um segundo journal duplica
-o mecanismo. **Apresente a escolha com o custo de cada lado**; não a tome no meio do
-código.
+## O excedente já está em horas, e há um jeito de cobrar em dobro
 
-## O ponto de extensão da R6, pronto e vazio
+`ServiceContractPeriod.overage_hours` e `ServiceIssueAllowance.overage_hours` guardam
+excedente **em horas**, e as duas são preenchidas no fechamento com uma linha
+`OVERAGE_BILLED` no livro-caixa.
 
-`plane.utils.service_pool._work_item_allowance(issue)` devolve `None` hoje e é **a primeira
-coisa que `apply_debit` consulta**. É função nomeada em vez de comentário justamente porque
-a R6 é uma **hierarquia** — bolsa primeiro, depois o pool do contrato, depois valor em R$, e
-nunca dois.
+**Essas horas já são equivalentes**, ou seja, já levaram o multiplicador do Tipo de Hora.
+Aplicar o multiplicador outra vez na precificação cobra em dobro — o briefing chama isso de
+ponto de atenção e o critério 8 existe só para isso. O valor/hora de excedente incide sobre
+as horas equivalentes já calculadas.
 
-Você substitui o corpo. **Nada mais no motor de débito precisa mudar**, e se você estiver
-alterando `apply_debit` além disso, pare e releia: provavelmente está criando o débito
-parcial nos dois que o critério 7 proíbe.
+Note que **existem duas fontes de excedente agora**, não uma: o período de contrato e a
+bolsa de horas do chamado, que a Fase 5 entregou. O consolidado da §5 pede três origens de
+receita separadas; a bolsa é uma quarta pergunta que o briefing não fez, e você vai precisar
+decidir se o excedente de bolsa aparece como excedente de contrato, como receita de projeto,
+ou como origem própria. **É cláusula comercial, não escolha de implementação — pergunte.**
 
-## O critério herdado, e o que "fechar" exige
+## O livro-caixa é onde o dinheiro se move, e ele já tem forma
 
-O **critério 17 da Fase 4** está parcialmente atendido: transferir e expirar o saldo
-remanescente de um contrato encerrado funcionam e são auditados; **converter em bolsa de
-horas de um chamado depende da entidade desta fase**. Já existe:
+A **D23** e a **D29** valem sem alteração para esta fase. Se qualquer coisa aqui mover saldo
+de horas, tem de passar por `plane.utils.service_pool.write_ledger_entry`, que é o único
+lugar que cria linha — e o único que sabe que uma linha aponta para um período **ou** para
+uma bolsa, nunca para os dois.
 
-- o tipo de lançamento `CONVERTED_TO_ISSUE_ALLOWANCE` no livro-caixa;
-- `end_and_create_successor(..., balance_destination="issue_allowance", target_issue=...)`;
-- hoje devolve `ISSUE_ALLOWANCE_NOT_AVAILABLE` com **HTTP 501**, não um no-op silencioso.
+Um `update()` direto em `consumed_hours`, `credited_hours` ou `overage_hours` reabre a classe
+de bug que `reconcile_service_periods` existe para consertar.
 
-Os três passos para fechá-lo estão em `05-bolsa-por-workitem.md`, seção "Critérios herdados
-da Fase 4". O terceiro é fácil de esquecer: **remover as duas asserções de indisponibilidade
-que hoje fixam o comportamento** e marcar o critério 17 da Fase 4 como fechado apontando
-para o teste novo.
+**Se você precisar de um journal de dinheiro**, e provavelmente vai, leia a D29 antes de
+criar um segundo: o argumento que decidiu a Fase 5 foi que reusar o journal existente
+transformou um critério de aceite numa recusa do banco. Ver se o mesmo se aplica a valores em
+R$ é a primeira pergunta do seu desenho, não a última.
 
-## Onde o código da Fase 4 está
+## Onde o código está
 
-| Camada    | Arquivo                                                        |
-| --------- | -------------------------------------------------------------- |
-| Modelos   | `plane/db/models/service_contract.py`                          |
-| Domínio   | `plane/utils/service_pool.py`                                  |
-| Alertas   | `plane/utils/service_pool_alerts.py`                           |
-| API       | `plane/app/{serializers,views,urls}/service_contract*`          |
-| Reparo    | `plane/db/management/commands/reconcile_service_periods.py`     |
+| Camada  | Arquivo                                                                                  |
+| ------- | ---------------------------------------------------------------------------------------- |
+| Modelos | `plane/db/models/service_contract.py`, `service_issue_allowance.py`, `service_client.py` |
+| Domínio | `plane/utils/service_pool.py`, `service_allowance.py`, `service_log_time.py`             |
+| Alertas | `plane/utils/service_pool_alerts.py`                                                     |
+| API     | `plane/app/{serializers,views,urls}/service_*`                                           |
+| Reparo  | `plane/db/management/commands/reconcile_service_periods.py`                              |
 
-## Coisas da Fase 4 que vão te morder se você não souber
+`plane/utils/service_log_time.py` **não importa Django** de propósito, e é onde toda
+aritmética pura de hora vive (incluindo `quantize_hours`, que a Fase 5 moveu para lá quando
+os dois domínios precisaram do mesmo quantizador). Se a sua aritmética monetária for pura,
+ela pertence a um módulo com essa mesma propriedade.
 
-- **`ServiceLog.delete()` foi sobrescrito** e estorna o débito antes de apagar. O estorno
-  mora ali porque um apontamento é excluído por **quatro portas** —
-  `delete_service_log_batch`, `replace_service_log_batch` (que é uma *edição*), o endpoint de
-  batch, e a cascata do work item. O critério 6 desta fase ("excluir apontamento devolve as
-  horas à bolsa, não ao contrato") passa por esse mesmo método: **a decisão de para onde
-  devolver tem de sair do que foi persistido no débito, nunca de re-resolver a origem**, que
-  é o mesmo raciocínio que faz `reverse_debit` ler a linha `DEBIT` em vez de recalcular.
-- O estorno é **recusado em período fechado**, e nesse caso o apontamento fica **intacto**
-  em vez de apagado. Decida o equivalente para bolsa encerrada.
-- **`ServiceLog.debited_period`** é o snapshot de qual pool pagou. O critério 3 desta fase
-  pede o mesmo para a bolsa. **Não** transforme isso em duas colunas que podem ambas estar
-  preenchidas: o critério 7 proíbe débito parcial nos dois, e um estado não representável é
-  melhor que um estado recusado por validação que alguém esquece de chamar (mesmo raciocínio
-  da D5).
-- Uma rota `DEBIT_POOL` **agora consulta contrato**. Um cliente com dois contratos e nenhum
-  `is_default` recusa apontamentos; o painel de alertas expõe isso em
-  `clients_without_default_contract`.
+## Coisas das fases anteriores que vão te morder
 
-## Verificação por sabotagem: a lição da Fase 4
+- **A rota de faturamento é snapshot no apontamento** (`applied_billing_route`), não uma
+  consulta ao catálogo. É isso que faz o critério 6 — reajustar o valor base não altera
+  apontamento existente — ser possível. Sua precificação tem de snapshotar do mesmo jeito.
+- **`ServiceLog.debited_period` e `debited_allowance` são mutuamente exclusivos por
+  constraint**, e um apontamento não faturável não pode reivindicar nenhum dos dois. Se você
+  adicionar coluna de valor, decida a relação dela com essas duas antes de migrar.
+- **Rota `NON_BILLABLE` tem `debited_hours = 0` por check constraint**, mas
+  `equivalent_hours` continua calculado (R11a). Valor R$ 0,00 sai da rota, não de um `if`.
+- **`ServiceLog.delete()` foi sobrescrito** e estorna o débito antes de apagar, porque um
+  apontamento é excluído por quatro portas. Se valor em R$ passar a exigir estorno, ele
+  pertence ao mesmo lugar.
 
-A Fase 4 sabotou os cinco pontos onde o dinheiro vaza, e **a sabotagem encontrou um
-falso-verde no próprio teste de concorrência da fase**. O design previa que
-`select_for_update` e o `F()` fossem "duas metades de uma garantia" sabotáveis
-independentemente. São *independentemente suficientes*: o teste passava com **cada uma**
-removida, e só ficava vermelho com as duas fora.
+## Verificação por sabotagem: continue fazendo
 
-Faça o mesmo aqui. Os pontos onde o dinheiro vaza nesta fase:
+Três fases seguidas encontraram algo com isso. A Fase 4 descobriu um falso-verde no próprio
+teste de concorrência. A Fase 5 confirmou por sabotagem que o débito duplo é recusado pelo
+**banco** e não por um `if` — o que virou o argumento da D29 — e que a constraint nova do
+critério 9 pega um caminho que os testes de comportamento não pegavam.
 
-| Sabotagem                                              | Tem de quebrar                          |
-| ------------------------------------------------------ | --------------------------------------- |
-| fazer `_work_item_allowance` devolver `None` sempre     | critérios 2 e 7 (debitaria o contrato)  |
-| remover a precedência (debitar os dois)                 | critério 7                              |
-| devolver o estorno ao contrato em vez da bolsa          | critério 6                              |
-| ignorar o multiplicador no débito da bolsa              | critério 8                              |
-| deixar `NON_BILLABLE` consumir bolsa                    | critério 9                              |
+Os pontos onde o dinheiro vaza nesta fase, para começar a lista:
+
+| Sabotagem                                                | Tem de quebrar |
+| -------------------------------------------------------- | -------------- |
+| aplicar o multiplicador de novo no excedente             | critério 8     |
+| arredondar no total em vez de por apontamento            | critério 13    |
+| ler o preço do cliente em vez do snapshot do apontamento | critério 6     |
+| ignorar o override absoluto                              | critério 5     |
+| permitir faturar o excedente duas vezes                  | critério 9     |
 
 E **todo teste de ausência afirma o código do motivo, com controle positivo na mesma
-fixture**: "o contrato não se moveu" é verdade quando a bolsa funcionou *e* quando o motor
-de débito nunca rodou, e esses são bugs opostos.
+fixture**: "valor zero" é verdade para Garantia, para preço não cadastrado e para um motor de
+precificação nunca ligado, e esses são bugs diferentes.
 
 ---
 
-# Uma decisão adotada, ainda revisável: a D27
+# A dívida de processo: agora ela bloqueia
 
-A **D27** foi adotada na prática pelo merge do PR #10, mas nunca recebeu confirmação
-explícita, e é **cláusula contratual, não escolha de implementação**. Ela está registrada
-inteira no `DECISOES.md`; em resumo:
+As Fases 4 e 5 responderam **oito** ambiguidades com defaults razoáveis e testes de
+caracterização. Todas são **cláusulas contratuais**, não decisões de software, e as respostas
+estão nos contratos reais com os clientes.
 
-O critério 24 da Fase 4 manda uma resolução de contrato "ambígua **ou vazia**" falhar.
-Implementado: **ambiguidade bloqueia; resolução vazia não bloqueia** — o apontamento fica
-gravado com `debited_period` nulo e o motivo é reportado pelo painel do chamado. O motivo é
-que a justificativa do próprio critério 24 ("debitar o pool errado é pior que bloquear") só
-vale quando existe um pool errado, e a §4, a D4 e a D9 proíbem descartar trabalho já
-executado por pendência comercial.
+Isto deixou de ser recomendação: **a Fase 6 é a fase do dinheiro em R$**, e várias destas
+mudam o valor de uma fatura.
 
-**Ponto único de mudança se a leitura for a literal:**
-`NON_BLOCKING_RESOLUTION_FAILURES` em `plane/utils/service_pool.py`.
+| Ambiguidade                            | O que foi assumido                                                 |
+| -------------------------------------- | ------------------------------------------------------------------ |
+| Pro-rata do primeiro mês               | Nenhum. `contracted_hours` é editável em período aberto (D26)      |
+| Teto de déficit                        | Não existe teto; só alerta, com re-disparo a cada 5h de piora      |
+| O que "suspenso" significa             | Nada além de um código de alerta distinto                          |
+| Ordem de descarte pelo teto de acúmulo | Descarta as parcelas mais novas (D25)                              |
+| Bloquear apontamento sem contrato      | Não bloqueia (D27)                                                 |
+| Bolsa herdada por sub-tarefa           | Herda, ancestral mais próximo primeiro, limite de 10 (D28)         |
+| Pai e filho ambos com bolsa            | O filho vence                                                      |
+| Saldo positivo de bolsa encerrada      | Baixado e perdido; **nunca** vai para o pool do contrato (§3, D30) |
 
-**Isso é relevante para a Fase 5** porque o critério 3 do briefing desta fase pede o mesmo
-tipo de decisão: um apontamento cuja origem não se resolve. Seja coerente com a D27 ou
-proponha mudar as duas juntas — o que não pode é a bolsa e o contrato responderem
-diferente à mesma pergunta.
+Extraí-las para o `DECISOES.md` com a resposta real antes de desenhar a precificação evita
+que a fase pergunte as mesmas coisas de novo — e evita defaults razoáveis sendo propostos
+para regras que já existem em papel.
 
-## Depois da Fase 5
+## Depois da Fase 6
 
-Ordem do `README.md`: **6** (precificação, depende de 3 e 4 — e consome o
-`overage_hour_rate` que a Fase 4 gravou sem consumidor), **9** (dashboards, depende de 4, 5
-e 6), **8** (portal do cliente).
+Ordem do `README.md`: **9** (dashboards, depende de 4, 5 e 6), **8** (portal do cliente).
 
-A **Fase 7** (permissões e delegação) depende só da 3 e está desbloqueada há duas fases —
+A **Fase 7** (permissões e delegação) depende só da 3 e está desbloqueada há três fases —
 pode ser feita em paralelo, e **também não teve o passo de aprovação de modelo**. A seção de
 delegação dela fala de reaplicação de débito: qualquer caminho novo que mexa em
-`consumed_hours` **tem** de passar por `plane.utils.service_pool`; um `update()` direto
-reabre a classe de bug que `reconcile_service_periods` existe para consertar.
+`consumed_hours` ou `credited_hours` **tem** de passar pelos módulos de domínio.
 
-## A dívida de processo, ainda em aberto, para resolver antes da Fase 6
+A **Fase 9** herdou duas dívidas nomeadas da Fase 5, e elas estão registradas em
+`05-bolsa-por-workitem.md`, não escondidas em comentário de código:
 
-A Fase 4 respondeu cinco ambiguidades com defaults razoáveis e testes de caracterização, mas
-todas são **cláusulas contratuais**, não decisões de software, e as respostas estão nos
-contratos reais com os clientes:
-
-| Ambiguidade                                | O que a Fase 4 assumiu                                                       |
-| ------------------------------------------ | ---------------------------------------------------------------------------- |
-| Pro-rata do primeiro mês                   | Nenhum. `contracted_hours` é editável em período aberto (D26)                 |
-| Teto de déficit                            | Não existe teto; só alerta, com re-disparo a cada 5h de piora                 |
-| O que "suspenso" significa                 | Nada além de um código de alerta distinto                                     |
-| Ordem de descarte pelo teto de acúmulo     | Descarta as parcelas mais novas (D25)                                        |
-| Bloquear apontamento sem contrato          | Não bloqueia (D27)                                                           |
-
-Extraí-las para o `DECISOES.md` com a resposta real antes da Fase 6 evita que a fase de
-precificação pergunte as mesmas coisas de novo — e evita defaults razoáveis sendo propostos
-para regras que já existem em papel.
+- **alerta de bolsa não é dispensável**, ao contrário do alerta de período —
+  `ServiceContractAlertDismissal` tem FK obrigatória para período;
+- **o histórico de créditos da bolsa não tem tela.** A API já o devolve em `credits`, com
+  autor, data e a competência de origem quando as horas vieram de um contrato encerrado; a
+  §3b da Fase 9 já prevê "bolsas de horas ativas por chamado, com saldo de cada", que é onde
+  ele pertence.

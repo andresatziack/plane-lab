@@ -31,6 +31,8 @@ import { IssueStore } from "./issue.store";
 import type { IIssueStore, IIssueStoreActions } from "./issue.store";
 import { IssueLinkStore } from "./link.store";
 import type { IIssueLinkStore, IIssueLinkStoreActions } from "./link.store";
+import { ServiceAllowanceStore } from "./service-allowance.store";
+import type { IServiceAllowanceStore } from "./service-allowance.store";
 import { ServiceLogStore } from "./service-log.store";
 import type { IServiceLogStore } from "./service-log.store";
 import { IssueReactionStore } from "./reaction.store";
@@ -121,6 +123,7 @@ export interface IIssueDetail
   subIssues: IIssueSubIssuesStore;
   link: IIssueLinkStore;
   serviceLog: IServiceLogStore;
+  serviceAllowance: IServiceAllowanceStore;
   subscription: IIssueSubscriptionStore;
   relation: IIssueRelationStore;
 }
@@ -162,6 +165,7 @@ export class IssueDetail implements IIssueDetail {
   subIssues: IIssueSubIssuesStore;
   link: IIssueLinkStore;
   serviceLog: IServiceLogStore;
+  serviceAllowance: IServiceAllowanceStore;
   subscription: IIssueSubscriptionStore;
   relation: IIssueRelationStore;
   activity: IIssueActivityStore;
@@ -220,6 +224,9 @@ export class IssueDetail implements IIssueDetail {
     // Not passed a serviceType: work logs exist only for real work items. Drafts and
     // epics do not have them, and the endpoint is nested under a project's issues.
     this.serviceLog = new ServiceLogStore(this);
+    // Same reasoning as the work log store above: an allowance belongs to a real work
+    // item, so no serviceType.
+    this.serviceAllowance = new ServiceAllowanceStore(this);
     this.subscription = new IssueSubscriptionStore(this, serviceType);
     this.relation = new IssueRelationStore(this);
   }

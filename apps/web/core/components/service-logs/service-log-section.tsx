@@ -6,19 +6,22 @@
 
 import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
-import { Plus } from "lucide-react";
+import { Plus, Wallet } from "lucide-react";
 import useSWR from "swr";
 // plane imports
+import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useProject } from "@/hooks/store/use-project";
 import { useServiceCatalog } from "@/hooks/store/use-service-catalog";
-import { useUser } from "@/hooks/store/user";
+import { useUser, useUserPermissions } from "@/hooks/store/user";
 // local imports
 import type { TServiceLogBatch } from "@/store/issue/issue-details/service-log.store";
+import { CreditServiceAllowanceModal } from "./credit-service-allowance-modal";
 import { DeleteServiceLogModal } from "./delete-service-log-modal";
+import { ServiceAllowanceIndicator } from "./service-allowance-indicator";
 import { ServiceLogListItem } from "./service-log-list-item";
 import { ServiceLogModal } from "./service-log-modal";
 import { ServiceLogTotals } from "./service-log-totals";
@@ -44,12 +47,14 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
   // plane hooks
   const { t } = useTranslation();
   // store hooks
-  const { serviceLog } = useIssueDetail();
+  const { serviceLog, serviceAllowance } = useIssueDetail();
   const { getProjectById } = useProject();
   const { fetchHourTypes, fetchBillingTypes, hourTypes, billingTypes } = useServiceCatalog();
   const { data: currentUser } = useUser();
+  const { allowPermissions } = useUserPermissions();
   // state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreditOpen, setIsCreditOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<TServiceLogBatch | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<TServiceLogBatch | null>(null);
 
@@ -57,9 +62,26 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
   const project = getProjectById(projectId);
   const isTimeTrackingEnabled = Boolean(project?.is_time_tracking_enabled);
 
+  // Crediting hours is a commercial act -- it decides a project is worth 40 hours -- so
+  // it takes a **workspace** admin, matching the endpoint and every other money-writing
+  // route in this feature. A project admin is not a workspace admin in this fork. The
+  // server is the real guard; this only avoids offering a button that would be refused.
+  const canCreditAllowance = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
+
   useSWR(
     workspaceSlug && projectId && issueId ? `SERVICE_LOGS_${workspaceSlug}_${projectId}_${issueId}` : null,
     workspaceSlug && projectId && issueId ? () => serviceLog.fetchServiceLogs(workspaceSlug, projectId, issueId) : null,
+    { revalidateIfStale: false, revalidateOnFocus: false }
+  );
+
+  // A separate key from the work logs above, deliberately: the allowance is a different
+  // resource with a different permission, and a technician who cannot read one must still
+  // get the other rather than one failure blanking the whole section.
+  useSWR(
+    workspaceSlug && projectId && issueId ? `SERVICE_ALLOWANCE_${workspaceSlug}_${projectId}_${issueId}` : null,
+    workspaceSlug && projectId && issueId
+      ? () => serviceAllowance.fetchAllowance(workspaceSlug, projectId, issueId)
+      : null,
     { revalidateIfStale: false, revalidateOnFocus: false }
   );
 
@@ -75,16 +97,34 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
   const totals = serviceLog.getTotalsByIssueId(issueId);
   const canLogTime = !disabled && isTimeTrackingEnabled;
 
+  // `undefined` is "not loaded yet" and `null` is "no allowance", and they render
+  // differently: showing the credit call-to-action before the answer has arrived would
+  // flash a wrong statement about how this work item is billed.
+  const allowanceSummary = serviceAllowance.getSummaryByIssueId(issueId);
+  const allowanceAlerts = serviceAllowance.getAlertsByIssueId(issueId);
+  const hasLoadedAllowance = serviceAllowance.hasLoadedByIssueId(issueId);
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h4 className="text-base text-custom-text-100 font-medium">{t("work_item.service_log.title")}</h4>
-        {canLogTime && (
-          <Button variant="secondary" size="sm" onClick={() => setIsCreateOpen(true)} prependIcon={<Plus />}>
-            {t("work_item.service_log.add")}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canCreditAllowance && hasLoadedAllowance && (
+            <Button variant="secondary" size="sm" onClick={() => setIsCreditOpen(true)} prependIcon={<Wallet />}>
+              {allowanceSummary ? t("work_item.service_allowance.top_up") : t("work_item.service_allowance.add")}
+            </Button>
+          )}
+          {canLogTime && (
+            <Button variant="secondary" size="sm" onClick={() => setIsCreateOpen(true)} prependIcon={<Plus />}>
+              {t("work_item.service_log.add")}
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Rule R6's first level, above the contract totals because that is the order the
+          debit engine asks in: when this is present, it is what pays. */}
+      {allowanceSummary && <ServiceAllowanceIndicator summary={allowanceSummary} alerts={allowanceAlerts} />}
 
       {/* The three labelled totals. Shown even at zero, so the section reads the same
           before and after the first entry. */}
@@ -147,6 +187,18 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
         issueId={issueId}
         batch={deletingBatch}
         handleClose={() => setDeletingBatch(null)}
+      />
+
+      <CreditServiceAllowanceModal
+        isOpen={isCreditOpen}
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+        issueId={issueId}
+        // A top-up only when the allowance belongs to *this* work item. An inherited one
+        // belongs to an ancestor, and crediting here would create a second, separate
+        // allowance on the sub-task -- so the copy has to say "create", not "add to".
+        isTopUp={Boolean(allowanceSummary && !allowanceSummary.is_inherited)}
+        handleClose={() => setIsCreditOpen(false)}
       />
     </div>
   );

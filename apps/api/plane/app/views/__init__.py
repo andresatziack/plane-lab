@@ -99,6 +99,11 @@ from .service_contract.base import (
     ServiceContractPeriodViewSet,
     ServiceContractViewSet,
 )
+from .service_issue_allowance.base import (
+    IssueServiceAllowanceEndpoint,
+    ServiceIssueAllowanceAlertPanelEndpoint,
+    ServiceIssueAllowanceCloseEndpoint,
+)
 from .service_log.base import ServiceLogViewSet
 from .state.base import StateViewSet, IntakeStateEndpoint
 from .view.base import (

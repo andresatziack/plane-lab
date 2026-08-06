@@ -92,6 +92,10 @@ from .service_contract import (
     ServiceOverageSettlement,
     ServicePeriodStatus,
 )
+from .service_issue_allowance import (
+    ServiceIssueAllowance,
+    ServiceIssueAllowanceStatus,
+)
 from .service_log import ServiceLog, ServiceLogEntryMode, ServiceLogSource
 from .session import Session
 from .social_connection import SocialLoginConnection

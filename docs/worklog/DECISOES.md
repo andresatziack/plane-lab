@@ -26,6 +26,9 @@
 | D25 | **O teto de acúmulo descarta as parcelas mais NOVAS**, preservando as mais antigas | Fase 4, seção 3 |
 | D26 | **Mês parcial é dado, não regra:** `contracted_hours` editável enquanto o período está aberto, com auditoria | Fase 4, seção 2 |
 | D27 | **Resolução vazia de contrato não bloqueia o apontamento**; ambiguidade bloqueia | Fase 4, seções 1b e 5 |
+| D28 | **A bolsa de horas é herdada pela árvore de work items**, ancestral mais próximo primeiro, com limite de 10 | Fase 5, seção 2 |
+| D29 | **A bolsa reusa o livro-caixa do contrato** em vez de ganhar um segundo journal | Fase 5, `service_hour_ledger_entries` |
+| D30 | **Bolsa encerrada bloqueia o apontamento e não cai para o contrato** | Fase 5, seção 3 |
 
 Nenhuma decisão bloqueia a implementação. Os prompts estão prontos para uso.
 
@@ -306,7 +309,6 @@ As Fases 4 e 6 devem usar os três verbos. O ponto de extensão está no docstri
 `new_value` em `updated` cobra um preço de quem rastrear um campo **nullable** — o preço
 sobrescrito opcional da Fase 6 é o caso concreto.
 
-
 ## D23 a D27 — decididas na Fase 4, porque só ali se tornaram inevitáveis
 
 ### D23 — O livro-caixa de horas, e por que ele não é a "segunda tabela de auditoria"
@@ -317,20 +319,20 @@ origem de cada parcela para expirar a certa (critério 6), estorno idempotente (
 (14). Sem um journal, cada uma precisa de mecanismo próprio.
 
 Com ele, o critério 20 passa a valer **por construção**: não existe caminho que reduza
-saldo sem inserir linha, porque a redução *é* a linha. O invariante que prova isso é
+saldo sem inserir linha, porque a redução _é_ a linha. O invariante que prova isso é
 verificável: **um período fechado soma exatamente zero** no livro-caixa — tudo saiu, foi
 faturado ou foi baixado, e cada um desses é uma linha.
 
 A §6 do contexto mestre proíbe uma segunda tabela de auditoria de configuração, e esta não
 é uma. A divisão é explícita: `ServiceConfigActivity` registra **configuração** (contrato
 criado, horas mensais alteradas); o livro-caixa é **movimento contábil**. Apagar uma linha
-lá perderia a *explicação* de um número; apagar uma linha aqui **mudaria** o número.
+lá perderia a _explicação_ de um número; apagar uma linha aqui **mudaria** o número.
 
 Consequência de projeto (D2 do design aprovado): o período carrega os totais e é a linha que
 se tranca; o livro-caixa carrega os movimentos; os dois são escritos na mesma transação,
 sempre. `reconcile_period` afirma que os dois batem, **coluna por coluna** — um agregado
 único seria satisfeito por dois erros que se cancelam, e diria "algo está errado" quando o
-operador precisa saber *qual número* confiar.
+operador precisa saber _qual número_ confiar.
 
 ### D24 — Consumo FIFO, parcela mais antiga primeiro
 
@@ -348,7 +350,7 @@ A alocação acontece na **leitura**, não no débito. É isso que permite ao d�
 
 ### D25 — O teto de acúmulo descarta as parcelas mais NOVAS
 
-Ambiguidade que o briefing não fecha: com 75h querendo transportar e teto de 60h, *quais*
+Ambiguidade que o briefing não fecha: com 75h querendo transportar e teto de 60h, _quais_
 15h são descartadas?
 
 Descartam-se as mais **novas**, preservando as mais antigas. Dois motivos, e eles
@@ -387,8 +389,8 @@ executado nunca é descartado por pendência comercial — e "o comercial ainda 
 contrato" é exatamente uma pendência comercial. Cumprir o critério 24 ao pé da letra fazia o
 apontamento ser **recusado**, e apontamento recusado é apontamento perdido.
 
-A reconciliação está na justificativa do próprio critério 24: *"debitar o pool errado é pior
-que bloquear o apontamento"*. Esse raciocínio só morde quando existe um pool errado a
+A reconciliação está na justificativa do próprio critério 24: _"debitar o pool errado é pior
+que bloquear o apontamento"_. Esse raciocínio só morde quando existe um pool errado a
 debitar — o caso **ambíguo**. Sem cliente e sem contrato não há pool errado; não há pool.
 
 Decidido:
@@ -408,3 +410,116 @@ Efeito prático que confirma a escolha: com o bloqueio, 39 testes das Fases 2b e
 falhar — todos eles apontamentos de rota `DEBIT_POOL` em workspaces sem contrato, que é
 precisamente o estado de qualquer instalação antes de o comercial cadastrar o primeiro
 contrato.
+
+## D28 a D30 — decididas na Fase 5, porque só ali se tornaram inevitáveis
+
+### D28 — A bolsa de horas é herdada pela árvore de work items
+
+Ambiguidade que o briefing não fecha e que a R6 não menciona: um projeto de 40h vendido à
+parte é aberto como **um** chamado, e depois quebrado em sub-tarefas por qualquer um que o
+execute. As sub-tarefas consomem a bolsa do pai?
+
+A proposta inicial foi **sem herança** — a bolsa vale só para o work item em que foi
+creditada — pelo argumento de que subir a cadeia de pais é regra de negócio que ninguém
+escreveu. **Recusada**, e o motivo é que as consequências dos dois erros não são simétricas:
+
+- **sem herança**, o pai fica com 40h que ninguém aponta enquanto cada sub-tarefa debita o
+  pool de 30h/mês do contrato. O isolamento que a bolsa existe para dar deixa de existir, e
+  deixa de existir **em silêncio**: nenhum erro, nenhum alerta, apenas o pool errado
+  pagando. O cliente consome suporte que não devia;
+- **com herança**, o custo é uma query estreita por nível de aninhamento.
+
+Erro silencioso que fatura errado contra um custo de query mensurável decide sozinho.
+
+**A regra é: ancestral mais próximo com bolsa vence.** Sobe `Issue.parent` a partir do work
+item do apontamento e para na primeira bolsa encontrada. Não é ambíguo — é ordem total ao
+longo da cadeia — então a **D27 não é tocada**: não existe ambiguidade a resolver. A única
+forma que _seria_ ambígua, várias bolsas num mesmo work item, é irrepresentável pelo índice
+único parcial.
+
+Guarda-corpos, todos com teste, porque uma regra de hierarquia sem limite é uma query sem
+limite:
+
+- **profundidade máxima de 10 ancestrais**, e estourar o limite é tratado como **ausência de
+  bolsa, nunca como erro**. Recusar um apontamento por causa de como alguém aninhou os
+  chamados custaria ao técnico o trabalho dele por uma forma do dado que ele não escolheu, e
+  a D4 e a D9 proíbem isso;
+- **pai e filho com bolsa: o filho vence**, fixado por teste de caracterização — uma
+  sub-tarefa com bolsa própria foi financiada à parte, e o ancestral mais próximo é a
+  resposta mais específica;
+- ciclo de `parent` não trava a busca.
+
+### D29 — A bolsa reusa o livro-caixa do contrato, e o motivo é o critério 7
+
+Escolha de arquitetura que o briefing deixou aberta: a bolsa reusa
+`ServiceHourLedgerEntry` ou ganha o seu próprio journal? Reusar exigia afrouxar `contract` e
+`period` para nullable — afrouxar coluna em tabela de dinheiro, exatamente o que esta série
+evita.
+
+Reusar ganhou, e **não** pelo argumento óbvio da D23 ("um só lugar onde horas se movem").
+Ganhou porque o índice único parcial `(service_log, entry_type)` já existia:
+
+```
+UniqueConstraint(fields=["service_log", "entry_type"],
+                 condition=Q(entry_type__in=[DEBIT, REVERSAL], service_log__isnull=False))
+```
+
+Com um journal único, "debitar a bolsa **e** o contrato pelo mesmo apontamento" seriam duas
+linhas `DEBIT` do mesmo apontamento, e o **banco recusa**. O critério 7 da Fase 5 — "estourar
+a bolsa não debita do contrato em nenhuma circunstância", "sem débito parcial nos dois" —
+deixa de ser propriedade da ordem de um `if` e passa a ser estrutural. Verificado por
+sabotagem: debitando os dois de propósito, o erro é
+`UniqueViolation: service_ledger_unique_debit_reversal_per_service_log`.
+
+O segundo ganho está no critério 6. O estorno precisa saber para onde devolver, e a resposta
+**tem** de sair do que o débito persistiu. Com journal único é uma query, uma linha, e a
+resposta é uma coluna dela. Com dois journals seriam duas queries e um `if` — e um `if` é
+onde a re-resolução da origem volta a entrar por descuido, mandando as horas para o contrato
+no instante em que a bolsa é encerrada.
+
+O preço da nulidade foi pago com uma constraint XOR em DDL
+(`service_ledger_entry_has_exactly_one_target`): uma linha pertence a um período **ou** a uma
+bolsa, nunca a nenhum, nunca aos dois. Ela deixa a tabela **mais** restrita do que era —
+"linha de período cujo `contract` aponta para outro contrato" era representável antes e não é
+mais.
+
+### D30 — Bolsa encerrada bloqueia o apontamento, e não cai para o contrato
+
+A escolha óbvia é a errada, e é por isso que está registrada.
+
+Um apontamento num chamado cuja bolsa está **encerrada** é recusado (`ALLOWANCE_IS_CLOSED`).
+Ele **não** cai para o pool do contrato, e não cai para um ancestral mais distante. Cair para
+o contrato seria o "excedente migra para o pool do contrato" que a §3 proíbe _nominalmente_,
+"nem silenciosamente nem automaticamente" — e chegaria por omissão, que é a pior forma de uma
+regra financeira aparecer. Pular para o avô gastaria horas que o encerramento do projeto
+fechado já contabilizou.
+
+Consequência de projeto: `resolve_work_item_allowance` devolve a bolsa **independentemente do
+status**, e a checagem de status mora no débito, espelhando `resolve_period` + `_lock_period`.
+Se ela filtrasse por bolsa aberta, o fallback proibido aconteceria sozinho.
+
+**Coerência com a D27**, que era o ponto que o handoff cobrava: a D27 diz que ambiguidade
+bloqueia e ausência não. Bolsa encerrada não é nenhum dos dois — é **trava
+administrativa**, como período fechado, que também bloqueia. Ausência de bolsa não é falha
+alguma: é o nível 2 da hierarquia da R6. E ambiguidade não pode existir. Portanto
+`NON_BLOCKING_RESOLUTION_FAILURES` não mudou e a D27 não precisou ser revista.
+
+O estorno em bolsa encerrada é recusado do mesmo modo, e o apontamento fica **intacto** em vez
+de apagado — o equivalente exato do que a Fase 4 decidiu para período fechado.
+
+### Nota de método: o critério 9 virou DDL, e a migração foi feita para falhar alto
+
+O critério 9 (rota `NON_BILLABLE` não consome bolsa) já era verdadeiro por duas vias: a ordem
+das guardas em `apply_debit` e a constraint da Fase 3 que zera `debited_hours`. Ganhou uma
+terceira, em DDL: `service_log_non_billable_debits_no_origin`.
+
+Ela não é redundante. As duas primeiras garantem que **nenhuma hora se move**; nenhuma
+impedia um caminho de código de **gravar a origem** num apontamento não faturável, deixando a
+linha _alegando_ que uma bolsa pagou por ela — que é exatamente o que um relatório da Fase 9
+faturaria.
+
+Como é constraint nova sobre coluna **existente**, ela pode falhar na aplicação em dado real.
+Isso é a intenção, não o risco: linha que a viole é bug a corrigir, não constraint a relaxar.
+Para a falha ser acionável, a migração 0129 roda um `RunPython` **antes** dos `AddConstraint`
+que conta as linhas violadoras e levanta erro **nomeando os IDs**. Validado à mão: com uma
+linha corrompida de propósito, a migração para e diz qual.

@@ -673,13 +673,21 @@ class TestRenewalThroughTheApi:
         first = resolve_period(successor, date(2027, 1, 1))
         assert first.carried_hours == Decimal("20.0000")
 
-    def test_converting_to_a_work_item_allowance_returns_not_implemented(self, setup):
-        """Criterion 17's third destination is Phase 5's.
+    def test_converting_to_a_work_item_allowance_credits_the_issue(self, setup):
+        """**Closes criterion 17** over HTTP, the same path an admin takes.
 
-        501 rather than 400: the request is well formed and will be valid once the
-        allowance entity exists. Tracked as an inherited criterion.
+        Used to be a 501 with ``ISSUE_ALLOWANCE_NOT_AVAILABLE`` because the allowance
+        entity was Phase 5's. It exists now, so the destination credits the work item and
+        the response is a 201.
         """
+        from plane.db.models import ServiceIssueAllowance
+
         api_client = client_for(setup["admin"])
+        post_log(client_for(setup["member"]), setup, minutes=10 * 60, worked_on=date(2026, 1, 15))
+
+        # After the work log: an allowance that existed first would have paid for it, and
+        # there would be no pool balance left to convert.
+        issue = IssueFactory(project=setup["project"])
 
         response = api_client.post(
             CONTRACT_SUCCESSOR_URL.format(slug=setup["workspace"].slug, pk=setup["contract"].id),
@@ -691,13 +699,40 @@ class TestRenewalThroughTheApi:
                     "starts_on": "2027-01-01",
                     "ends_on": "2027-12-31",
                     "balance_destination": "issue_allowance",
+                    "target_issue": str(issue.id),
                 }
             ),
             content_type="application/json",
         )
 
-        assert response.status_code == 501
-        assert response.json()["error"] == "ISSUE_ALLOWANCE_NOT_AVAILABLE"
+        assert response.status_code == 201
+
+        allowance = ServiceIssueAllowance.objects.get(issue_id=issue.id)
+        assert allowance.credited_hours == Decimal("20.0000")
+        assert allowance.balance_hours == Decimal("20.0000")
+
+    def test_converting_without_a_target_issue_is_a_bad_request(self, setup):
+        """400, not 501: naming no work item is the caller's mistake, and the only
+        failure left on that destination now that the entity exists."""
+        api_client = client_for(setup["admin"])
+
+        response = api_client.post(
+            CONTRACT_SUCCESSOR_URL.format(slug=setup["workspace"].slug, pk=setup["contract"].id),
+            data=json.dumps(
+                {
+                    "code": "SUP-006",
+                    "name": "Suporte",
+                    "monthly_hours": "20.0000",
+                    "starts_on": "2027-01-01",
+                    "ends_on": "2027-12-31",
+                    "balance_destination": "issue_allowance",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE"
 
 
 class TestWorkspaceIsolation:

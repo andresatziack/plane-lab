@@ -47,6 +47,7 @@ export * from "./search";
 export * from "./service-calendar";
 export * from "./service-catalog";
 export * from "./service-client";
+export * from "./service-issue-allowance";
 export * from "./service-log";
 export * from "./settings";
 export * from "./state";

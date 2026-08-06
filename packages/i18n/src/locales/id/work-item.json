@@ -528,6 +528,50 @@
         "billing_type_not_found": "That billing type is no longer available. Choose another.",
         "delegation_unavailable": "Logging time on someone else's behalf is not available yet."
       }
+    },
+    "service_allowance": {
+      "title": "Work item hour allowance",
+      "title_hint": "Hours sold for this work item, isolated from the client's support contract. Work logs here consume this allowance and never the monthly pool.",
+      "add": "Credit hours",
+      "top_up": "Credit more hours",
+      "closed": "Closed",
+      "credited": "Credited",
+      "consumed": "Consumed",
+      "balance": "Remaining",
+      "hours": "{hours}h",
+      "consumed_pct": "{pct}% consumed",
+      "inherited": "Inherited from the parent work item. These hours belong to the parent project, not to this item.",
+      "form": {
+        "title": "Credit hours to this work item",
+        "description": "Creates an allowance for this work item. Work logs on it will consume these hours instead of the client's monthly support pool.",
+        "title_top_up": "Credit more hours",
+        "description_top_up": "Adds to the existing allowance. The previous credits are kept, and the balance is the sum of all of them.",
+        "hours": "Hours",
+        "hours_placeholder": "40",
+        "hours_hint": "Decimal hours. Accepts 40, 40.5 or 40,5.",
+        "hours_invalid": "Enter a number of hours greater than zero.",
+        "reference": "Commercial reference",
+        "reference_placeholder": "Proposal 2026-014",
+        "notes": "Notes",
+        "submit": "Credit hours"
+      },
+      "alerts": {
+        "negative_balance": "The allowance is overrun. The work logs were recorded and the excess does not touch the client's support contract; settle it by crediting more hours or billing the overage.",
+        "high_consumption": "The allowance is nearly spent. Agree a scope addendum before it goes negative."
+      },
+      "errors": {
+        "closed": "This allowance is closed. A closed allowance accepts no more hours and no more work logs."
+      },
+      "toasts": {
+        "credited": {
+          "title": "Hours credited",
+          "message": "The allowance balance has been updated."
+        },
+        "not_credited": {
+          "title": "Hours not credited",
+          "message": "Something went wrong. Please try again."
+        }
+      }
     }
   }
 }

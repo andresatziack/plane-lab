@@ -51,6 +51,7 @@ from plane.utils.service_pool_alerts import (
     dismiss_alert,
     visible_alerts_for_period,
     workspace_alert_panel,
+    workspace_allowance_alerts,
 )
 
 from ..base import BaseAPIView, BaseViewSet
@@ -263,9 +264,11 @@ class ServiceContractViewSet(BaseViewSet):
     def create_successor(self, request, slug, pk):
         """Section 8c, and acceptance criterion 17.
 
-        ``issue_allowance`` returns ``ISSUE_ALLOWANCE_NOT_AVAILABLE`` with a 501, not a
-        400: the request is well formed and will be valid once Phase 5 ships the
-        allowance entity. A 400 would tell the caller they got it wrong.
+        All three balance destinations work. ``issue_allowance`` used to answer
+        ``ISSUE_ALLOWANCE_NOT_AVAILABLE`` with a 501 because the allowance entity was
+        Phase 5's; Phase 5 shipped it, so the destination now credits the target work
+        item's allowance and the 501 branch is gone. A missing ``target_issue`` is a 400,
+        because that one genuinely is the caller's mistake.
         """
         contract = self.get_queryset().filter(pk=pk).first()
 
@@ -296,12 +299,9 @@ class ServiceContractViewSet(BaseViewSet):
                 target_issue=target_issue,
             )
         except ServicePoolValidationError as error:
-            code = (
-                status.HTTP_501_NOT_IMPLEMENTED
-                if error.code == "ISSUE_ALLOWANCE_NOT_AVAILABLE"
-                else status.HTTP_400_BAD_REQUEST
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
             )
-            return Response({"error": error.code, "detail": error.detail}, status=code)
 
         materialize_contract_periods(successor, actor=request.user)
 
@@ -482,6 +482,12 @@ class ServiceContractAlertPanelEndpoint(BaseAPIView):
                 # so it is fixed before it blocks a technician's first work log with
                 # AMBIGUOUS_CONTRACT_RESOLUTION.
                 "clients_without_default_contract": contracts_without_default(workspace.id),
+                # Work item allowances, in a list of their own rather than folded into
+                # `entries`: that structure is keyed by contract and competency and an
+                # allowance has neither. Included here anyway so an admin opening one panel
+                # sees both kinds of overrun -- a separate endpoint nobody visits is a
+                # place alerts go to be ignored.
+                "allowance_entries": workspace_allowance_alerts(workspace.id),
             },
             status=status.HTTP_200_OK,
         )

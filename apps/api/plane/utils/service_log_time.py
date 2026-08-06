@@ -60,6 +60,21 @@ MULTIPLIER_SCALE = Decimal("0.01")
 
 ZERO_HOURS = Decimal("0.0000")
 
+
+def quantize_hours(value):
+    """Any hour figure at the one scale section 4b fixes.
+
+    Lives here, beside ``HOUR_SCALE``, because both halves of the domain layer that
+    move a balance need it -- ``plane.utils.service_pool`` for contract pools and
+    ``plane.utils.service_allowance`` for work item allowances -- and a second copy of
+    the money quantiser is a second answer to what a client owes.
+
+    Applied at the boundary of every write rather than trusted from the caller: a value
+    that arrives a digit wide would be silently truncated by the column, and the balance
+    would stop reconciling for a reason nobody could see.
+    """
+    return Decimal(value).quantize(HOUR_SCALE)
+
 #: Above this, the form asks for explicit confirmation. It never blocks -- section
 #: 5 of the phase brief calls a 30h entry a legitimate use case (a project worked
 #: end to end) and the confirmation exists only to catch a typo. Defined here so

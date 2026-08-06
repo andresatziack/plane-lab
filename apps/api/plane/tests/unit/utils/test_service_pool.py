@@ -26,6 +26,7 @@ import pytest
 
 # Django imports
 from django.db import IntegrityError
+from django.db.models import Sum
 
 # Module imports
 from plane.db.models import (
@@ -36,6 +37,7 @@ from plane.db.models import (
     ServiceLedgerEntryType,
     ServiceLog,
     ServiceOverageSettlement,
+    ServicePeriodStatus,
 )
 from plane.tests.factories import (
     IssueFactory,
@@ -52,7 +54,7 @@ from plane.utils.service_pool import (
     CONTRACT_OUT_OF_VIGENCY,
     CONTRACT_PINNED_ON_PROJECT_BELONGS_TO_ANOTHER_CLIENT,
     CONTRACT_SUSPENDED,
-    ISSUE_ALLOWANCE_NOT_AVAILABLE,
+    ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE,
     NO_CONTRACT_FOR_CLIENT,
     NO_NEXT_PERIOD_FOR_DEFICIT,
     NO_SERVICE_CLIENT_FOR_PROJECT,
@@ -1482,32 +1484,127 @@ class TestRenewal:
         assert all(e.actor_id == actor.pk for e in expiries)
         assert all(e.notes for e in expiries), "the record says how many hours and why"
 
-    def test_converting_to_a_work_item_allowance_is_not_available_yet(
-        self, client_with_contract, actor
+    def test_converting_the_remaining_balance_into_a_work_item_allowance(
+        self, client_with_contract, catalog, actor
     ):
-        """Criterion 17's third destination belongs to Phase 5.
+        """**Closes criterion 17 of the contract phase**, its third destination.
 
-        The interface, the entry type and the ``target_issue`` argument are all here, so
-        Phase 5 supplies a body rather than a design. Asserted as an explicit code, not
-        as a silent no-op, so nobody mistakes the gap for a working path. Tracked as an
-        inherited criterion.
+        Phase 4 delivered transfer and expiry and left this one raising
+        ``ISSUE_ALLOWANCE_NOT_AVAILABLE`` with a 501, because the allowance entity was
+        Phase 5's. This is the test that criterion asked for: the same path a user takes,
+        with the origin period going to zero and the work item's allowance receiving
+        **exactly** the same hours.
+
+        Also asserts the provenance, which is the part a scalar total cannot answer: the
+        ``CREDIT`` row on the allowance still names the competency the hours came from,
+        so "where did these 20h come from" is answered from the ledger rather than from a
+        note somebody wrote.
         """
+        from plane.db.models import ServiceIssueAllowance
+        from plane.utils.service_allowance import reconcile_allowance
+
+        contract = client_with_contract["contract"]
+        log_hours(
+            project=client_with_contract["project"],
+            actor=actor,
+            catalog=catalog,
+            minutes=10 * 60,
+            worked_on=date(2026, 1, 15),
+        )
+        january = resolve_period(contract, date(2026, 1, 1))
+        assert january.balance_hours == Decimal("20.0000"), "30h contracted, 10h logged"
+
+        # Created after the work log on purpose: an allowance that existed first would
+        # have paid for that log, and then there would be no pool balance to convert.
         issue = IssueFactory(project=client_with_contract["project"])
 
+        successor, moved = end_and_create_successor(
+            contract,
+            code="SUP-004",
+            name="Suporte",
+            monthly_hours=Decimal("20.0000"),
+            starts_on=date(2027, 1, 1),
+            ends_on=date(2027, 12, 31),
+            balance_destination=BalanceDestination.ISSUE_ALLOWANCE,
+            actor=actor,
+            target_issue=issue,
+        )
+
+        conversions = [
+            entry
+            for entry in moved
+            if entry.entry_type == ServiceLedgerEntryType.CONVERTED_TO_ISSUE_ALLOWANCE
+        ]
+
+        assert conversions, "the balance left the period as an audited movement"
+        assert sum(-entry.hours for entry in conversions) == Decimal("20.0000")
+        assert all(entry.actor_id == actor.pk for entry in conversions)
+        assert all(entry.notes for entry in conversions), "the record says how many and why"
+
+        january.refresh_from_db()
+
+        # "The origin period's balance goes to zero" means its **ledger** sums to zero,
+        # which is the invariant Phase 4 chose for a closed period: +30 granted, -10
+        # debited, -20 converted. The period's own `contracted_hours` and `consumed_hours`
+        # stay as the historical record of the month -- rewriting them would destroy the
+        # audit rather than settle it, and is why `reconcile_period` expects zero from the
+        # ledger and not from the columns.
+        assert january.status == ServicePeriodStatus.CLOSED
+        assert (
+            ServiceHourLedgerEntry.objects.filter(period_id=january.pk).aggregate(
+                total=Sum("hours")
+            )["total"]
+            == Decimal("0.0000")
+        ), "everything that was granted either was consumed or left, and each is a row"
+
+        allowance = ServiceIssueAllowance.objects.get(issue_id=issue.pk)
+
+        assert allowance.credited_hours == Decimal("20.0000"), "exactly the hours that left"
+        assert allowance.consumed_hours == Decimal("0.0000")
+        assert allowance.balance_hours == Decimal("20.0000")
+
+        credits = ServiceHourLedgerEntry.objects.filter(
+            allowance_id=allowance.pk, entry_type=ServiceLedgerEntryType.CREDIT
+        )
+
+        assert credits.count() == len(conversions), "credited parcel by parcel"
+        assert all(entry.origin_period_id is not None for entry in credits), (
+            "each credit still names the competency the hours came from"
+        )
+        assert all(entry.period_id is None and entry.contract_id is None for entry in credits), (
+            "an allowance entry has no contract: that isolation is R6, as a null column"
+        )
+
+        # Both sides balance, which is the invariant that makes criterion 20 hold on the
+        # path where hours most easily vanish.
+        for period in ServiceContractPeriod.objects.filter(
+            contract_id=client_with_contract["contract"].pk
+        ):
+            assert reconcile_period(period)["is_consistent"]
+
+        assert reconcile_allowance(allowance)["is_consistent"]
+
+    def test_converting_without_naming_a_work_item_is_refused(self, client_with_contract, actor):
+        """The one failure left on that destination, and it names itself.
+
+        A positive control for the test above: without this, "the conversion did nothing"
+        and "the conversion was refused for lack of a target" look identical from the
+        balance alone, and they are opposite bugs.
+        """
         with pytest.raises(ServicePoolValidationError) as caught:
             end_and_create_successor(
                 client_with_contract["contract"],
-                code="SUP-004",
+                code="SUP-005",
                 name="Suporte",
                 monthly_hours=Decimal("20.0000"),
                 starts_on=date(2027, 1, 1),
                 ends_on=date(2027, 12, 31),
                 balance_destination=BalanceDestination.ISSUE_ALLOWANCE,
                 actor=actor,
-                target_issue=issue,
+                target_issue=None,
             )
 
-        assert caught.value.code == ISSUE_ALLOWANCE_NOT_AVAILABLE
+        assert caught.value.code == ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE
 
 
 # ---------------------------------------------------------------------------

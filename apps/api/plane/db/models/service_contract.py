@@ -107,10 +107,21 @@ class ServiceLedgerEntryType(models.TextChoices):
     ``EXPIRED_BY_CONTRACT_END``   -     balance lost when the contract ended
     ``TRANSFERRED_TO_CONTRACT``   -     balance moved to a successor contract
     ``CONVERTED_TO_ISSUE_ALLOWANCE``  - balance turned into a work item allowance
+    ``CREDIT``                    +     hours credited to a work item allowance
+    ``EXPIRED_BY_ALLOWANCE_CLOSE``  -   an allowance's surplus written off at close
     ==========================  ======  ==================================================
 
+    The last two belong to a **work item allowance** rather than to a competency
+    period, and the sign convention reads against the allowance instead. Phase 5 reuses
+    this table rather than opening a second journal, and the reason is not tidiness:
+    the partial unique index on ``(service_log, entry_type)`` below then makes
+    "debit the allowance **and** the contract for one work log" a state the **database**
+    refuses, because both rows would be a ``DEBIT`` of the same work log. That is
+    acceptance criterion 7 of Phase 5 held structurally instead of by an ``if``.
+
     Two invariants follow from the convention, and both are asserted by
-    ``plane.utils.service_pool.reconcile_period``:
+    ``plane.utils.service_pool.reconcile_period`` -- and, for an allowance, by
+    ``plane.utils.service_allowance.reconcile_allowance``:
 
     * an **OPEN** period's entries sum to its ``balance_hours``;
     * a **CLOSED** period's entries sum to exactly **zero** -- everything either left,
@@ -119,7 +130,8 @@ class ServiceLedgerEntryType(models.TextChoices):
     That second invariant is what makes acceptance criterion 20 -- "saldo nunca
     desaparece sem registro de auditoria" -- true *by construction* rather than by
     diligence. There is no code path that reduces a balance without inserting a row,
-    because the reduction **is** the row.
+    because the reduction **is** the row. A **closed allowance** sums to zero for the
+    same reason and by the same mechanism.
     """
 
     GRANT = "grant", "Monthly quota granted"
@@ -133,6 +145,8 @@ class ServiceLedgerEntryType(models.TextChoices):
     EXPIRED_BY_CONTRACT_END = "expired_by_contract_end", "Expired at contract end"
     TRANSFERRED_TO_CONTRACT = "transferred_to_contract", "Transferred to a successor contract"
     CONVERTED_TO_ISSUE_ALLOWANCE = "converted_to_issue_allowance", "Converted to a work item allowance"
+    CREDIT = "credit", "Hours credited to a work item allowance"
+    EXPIRED_BY_ALLOWANCE_CLOSE = "expired_by_allowance_close", "Allowance surplus written off at close"
 
 
 #: Entry types that record a debit or its reversal against one work log. These are the
@@ -152,12 +166,14 @@ NEGATIVE_ONLY_LEDGER_ENTRY_TYPES = [
     ServiceLedgerEntryType.EXPIRED_BY_CONTRACT_END,
     ServiceLedgerEntryType.TRANSFERRED_TO_CONTRACT,
     ServiceLedgerEntryType.CONVERTED_TO_ISSUE_ALLOWANCE,
+    ServiceLedgerEntryType.EXPIRED_BY_ALLOWANCE_CLOSE,
 ]
 
 #: Entry types that may only ever add hours.
 POSITIVE_ONLY_LEDGER_ENTRY_TYPES = [
     ServiceLedgerEntryType.REVERSAL,
     ServiceLedgerEntryType.OVERAGE_BILLED,
+    ServiceLedgerEntryType.CREDIT,
 ]
 
 #: Entry types that are legitimately signed either way, and therefore have no sign
@@ -694,17 +710,51 @@ class ServiceHourLedgerEntry(WorkspaceBaseModel):
 
     EntryType = ServiceLedgerEntryType
 
+    # ------------------------------------------------------------------- target
+    #
+    # An entry moves the balance of **exactly one** of two things: a competency period
+    # of a contract, or a work item allowance (Phase 5). The three columns below are
+    # nullable for that reason and kept coherent by
+    # `service_ledger_entry_has_exactly_one_target` in DDL.
+    #
+    # **The nullability is paid for, not merely accepted.** The constraint makes the
+    # table *more* restricted than it was when `contract` and `period` were both
+    # mandatory: it also forbids an entry whose `contract` disagrees with its period's
+    # own contract, which was representable before. What it buys is that Phase 5 reuses
+    # this journal instead of opening a second one, which is what makes a double debit
+    # impossible at the database level -- see the note on the unique index below.
+
     contract = models.ForeignKey(
         "db.ServiceContract",
         on_delete=models.DO_NOTHING,
         related_name="ledger_entries",
+        null=True,
+        blank=True,
     )
 
-    # The period whose balance this entry moves.
+    # The period whose balance this entry moves. Null on an allowance entry.
     period = models.ForeignKey(
         "db.ServiceContractPeriod",
         on_delete=models.DO_NOTHING,
         related_name="ledger_entries",
+        null=True,
+        blank=True,
+    )
+
+    # The work item allowance whose balance this entry moves. Null on a period entry.
+    #
+    # DO_NOTHING, like every other billing foreign key here. Not CASCADE: an allowance
+    # is soft deleted when its work item is, and `soft_delete_related_objects` funnels
+    # CASCADE into soft deleting the related rows -- which would soft delete ledger
+    # entries, and this table is append-only. Not SET_NULL either, for the same reason
+    # spelled out on `service_log`: nulling it would strand the entry with no target and
+    # break the constraint above.
+    allowance = models.ForeignKey(
+        "db.ServiceIssueAllowance",
+        on_delete=models.DO_NOTHING,
+        related_name="ledger_entries",
+        null=True,
+        blank=True,
     )
 
     # Which competency the hours in this parcel originally came from, which is what
@@ -715,6 +765,13 @@ class ServiceHourLedgerEntry(WorkspaceBaseModel):
     # Null on the entry types that do not belong to a single parcel: `DEBIT`,
     # `REVERSAL` and `OVERAGE_BILLED`. A debit is deliberately **not** allocated to a
     # parcel at debit time -- see the note on the unique index below.
+    #
+    # It also carries **provenance across the two kinds of target**: when a contract's
+    # remaining balance is converted into a work item allowance (Phase 4's criterion 17,
+    # closed in Phase 5), the `CREDIT` row lands on the allowance with `period` null and
+    # `origin_period` pointing at the competency the hours came from. So "these 12h came
+    # from the 2026-03 competency of contract X" stays queryable without a new column
+    # and without a new entry type.
     origin_period = models.ForeignKey(
         "db.ServiceContractPeriod",
         on_delete=models.DO_NOTHING,
@@ -793,10 +850,31 @@ class ServiceHourLedgerEntry(WorkspaceBaseModel):
             # An edit survives this index because `replace_service_log_batch` creates
             # rows with new primary keys, so the new DEBIT points at a different work
             # log than the old one. Verified against that function's docstring.
+            # **This index is also what holds Phase 5's acceptance criterion 7**, and
+            # that is the reason the allowance reuses this table instead of getting a
+            # journal of its own. "Estourar a bolsa não debita do contrato em nenhuma
+            # circunstância" and "sem débito parcial nos dois" would otherwise be an
+            # ordering property of an `if` in `apply_debit`. Here both rows would be a
+            # `DEBIT` of the same work log, so the **database** refuses the second one --
+            # a state made unrepresentable rather than merely validated against.
             models.UniqueConstraint(
                 fields=["service_log", "entry_type"],
                 condition=Q(entry_type__in=SERVICE_LOG_LEDGER_ENTRY_TYPES, service_log__isnull=False),
                 name="service_ledger_unique_debit_reversal_per_service_log",
+            ),
+            # EXACTLY ONE TARGET, in DDL. An entry moves a competency period's balance or
+            # a work item allowance's balance, never both and never neither.
+            #
+            # This is what pays for `contract` and `period` becoming nullable, and it
+            # leaves the table stricter than it was: "a period entry whose `contract`
+            # points somewhere other than that period's contract" was representable
+            # before and is not now.
+            models.CheckConstraint(
+                condition=(
+                    Q(period__isnull=False, contract__isnull=False, allowance__isnull=True)
+                    | Q(allowance__isnull=False, period__isnull=True, contract__isnull=True)
+                ),
+                name="service_ledger_entry_has_exactly_one_target",
             ),
             # Signs match meaning, in DDL. An `EXPIRED_BY_CAP` of +5 would be a credit
             # wearing a write-off's name, and it would reconcile perfectly.
@@ -818,6 +896,9 @@ class ServiceHourLedgerEntry(WorkspaceBaseModel):
             # "What did this work log do to the pool", for the work item panel.
             models.Index(fields=["service_log"], name="svc_ledger_service_log_idx"),
             models.Index(fields=["contract", "created_at"], name="svc_ledger_contract_idx"),
+            # The allowance counterpart of the first two: reconciliation and the credit
+            # history read one allowance's entries.
+            models.Index(fields=["allowance", "entry_type"], name="svc_ledger_allowance_idx"),
         ]
 
     def __str__(self):

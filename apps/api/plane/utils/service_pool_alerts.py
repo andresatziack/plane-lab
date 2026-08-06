@@ -29,6 +29,10 @@ from plane.db.models import (
     ServiceContractAlertDismissal,
     ServiceLog,
 )
+from plane.utils.service_allowance import (
+    open_allowances_for_workspace,
+    workspace_allowance_hours_by_period,
+)
 from plane.utils.service_pool import (
     CONTRACT_OUT_OF_VIGENCY,
     CONTRACT_SUSPENDED,
@@ -65,7 +69,30 @@ ACCRUED_BALANCE_ABOVE_THRESHOLD = "ACCRUED_BALANCE_ABOVE_THRESHOLD"
 HOURS_DISCARDED_BY_CAP = "HOURS_DISCARDED_BY_CAP"
 
 #: Not one work log all month. Acceptance criterion 19.
+#:
+#: **This alert is legitimately triggered by a client who is being actively served**, and
+#: the detail is what stops it lying. Work paid by a work item allowance has
+#: ``debited_period`` null, so it does not count here -- which is correct, because this
+#: alert is about consumption *of the contract*, and a client whose work all goes to
+#: project allowances genuinely is not consuming the support they pay for. That is a real
+#: renewal signal.
+#:
+#: What would be wrong is the *wording* a naive reader takes from it. "Cliente sem
+#: atendimento" about a client with 40h of project work that month gets somebody to make
+#: an embarrassing phone call. So the alert carries ``allowance_hours_in_period``, and the
+#: frontend renders "sem apontamentos no contrato (Nh em bolsas de projeto)". The logic is
+#: unchanged; only the context is added. Fixed by a characterisation test.
 NO_SERVICE_LOGS_IN_MONTH = "NO_SERVICE_LOGS_IN_MONTH"
+
+#: A work item allowance has gone negative. Section 3 of the Phase 5 brief: overflowing an
+#: allowance never blocks the work log, "a bolsa fica com saldo negativo e o alerta
+#: aparece". Never a block, for the same reason ``NEGATIVE_BALANCE`` is not.
+ALLOWANCE_NEGATIVE_BALANCE = "ALLOWANCE_NEGATIVE_BALANCE"
+
+#: A work item allowance is past its consumption threshold but still positive -- the
+#: warning that arrives while there is still time to negotiate an aditivo de escopo
+#: rather than after the hours are gone.
+ALLOWANCE_HIGH_CONSUMPTION = "ALLOWANCE_HIGH_CONSUMPTION"
 
 #: Severities, so a caller cannot render one extreme and silently drop the other.
 SEVERITY_HIGH_CONSUMPTION = "high_consumption"
@@ -82,7 +109,19 @@ _SEVERITY_BY_CODE = {
     NO_SERVICE_LOGS_IN_MONTH: SEVERITY_LOW_CONSUMPTION,
     CONTRACT_OUT_OF_VIGENCY: SEVERITY_CONTRACT,
     CONTRACT_SUSPENDED: SEVERITY_CONTRACT,
+    ALLOWANCE_NEGATIVE_BALANCE: SEVERITY_HIGH_CONSUMPTION,
+    ALLOWANCE_HIGH_CONSUMPTION: SEVERITY_HIGH_CONSUMPTION,
 }
+
+#: When a work item allowance starts warning, as a percentage of what was credited.
+#:
+#: A module constant rather than a column on the allowance, unlike
+#: ``ServiceContract.high_consumption_threshold_pct``. A contract is a negotiated
+#: agreement whose thresholds are part of what was agreed; an allowance is one project's
+#: pool, and giving every one of them its own threshold field would be a setting nobody
+#: fills in. If a real need for per-allowance thresholds appears, that is the moment to
+#: add the column, with the case that justified it.
+ALLOWANCE_HIGH_CONSUMPTION_PCT = Decimal("80.00")
 
 #: How much worse a balance has to get before a dismissed alert fires again.
 #: Decision B2, and the hole it closes: with a plain unique on ``(period,
@@ -131,7 +170,7 @@ def period_service_log_count(period):
     return ServiceLog.objects.filter(debited_period_id=period.pk).count()
 
 
-def evaluate_period(period, *, reference_date=None, service_log_count=None):
+def evaluate_period(period, *, reference_date=None, service_log_count=None, allowance_hours=None):
     """Every alert that applies to one open competency period.
 
     Returns a list of dicts carrying the code, the severity and the numbers that
@@ -188,7 +227,23 @@ def evaluate_period(period, *, reference_date=None, service_log_count=None):
         service_log_count = period_service_log_count(period)
 
     if service_log_count == 0 and period.starts_on <= reference_date:
-        add(NO_SERVICE_LOGS_IN_MONTH, competence=period.competence_label)
+        # The context, not a change of logic. See the note on NO_SERVICE_LOGS_IN_MONTH:
+        # without this number the alert reads as "this client is not being served", which
+        # is false for a client whose work is all on project allowances. Computed only
+        # when the alert actually fires, so the cost is paid only for clients that look
+        # idle.
+        if allowance_hours is None:
+            from plane.utils.service_allowance import workspace_allowance_hours_by_period
+
+            allowance_hours = workspace_allowance_hours_by_period([period.pk]).get(
+                period.pk, Decimal("0.0000")
+            )
+
+        add(
+            NO_SERVICE_LOGS_IN_MONTH,
+            competence=period.competence_label,
+            allowance_hours_in_period=str(allowance_hours),
+        )
 
     if (
         consumed_pct is not None
@@ -274,14 +329,19 @@ def is_alert_dismissed(dismissal, current_balance):
     return Decimal(current_balance) >= (Decimal(dismissal.balance_at_dismissal) - ALERT_REARM_BAND_HOURS)
 
 
-def visible_alerts_for_period(period, *, reference_date=None, service_log_count=None):
+def visible_alerts_for_period(
+    period, *, reference_date=None, service_log_count=None, allowance_hours=None
+):
     """The alerts of one period that have not been dismissed away.
 
     Section 9 requires alerts to be dismissible "para não virar ruído", and decision B2
     requires the dismissal to expire when things get materially worse.
     """
     alerts = evaluate_period(
-        period, reference_date=reference_date, service_log_count=service_log_count
+        period,
+        reference_date=reference_date,
+        service_log_count=service_log_count,
+        allowance_hours=allowance_hours,
     )
 
     dismissals = {
@@ -342,6 +402,12 @@ def workspace_alert_panel(workspace_id, *, reference_date=None, contract_id=None
     periods = list(open_periods_for_workspace(workspace_id, contract_id=contract_id))
     counts = _service_log_counts([period.pk for period in periods])
 
+    # Batched for the same reason the counts are: this is the only place in the feature
+    # that scans a whole workspace, so it is the only place an N+1 would be felt. Only
+    # the periods that look idle need the number at all.
+    idle_period_ids = [period.pk for period in periods if counts.get(period.pk, 0) == 0]
+    allowance_hours = workspace_allowance_hours_by_period(idle_period_ids)
+
     entries = []
 
     for period in periods:
@@ -349,6 +415,7 @@ def workspace_alert_panel(workspace_id, *, reference_date=None, contract_id=None
             period,
             reference_date=reference_date,
             service_log_count=counts.get(period.pk, 0),
+            allowance_hours=allowance_hours.get(period.pk, Decimal("0.0000")),
         )
 
         if not alerts:
@@ -393,6 +460,89 @@ def _service_log_counts(period_ids):
     )
 
     return {row["debited_period_id"]: row["total"] for row in rows}
+
+
+# ---------------------------------------------------------------------------
+# Work item allowances -- section 3 of the Phase 5 brief
+# ---------------------------------------------------------------------------
+
+
+def evaluate_allowance(allowance):
+    """Every alert that applies to one open work item allowance.
+
+    Two, and they are mutually exclusive by construction: a negative balance, or high
+    consumption while still positive. Emitting both for the same allowance would be one
+    fact reported twice, and a panel counting alerts would double it.
+
+    **Neither blocks anything.** Section 3 is explicit that overflowing an allowance does
+    not stop work already performed -- the balance goes negative and the alert appears.
+    Same reasoning as D4 and ``NEGATIVE_BALANCE`` for a contract pool.
+    """
+    balance = allowance.balance_hours
+    credited = allowance.credited_hours
+    consumed_pct = _pct(allowance.consumed_hours, credited)
+
+    alerts = []
+
+    def add(code, **detail):
+        alerts.append({"code": code, "severity": _SEVERITY_BY_CODE[code], **detail})
+
+    if balance < 0:
+        add(
+            ALLOWANCE_NEGATIVE_BALANCE,
+            balance_hours=str(balance),
+            credited_hours=str(credited),
+            consumed_hours=str(allowance.consumed_hours),
+        )
+    elif consumed_pct is not None and consumed_pct >= ALLOWANCE_HIGH_CONSUMPTION_PCT:
+        add(
+            ALLOWANCE_HIGH_CONSUMPTION,
+            consumed_pct=str(consumed_pct.quantize(Decimal("0.01"))),
+            threshold_pct=str(ALLOWANCE_HIGH_CONSUMPTION_PCT),
+            balance_hours=str(balance),
+        )
+
+    return alerts
+
+
+def workspace_allowance_alerts(workspace_id, *, project_id=None):
+    """Every work item allowance in a workspace that needs attention, with why.
+
+    Returned as its own list rather than folded into ``workspace_alert_panel``'s entries,
+    because that structure is keyed by contract and competency and an allowance has
+    neither. Merging them would have meant giving every entry a nullable contract, which
+    is the shape that makes a caller guess.
+
+    **There is no dismissal for these**, unlike period alerts. ``ServiceContractAlertDismissal``
+    has a mandatory foreign key to a period, and reusing it would need a second nullable
+    pair plus its own exclusivity constraint for a feature section 3 does not ask for --
+    it asks only that the alert appears. Named debt for **Phase 9**, which owns the
+    dashboards, rather than hidden in a comment.
+    """
+    entries = []
+
+    for allowance in open_allowances_for_workspace(workspace_id, project_id=project_id):
+        alerts = evaluate_allowance(allowance)
+
+        if not alerts:
+            continue
+
+        entries.append(
+            {
+                "allowance_id": str(allowance.pk),
+                "issue_id": str(allowance.issue_id),
+                "issue_name": allowance.issue.name,
+                "project_id": str(allowance.project_id),
+                "project_name": allowance.project.name,
+                "reference": allowance.reference,
+                "credited_hours": str(allowance.credited_hours),
+                "consumed_hours": str(allowance.consumed_hours),
+                "balance_hours": str(allowance.balance_hours),
+                "alerts": alerts,
+            }
+        )
+
+    return entries
 
 
 def contracts_without_default(workspace_id):
