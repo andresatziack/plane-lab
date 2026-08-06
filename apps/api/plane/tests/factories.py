@@ -9,6 +9,7 @@ from django.utils import timezone
 from decimal import Decimal
 
 from plane.db.models import (
+    Issue,
     User,
     Workspace,
     WorkspaceMember,
@@ -17,6 +18,8 @@ from plane.db.models import (
     ServiceBillingType,
     ServiceClient,
     ServiceHourType,
+    ServiceLog,
+    State,
 )
 
 
@@ -79,6 +82,10 @@ class ProjectFactory(factory.django.DjangoModelFactory):
 
     id = factory.LazyFunction(uuid4)
     name = factory.Sequence(lambda n: f"Project {n}")
+    # Project has a unique (identifier, workspace) constraint for live rows, and the
+    # column is not nullable. Without a distinct value here, the second project built
+    # in one workspace collides on the empty string.
+    identifier = factory.Sequence(lambda n: f"PRJ{n}")
     workspace = factory.SubFactory(WorkspaceFactory)
     created_by = factory.SelfAttribute("workspace.owner")
     updated_by = factory.SelfAttribute("workspace.owner")
@@ -159,5 +166,91 @@ class ServiceBillingTypeFactory(factory.django.DjangoModelFactory):
     is_active = True
     is_default = False
     workspace = factory.SubFactory(WorkspaceFactory)
+    created_at = factory.LazyFunction(timezone.now)
+    updated_at = factory.LazyFunction(timezone.now)
+
+
+
+class StateFactory(factory.django.DjangoModelFactory):
+    """Factory for creating State instances.
+
+    Only needed so that IssueFactory has a state to point at. ``Issue.save()`` calls
+    ``_ensure_default_state()``, which looks for the project's default state and
+    leaves the field null when the project has none -- and a null state makes
+    ``sort_order`` grouping and most issue queries behave oddly. Creating one
+    explicitly keeps work log tests focused on work logs.
+    """
+
+    class Meta:
+        model = State
+        django_get_or_create = ("name", "project")
+
+    id = factory.LazyFunction(uuid4)
+    name = "Backlog"
+    project = factory.SubFactory(ProjectFactory)
+    workspace = factory.SelfAttribute("project.workspace")
+    group = "backlog"
+    default = True
+    created_at = factory.LazyFunction(timezone.now)
+    updated_at = factory.LazyFunction(timezone.now)
+
+
+class IssueFactory(factory.django.DjangoModelFactory):
+    """Factory for creating Issue instances.
+
+    ``sequence_id`` and ``sort_order`` are set by ``Issue.save()`` under a per-project
+    advisory lock, so they are deliberately not specified here.
+    """
+
+    class Meta:
+        model = Issue
+
+    id = factory.LazyFunction(uuid4)
+    name = factory.Sequence(lambda n: f"Work item {n}")
+    project = factory.SubFactory(ProjectFactory)
+    workspace = factory.SelfAttribute("project.workspace")
+    state = factory.SubFactory(StateFactory, project=factory.SelfAttribute("..project"))
+    created_at = factory.LazyFunction(timezone.now)
+    updated_at = factory.LazyFunction(timezone.now)
+
+
+class ServiceLogFactory(factory.django.DjangoModelFactory):
+    """Factory for creating ServiceLog instances.
+
+    The three hour quantities and the two R4 snapshots default to a coherent set for
+    one billable hour at multiplier 1.00, so a test that does not care about the
+    arithmetic gets a valid row. A test that *does* care should go through
+    ``plane.utils.service_log.build_batch_rows`` instead, which is the code the API
+    uses -- the check constraint tying ``debited_hours`` to the billing route will
+    reject an incoherent combination passed here, which is the point of it.
+    """
+
+    class Meta:
+        model = ServiceLog
+
+    id = factory.LazyFunction(uuid4)
+    issue = factory.SubFactory(IssueFactory)
+    project = factory.SelfAttribute("issue.project")
+    workspace = factory.SelfAttribute("issue.workspace")
+    author = factory.SubFactory(UserFactory)
+    worked_on = factory.LazyFunction(lambda: timezone.now().date())
+    description = "Worked on the thing"
+    entry_mode = ServiceLog.EntryMode.DURATION
+    start_time = None
+    end_time = None
+    source = ServiceLog.Source.MANUAL
+    raw_duration_minutes = 60
+    logged_hours = Decimal("1.0000")
+    equivalent_hours = Decimal("1.0000")
+    debited_hours = Decimal("1.0000")
+    applied_multiplier = Decimal("1.00")
+    applied_billing_route = ServiceBillingType.BillingRoute.DEBIT_POOL
+    hour_type = factory.SubFactory(ServiceHourTypeFactory, workspace=factory.SelfAttribute("..issue.workspace"))
+    billing_type = factory.SubFactory(ServiceBillingTypeFactory, workspace=factory.SelfAttribute("..issue.workspace"))
+    suggested_hour_type = None
+    is_hour_type_overridden = False
+    classification_reason = ""
+    batch_id = factory.LazyFunction(uuid4)
+    segment_index = 0
     created_at = factory.LazyFunction(timezone.now)
     updated_at = factory.LazyFunction(timezone.now)
