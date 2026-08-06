@@ -114,8 +114,9 @@ Esta separação é obrigatória e deve estar explícita no modelo de dados:
 3. **Horas equivalentes** — horas apontadas × multiplicador do Tipo de Hora.
    Ex.: `1.25 × 1.5 = 1.875`. É a grandeza que gera valor em R$, e a **única que
    o cliente vê** (regra R11).
-4. **Horas debitadas** — igual às equivalentes, exceto quando o apontamento é de
-   garantia, e aí vale `0`. É o que efetivamente sai do pool.
+4. **Horas debitadas** — igual às equivalentes, exceto quando a rota de
+   faturamento do Tipo de Atendimento é `NON_BILLABLE`, e aí vale `0`. É o que
+   efetivamente sai do pool.
 
 Motivo desta modelagem: 1h trabalhada fora do expediente "custa" 1,5h para o
 cliente de contrato e R$ 300,00 em vez de R$ 200,00 para o cliente avulso. O
@@ -221,10 +222,33 @@ valor/hora vigente, e a referência do pool/contrato debitado. Alterar
 configuração de tipos, multiplicadores, janelas, feriados ou preços depois
 NUNCA recalcula apontamentos já existentes.
 
-### R5 — Garantia
-Apontamento com `garantia = true`:
+### R5 — Apontamento não faturável (Garantia e Cortesia)
+
+**Não existe flag booleana de garantia.** "Não cobrar" é decidido por um único
+mecanismo: a rota de faturamento do Tipo de Atendimento
+(`ServiceBillingType.billing_route == NON_BILLABLE`).
+
+Apontamento cuja rota é `NON_BILLABLE`:
 - aparece normalmente na lista e soma no **total de horas apontadas**
-- NÃO debita pool, NÃO gera valor em R$, NÃO soma no **total faturável**
+- tem `horas_equivalentes` calculadas normalmente (multiplicador aplicado)
+- tem `horas_debitadas = 0`
+- NÃO debita pool, NÃO consome bolsa, NÃO gera valor em R$, NÃO soma no
+  **total faturável**
+
+O seed traz dois tipos distintos com essa rota, e a distinção entre eles é de
+gestão, não de mecanismo:
+
+| Tipo | Significado | O que um volume alto indica |
+|---|---|---|
+| **Garantia** | retrabalho sob garantia — o serviço já foi cobrado e você está corrigindo | problema de qualidade na sua entrega |
+| **Cortesia** | decisão comercial discricionária de não cobrar | desconto concedido |
+
+Relatórios e dashboards agrupam por **Tipo de Atendimento**, então os dois
+permanecem separados sem campo extra. Nunca somar Garantia e Cortesia num único
+indicador de "não faturado": as ações de gestão são opostas.
+
+O admin pode criar outros tipos com a mesma rota (ex.: "Erro interno",
+"Pré-venda") pelo painel, sem código.
 
 ### R6 — Hierarquia de débito
 1. Se o work item tem bolsa de horas própria → debita da bolsa do work item
@@ -270,19 +294,19 @@ final que o cliente verá.
 | Horas debitadas | vê | vê | vê | vê |
 | Multiplicador numérico | vê | vê | vê | não vê |
 | Tipo de Hora (rótulo) | vê | vê | vê | vê |
+| Tipo de Atendimento (rótulo, ex.: "Garantia") | vê | vê | vê | vê |
 | Descrição do apontamento | vê | vê | vê | vê |
 | Autor do apontamento | vê | vê | vê | vê |
-| Flag de Garantia | vê | vê | vê | vê |
 | Valor em R$ | não vê | não vê | vê | só se avulso |
 
 Consequências obrigatórias:
 
 **(a) `horas_equivalentes` e `horas_debitadas` são campos distintos.** As
 equivalentes são sempre calculadas (horas apontadas × multiplicador). As debitadas
-são `0` quando o apontamento é de garantia, e iguais às equivalentes nos outros
-casos. Assim o cliente sempre vê a mesma grandeza, e o apontamento de garantia
-aparece para ele como esforço realizado com `0h` descontado — o que evidencia a
-cortesia concedida em vez de esconder o trabalho.
+são `0` quando a rota é `NON_BILLABLE`, e iguais às equivalentes nos outros casos.
+Assim o cliente sempre vê a mesma grandeza, e o apontamento de Garantia ou
+Cortesia aparece para ele como esforço realizado com `0h` descontado — o que
+evidencia a concessão em vez de esconder o trabalho.
 
 **(b) A restrição é de serializer, não de UI.** O endpoint consumido pelo portal
 do cliente deve usar um serializer dedicado que **não inclui** os campos de
@@ -358,9 +382,19 @@ estrutura**. Detalhes com arquivo e linha em `ACHADOS-DO-CODIGO.md`.
   deletados) e `all_objects`. Toda constraint de unicidade segue o padrão duplo
   da casa: `unique_together` incluindo `deleted_at` **mais** um
   `UniqueConstraint` condicional com `Q(deleted_at__isnull=True)`.
-- Auditoria (regra R8): usar `ChangeTrackerMixin` (`TRACKED_FIELDS`) e o padrão
-  de `IssueActivity` + task `issue_activity.delay(...)`. Não inventar mecanismo
-  próprio.
+- Auditoria — são **duas trilhas distintas**, não misturar:
+  - **Alteração de configuração que afeta dinheiro** (multiplicador, rota de
+    faturamento, contrato, preço, teto de acúmulo): usar `ChangeTrackerMixin`
+    com `TRACKED_FIELDS` e persistir em **`ServiceConfigActivity`**
+    (`plane/db/models/service_config_activity.py`), entregue na Fase 2. É
+    append-only, gravada **sincronamente na mesma transação** da alteração, e
+    lida por `GET /api/workspaces/<slug>/service-config-activities/` restrito a
+    ADMIN de workspace. **As Fases 4 e 6 reutilizam esse modelo** — não criar uma
+    segunda tabela de auditoria de configuração.
+  - **Atividade do apontamento** (regra R8): trilha por work item, seguindo o
+    padrão `IssueActivity` + task `issue_activity.delay(...)`. Não usar
+    `ServiceConfigActivity` para isso.
+  Não inventar mecanismo próprio em nenhum dos dois casos.
 - API em duas camadas: `plane.app` em `/api/` (sessão) e `plane.api` em
   `/api/v1/` (API key). `BaseViewSet` / `BaseAPIView` em
   `plane/app/views/base.py`; `BaseSerializer` / `DynamicBaseSerializer` em

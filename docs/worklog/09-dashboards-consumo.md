@@ -16,7 +16,10 @@ Comum a todos os dashboards de Cliente:
 - **Distribuição por Tipo de Hora** — quanto do consumo foi comercial, fora do
   expediente, domingos e feriados
 - **Distribuição por Tipo de Atendimento**
-- **Horas em garantia** — total não cobrado no período, separado
+- **Horas não faturáveis** — total não cobrado no período, **separado por Tipo
+  de Atendimento**. Nunca somar Garantia e Cortesia num único número: alta
+  garantia indica problema de qualidade na entrega, alta cortesia indica desconto
+  concedido — ações de gestão opostas (R5)
 - Bolsas de horas ativas por chamado, com saldo de cada
 
 Específico do Cliente com contrato:
@@ -42,8 +45,8 @@ diferentes: não existe "contratado vs. consumido". Exibir, para cada período:
 - **Distribuição por Tipo de Hora**, com horas **e** valor em cada faixa (deixa
   visível quanto do custo vem de trabalho fora do expediente)
 - **Ticket médio por chamado**, em horas e em R$
-- Horas em garantia e o valor que **deixou de ser cobrado** — é o desconto real
-  concedido ao cliente, e precisa ser visível
+- Horas não faturáveis e o valor que **deixou de ser cobrado**, separado por
+  Tipo de Atendimento — é o desconto real concedido, e precisa ser visível
 
 Todo indicador do cliente avulso tem as duas leituras: horas e reais. Só horas
 não permite discutir faturamento; só reais não permite discutir esforço.
@@ -106,7 +109,7 @@ Restrições:
 ### 4. Filtros globais
 
 Período, Cliente, projeto, técnico, tipo de hora, tipo de atendimento, incluir
-ou excluir garantia. Todos os números exibidos precisam ser rastreáveis até a
+ou excluir os não faturáveis. Todos os números exibidos precisam ser rastreáveis até a
 lista de apontamentos que os originou — se o admin não puder clicar no total e
 ver a lista, o relatório não substitui o Power BI.
 
@@ -165,7 +168,8 @@ competência se o volume exigir. Definir e documentar a estratégia.
 
 1. Gráfico de consumo do mês corrente bate exatamente com a soma dos
    apontamentos do período
-2. Horas em garantia aparecem separadas e não inflam o consumo do contrato
+2. Horas não faturáveis aparecem separadas por Tipo de Atendimento e não inflam
+   o consumo do contrato
 3. Consumo de bolsa de work item não aparece como consumo do contrato
 4. Saldo acumulado exibido bate com a soma dos saldos transportados dos períodos
    anteriores

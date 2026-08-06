@@ -26,7 +26,6 @@ abre um formulário com:
 | Hora início / Hora fim | Time pickers                | Sim, no modo Intervalo | Regra R9                                       |
 | Data do atendimento    | Date picker                 | Sim                    | Não permitir data futura                       |
 | Descrição              | Textarea                    | Sim                    | Detalhes do que foi feito                      |
-| Garantia               | Checkbox                    | Não                    | Regra R5                                       |
 | Tipo de Hora           | Dropdown (catálogo)         | Sim                    | Pré-selecionado pela detecção da Fase 2b       |
 | Tipo de Atendimento    | Dropdown (catálogo)         | Sim                    | Pré-selecionado pelo padrão do Cliente         |
 | Autor                  | Seletor de membro           | Não                    | Só visível com permissão de delegação (Fase 7) |
@@ -93,9 +92,13 @@ Campos do apontamento, no mínimo:
 - `duracao_bruta_minutos` (int) — o que foi informado
 - `horas_apontadas` (Decimal) — após arredondamento
 - `horas_equivalentes` (Decimal) — após multiplicador
-- `horas_debitadas` (Decimal) — igual às equivalentes, ou `0` se garantia (R11)
+- `horas_debitadas` (Decimal) — igual às equivalentes, ou `0` quando a rota do
+  Tipo de Atendimento é `NON_BILLABLE` (R5, R11)
 - `multiplicador_aplicado` (Decimal) — snapshot, regra R4
-- tipo de hora, tipo de atendimento, flag de garantia
+- tipo de hora, tipo de atendimento
+- `rota_faturamento_aplicada` — snapshot da rota do Tipo de Atendimento no
+  momento da criação (R4). Dois tipos podem compartilhar a mesma rota, e sem o
+  snapshot um relatório histórico não os separa depois de uma edição de catálogo
 - tipo de hora sugerido pelo motor e flag de sobrescrita manual
 - identificador de lançamento (para apontamentos gerados por divisão)
 - timestamps e trilha de alterações (regra R8)
@@ -111,11 +114,13 @@ explícita antes de salvar, para prevenir erro de digitação.
 Seção de apontamentos exibindo, **na visão do técnico e do Admin**:
 
 - Lista: data, horário (quando houver), autor, tempo formatado, tipo de hora,
-  tipo de atendimento, descrição, indicador visual de garantia
+  tipo de atendimento, descrição, e selo visível quando a rota é `NON_BILLABLE`
+  (ex.: "Garantia", "Cortesia")
 - Ordenação por data do atendimento, mais recente primeiro
-- **Total de horas apontadas** — soma cronológica de tudo, inclusive garantia
+- **Total de horas apontadas** — soma cronológica de tudo, inclusive os não
+  faturáveis
 - **Total de horas equivalentes** — com multiplicador aplicado
-- **Total de horas debitadas** — excluindo garantia
+- **Total de horas debitadas** — excluindo os de rota `NON_BILLABLE`
 - Ações de editar e excluir (permissões vêm na Fase 7; por ora, apenas o autor)
 
 Os totais devem ser claramente rotulados e distintos. Confundi-los é o erro mais
@@ -155,8 +160,9 @@ recalcular apontamento por apontamento.
 10. Modo Duração com `3h` numa terça-feira cria 1 apontamento e deixa o Tipo de
     Hora para o técnico escolher
 11. Excluir um lançamento dividido remove todos os seus segmentos
-12. Apontamento com Garantia marcada soma no total apontado e não soma no total
-    faturável
+12. Apontamento com Tipo de Atendimento de rota `NON_BILLABLE` (Garantia ou
+    Cortesia) soma no total apontado, tem `horas_equivalentes` calculadas
+    normalmente e `horas_debitadas = 0`, e não soma no total faturável
 13. Apontamento de `30h` salva, mostrando aviso de confirmação antes
 14. Data futura é rejeitada
 15. Alterar o multiplicador do catálogo depois não muda `horas_equivalentes` de

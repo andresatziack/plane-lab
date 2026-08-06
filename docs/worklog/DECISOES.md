@@ -197,3 +197,55 @@ foi reescrita com a estrutura real.
    adicionam. Isso a torna a fase de maior atrito em merges futuros com o upstream,
    e a de maior risco de segurança se implementada na ordem errada — a allowlist de
    campos precisa vir **antes** de incluir GUEST no `partial_update`.
+
+
+---
+
+## D20 — A flag booleana `garantia` foi eliminada
+
+Decidida durante a implementação da Fase 2, quando ficou visível que "Cortesia"
+(um Tipo de Atendimento de rota `NON_BILLABLE`) e a flag booleana `garantia`
+produziam o mesmo efeito por dois caminhos diferentes.
+
+**O problema.** Com os dois mecanismos, nada definia o comportamento de um
+apontamento marcado como garantia **e** com Tipo de Atendimento "Cortesia". Rota
+de faturamento é um eixo único e precisa de um mecanismo único.
+
+**A decisão.** A flag deixa de existir. "Não cobrar" passa a ser expresso
+exclusivamente por `ServiceBillingType.billing_route == NON_BILLABLE`, e o seed
+traz **dois tipos distintos** com essa rota:
+
+| Tipo | Significado | O que um volume alto indica |
+|---|---|---|
+| **Garantia** | retrabalho — o serviço já foi cobrado e você está corrigindo | problema de qualidade na sua entrega |
+| **Cortesia** | decisão comercial de não cobrar | desconto concedido |
+
+**Por que não fundir os dois num só.** São o mesmo mecanismo mas informações
+diferentes, com ações de gestão opostas. Um mês com 20h de garantia é um problema
+de execução; com 20h de cortesia é um desconto deliberado. Os relatórios agrupam
+por Tipo de Atendimento, então a distinção sobrevive sem campo extra — e o admin
+pode criar outros motivos ("Erro interno", "Pré-venda") pelo painel, sem código.
+
+**Ganho colateral:** o formulário de apontamento perde um campo, e o catálogo
+ganha extensibilidade que a flag não tinha.
+
+Onde foi aplicada: R5 reescrita e R11 no contexto mestre; §4 (grandeza 4) e §4b;
+Fases 3, 4, 5, 6, 8 e 9.
+
+**Consequência para a Fase 3:** `horas_debitadas = 0` e `valor = 0` passam a ser
+derivados da rota, não de uma flag. E o apontamento precisa snapshotar a **rota
+aplicada** além do multiplicador — a R4 citava apenas o multiplicador, mas dois
+Tipos de Atendimento podem compartilhar a mesma rota, e sem o snapshot um
+relatório histórico não consegue separá-los depois de uma edição de catálogo.
+
+## Alinhamento de nomenclatura com o código entregue
+
+Os documentos citavam os valores da rota de faturamento em português
+(`DEBITA_POOL`, `FATURA_REAIS`, `NAO_FATURAVEL`). A Fase 2 implementou seguindo a
+convenção da casa, com valores em inglês. Os documentos foram alinhados ao código:
+
+| Nos documentos (antes) | No código (`ServiceBillingType.BillingRoute`) |
+|---|---|
+| `DEBITA_POOL` | `DEBIT_POOL` = `"debit_pool"` |
+| `FATURA_REAIS` | `BILL_AMOUNT` = `"bill_amount"` |
+| `NAO_FATURAVEL` | `NON_BILLABLE` = `"non_billable"` |
