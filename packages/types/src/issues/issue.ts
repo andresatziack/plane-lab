@@ -63,6 +63,12 @@ export type TBaseIssue = {
   cycle_id: string | null;
   module_ids: string[] | null;
   type_id: string | null;
+  /**
+   * Client company, derived read-only from the work item's project. It is never
+   * stored on the work item and is not editable here: to change the client of a
+   * work item, move it to a project that belongs to that client.
+   */
+  service_client_id?: string | null;
 
   created_at: string;
   updated_at: string;

@@ -33,6 +33,7 @@ export * from "./router";
 export * from "./string";
 export * from "./subscription";
 export * from "./tab-indices";
+export * from "./tax-id";
 export * from "./theme";
 export { resolveGeneralTheme } from "./theme-legacy";
 export * from "./url";

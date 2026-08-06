@@ -23,6 +23,8 @@ export type TIssueGroupByOptions =
   | "module"
   | "target_date"
   | "team_project"
+  /** Client company, derived from the work item's project. */
+  | "service_client"
   | null;
 
 export type TIssueOrderByOptions =
@@ -75,6 +77,8 @@ export type TIssueParams =
   | "target_date"
   | "project"
   | "team_project"
+  /** Client company, resolved server side from the work item's project. */
+  | "service_client"
   | "group_by"
   | "sub_group_by"
   | "order_by"
@@ -107,6 +111,7 @@ export const WORK_ITEM_FILTER_PROPERTY_KEYS = [
   "cycle_id",
   "module_id",
   "project_id",
+  "service_client_id",
   "created_at",
   "updated_at",
 ] as const;

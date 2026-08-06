@@ -31,6 +31,16 @@ export interface IPartialProject {
   page_view: boolean;
   inbox_view: boolean;
   guest_view_all_features?: boolean;
+  /**
+   * Toggle for the work log feature on this project. Reuses the flag that
+   * already existed on the model and had no consumer.
+   */
+  is_time_tracking_enabled?: boolean;
+  /**
+   * The client company this project delivers work for. Null means internal work,
+   * which is not billable. The client of a work item is derived from this field.
+   */
+  service_client?: string | null;
   project_lead?: IUserLite | string | null;
   network?: number;
   // Timestamps
