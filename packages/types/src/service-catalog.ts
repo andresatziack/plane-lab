@@ -59,6 +59,19 @@ export interface IServiceHourType extends IServiceCatalogOption {
    */
   multiplier: string;
   color: string;
+  /**
+   * Which hour type wins when two classification windows both cover the same instant.
+   *
+   * Lower wins. The seed uses 10 for the holiday type, 20 for after hours and 30 for
+   * business hours, leaving room to insert a custom type between two of them without a
+   * deploy. Rows created before the calendar phase were back-filled to 1000, which loses
+   * every contest against a seeded type -- deliberately, since an unranked type should
+   * not silently outrank a configured one.
+   *
+   * This is not `sequence`. `sequence` is drag-and-drop display order and changing it
+   * must never change how an hour is classified.
+   */
+  priority: number;
 }
 
 /** Where the logged time goes: a contracted pool, an invoice, or nowhere. */

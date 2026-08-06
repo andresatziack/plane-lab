@@ -12,11 +12,17 @@ import { computedFn } from "mobx-utils";
 import type {
   IServiceBillingType,
   IServiceCatalogOption,
+  IServiceClassificationWindow,
   IServiceConfigActivity,
   IServiceConfigActivityFilters,
+  IServiceCoverageReport,
+  IServiceHoliday,
+  IServiceHolidayCalendar,
+  IServiceHolidayImportResult,
   IServiceHourType,
 } from "@plane/types";
 // services
+import { ServiceCalendarService } from "@/services/service-calendar.service";
 import { ServiceCatalogService } from "@/services/service-catalog.service";
 // store
 import type { CoreRootStore } from "../root.store";
@@ -60,6 +66,9 @@ export interface IServiceCatalogStore {
   hourTypes: Record<string, IServiceHourType> | null;
   billingTypes: Record<string, IServiceBillingType> | null;
   configActivities: IServiceConfigActivity[] | null;
+  holidays: Record<string, IServiceHoliday> | null;
+  classificationWindows: Record<string, IServiceClassificationWindow> | null;
+  coverage: IServiceCoverageReport | null;
   // computed
   hourTypeIds: string[];
   billingTypeIds: string[];
@@ -106,6 +115,30 @@ export interface IServiceCatalogStore {
     destinationId: string,
     edge: TServiceCatalogReorderEdge
   ) => Promise<void>;
+  // computed, calendar
+  holidayIds: string[];
+  windowIds: string[];
+  windowsByDayScope: Record<string, IServiceClassificationWindow[]>;
+  // holiday crud
+  fetchHolidays: (workspaceSlug: string) => Promise<IServiceHoliday[]>;
+  fetchHolidayCalendar: (workspaceSlug: string, year: number) => Promise<IServiceHolidayCalendar>;
+  createHoliday: (workspaceSlug: string, data: Partial<IServiceHoliday>) => Promise<IServiceHoliday>;
+  updateHoliday: (workspaceSlug: string, id: string, data: Partial<IServiceHoliday>) => Promise<IServiceHoliday>;
+  removeHoliday: (workspaceSlug: string, id: string) => Promise<void>;
+  importHolidays: (workspaceSlug: string, csvContent: string) => Promise<IServiceHolidayImportResult>;
+  // classification window crud
+  fetchClassificationWindows: (workspaceSlug: string) => Promise<IServiceClassificationWindow[]>;
+  fetchCoverage: (workspaceSlug: string) => Promise<IServiceCoverageReport>;
+  createClassificationWindow: (
+    workspaceSlug: string,
+    data: Partial<IServiceClassificationWindow>
+  ) => Promise<IServiceClassificationWindow>;
+  updateClassificationWindow: (
+    workspaceSlug: string,
+    id: string,
+    data: Partial<IServiceClassificationWindow>
+  ) => Promise<IServiceClassificationWindow>;
+  removeClassificationWindow: (workspaceSlug: string, id: string) => Promise<void>;
 }
 
 /**
@@ -120,7 +153,11 @@ export class ServiceCatalogStore implements IServiceCatalogStore {
   hourTypes: Record<string, IServiceHourType> | null = null;
   billingTypes: Record<string, IServiceBillingType> | null = null;
   configActivities: IServiceConfigActivity[] | null = null;
+  holidays: Record<string, IServiceHoliday> | null = null;
+  classificationWindows: Record<string, IServiceClassificationWindow> | null = null;
+  coverage: IServiceCoverageReport | null = null;
   // services
+  serviceCalendarService;
   serviceCatalogService;
   // root store
   rootStore;
@@ -131,8 +168,14 @@ export class ServiceCatalogStore implements IServiceCatalogStore {
       hourTypes: observable,
       billingTypes: observable,
       configActivities: observable,
+      holidays: observable,
+      classificationWindows: observable,
+      coverage: observable,
       // computed
       hourTypeIds: computed,
+      holidayIds: computed,
+      windowIds: computed,
+      windowsByDayScope: computed,
       billingTypeIds: computed,
       activeHourTypes: computed,
       activeBillingTypes: computed,
@@ -154,8 +197,22 @@ export class ServiceCatalogStore implements IServiceCatalogStore {
       removeBillingType: action,
       markBillingTypeDefault: action,
       reorderBillingType: action,
+      // holiday crud
+      fetchHolidays: action,
+      fetchHolidayCalendar: action,
+      createHoliday: action,
+      updateHoliday: action,
+      removeHoliday: action,
+      importHolidays: action,
+      // classification window crud
+      fetchClassificationWindows: action,
+      fetchCoverage: action,
+      createClassificationWindow: action,
+      updateClassificationWindow: action,
+      removeClassificationWindow: action,
     });
 
+    this.serviceCalendarService = new ServiceCalendarService();
     this.serviceCatalogService = new ServiceCatalogService();
     this.rootStore = _rootStore;
   }
@@ -389,6 +446,177 @@ export class ServiceCatalogStore implements IServiceCatalogStore {
     const sequence = computeReorderSequence(sortedOptions, destinationId, edge);
     if (sequence === undefined) return;
     await this.updateBillingType(workspaceSlug, id, { sequence });
+  };
+
+  // ------------------------------------------------ computed, holidays and windows
+
+  /** Ordered by date, which is how a calendar reads. */
+  get holidayIds() {
+    return orderBy(Object.values(this.holidays ?? {}), ["date", "name"], ["asc", "asc"]).map((holiday) => holiday.id);
+  }
+
+  get windowIds() {
+    return orderBy(Object.values(this.classificationWindows ?? {}), ["day_scope", "start_time"], ["asc", "asc"]).map(
+      (window) => window.id
+    );
+  }
+
+  /**
+   * Windows grouped by the kind of day they apply to.
+   *
+   * The panel edits the week one day at a time, because that is how an admin thinks about
+   * it -- and because coverage is a per-day-scope question, so grouping here is what lets a
+   * gap be shown next to the day that has it.
+   */
+  get windowsByDayScope() {
+    const grouped: Record<string, IServiceClassificationWindow[]> = {};
+
+    Object.values(this.classificationWindows ?? {}).forEach((window) => {
+      if (!grouped[window.day_scope]) grouped[window.day_scope] = [];
+      grouped[window.day_scope].push(window);
+    });
+
+    Object.keys(grouped).forEach((scope) => {
+      grouped[scope] = orderBy(grouped[scope], "start_time", "asc");
+    });
+
+    return grouped;
+  }
+
+  // --------------------------------------------------------------- holiday crud
+
+  fetchHolidays = async (workspaceSlug: string) => {
+    const response = await this.serviceCalendarService.fetchHolidays(workspaceSlug);
+    runInAction(() => {
+      const holidayMap: Record<string, IServiceHoliday> = {};
+      response.forEach((holiday) => {
+        if (holiday?.id) holidayMap[holiday.id] = holiday;
+      });
+      this.holidays = holidayMap;
+    });
+    return response;
+  };
+
+  /** Never stored: an annual view is a question about a year, not state about the workspace. */
+  fetchHolidayCalendar = async (workspaceSlug: string, year: number) =>
+    this.serviceCalendarService.fetchCalendar(workspaceSlug, year);
+
+  createHoliday = async (workspaceSlug: string, data: Partial<IServiceHoliday>) => {
+    const response = await this.serviceCalendarService.createHoliday(workspaceSlug, data);
+    runInAction(() => {
+      if (!this.holidays) this.holidays = {};
+      set(this.holidays, [response.id], response);
+    });
+    return response;
+  };
+
+  updateHoliday = async (workspaceSlug: string, id: string, data: Partial<IServiceHoliday>) => {
+    const original = this.holidays?.[id];
+    try {
+      runInAction(() => {
+        if (this.holidays?.[id]) set(this.holidays, [id], { ...this.holidays[id], ...data });
+      });
+      const response = await this.serviceCalendarService.updateHoliday(workspaceSlug, id, data);
+      runInAction(() => {
+        if (!this.holidays) this.holidays = {};
+        set(this.holidays, [id], response);
+      });
+      return response;
+    } catch (error) {
+      // Roll the optimistic write back. The server refuses edits the UI cannot predict --
+      // a recurrence collision in either direction -- and the screen must never keep a
+      // value that was rejected.
+      runInAction(() => {
+        if (original && this.holidays) set(this.holidays, [id], original);
+      });
+      throw error;
+    }
+  };
+
+  removeHoliday = async (workspaceSlug: string, id: string) => {
+    await this.serviceCalendarService.deleteHoliday(workspaceSlug, id);
+    runInAction(() => {
+      if (this.holidays) delete this.holidays[id];
+    });
+  };
+
+  /**
+   * Import from CSV, then re-read.
+   *
+   * Re-read rather than merged: the import is all-or-nothing and can create many rows, and
+   * the list is ordered by date, so appending would put an imported January after a
+   * December that was already there.
+   */
+  importHolidays = async (workspaceSlug: string, csvContent: string) => {
+    const response = await this.serviceCalendarService.importHolidays(workspaceSlug, csvContent);
+    await this.fetchHolidays(workspaceSlug);
+    return response;
+  };
+
+  // ---------------------------------------------- classification window crud
+
+  fetchClassificationWindows = async (workspaceSlug: string) => {
+    const response = await this.serviceCalendarService.fetchWindows(workspaceSlug);
+    runInAction(() => {
+      const windowMap: Record<string, IServiceClassificationWindow> = {};
+      response.forEach((window) => {
+        if (window?.id) windowMap[window.id] = window;
+      });
+      this.classificationWindows = windowMap;
+    });
+    return response;
+  };
+
+  fetchCoverage = async (workspaceSlug: string) => {
+    const response = await this.serviceCalendarService.fetchCoverage(workspaceSlug);
+    runInAction(() => {
+      this.coverage = response;
+    });
+    return response;
+  };
+
+  /**
+   * Every window write re-reads the coverage report afterwards.
+   *
+   * The server validates the whole *set* on each write and rolls the write back when it
+   * would break the week -- so the health indicator is stale the moment anything changes,
+   * whether the change succeeded or was refused. Re-reading is cheaper than trying to
+   * predict the new report in the browser, and it cannot disagree with the server.
+   */
+  createClassificationWindow = async (workspaceSlug: string, data: Partial<IServiceClassificationWindow>) => {
+    const response = await this.serviceCalendarService.createWindow(workspaceSlug, data);
+    runInAction(() => {
+      if (!this.classificationWindows) this.classificationWindows = {};
+      set(this.classificationWindows, [response.id], response);
+    });
+    await this.fetchCoverage(workspaceSlug);
+    return response;
+  };
+
+  updateClassificationWindow = async (
+    workspaceSlug: string,
+    id: string,
+    data: Partial<IServiceClassificationWindow>
+  ) => {
+    // Not optimistic, unlike the catalogue edits. A window edit can be refused by a
+    // set-level rule the browser does not evaluate (coverage, or an overlap at the same
+    // priority), and showing the new borders before the server accepts them would show a
+    // configuration that does not exist.
+    const response = await this.serviceCalendarService.updateWindow(workspaceSlug, id, data);
+    runInAction(() => {
+      if (!this.classificationWindows) this.classificationWindows = {};
+      set(this.classificationWindows, [id], response);
+    });
+    await this.fetchCoverage(workspaceSlug);
+    return response;
+  };
+
+  removeClassificationWindow = async (workspaceSlug: string, id: string) => {
+    await this.serviceCalendarService.deleteWindow(workspaceSlug, id);
+    runInAction(() => {
+      if (this.classificationWindows) delete this.classificationWindows[id];
+    });
+    await this.fetchCoverage(workspaceSlug);
   };
 
   // -------------------------------------------------------------------- private

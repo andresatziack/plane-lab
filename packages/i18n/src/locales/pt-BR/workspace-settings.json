@@ -593,7 +593,8 @@
           "name_already_exists": "Já existe uma opção com este nome neste catálogo.",
           "default_cannot_be_unset": "Escolha outra opção como padrão primeiro. Um catálogo sempre tem exatamente uma.",
           "default_cannot_be_deactivated": "A opção padrão não pode ser inativada. Defina outra opção como padrão primeiro.",
-          "default_cannot_be_deleted": "A opção padrão não pode ser excluída. Defina outra opção como padrão primeiro."
+          "default_cannot_be_deleted": "A opção padrão não pode ser excluída. Defina outra opção como padrão primeiro.",
+          "hour_type_has_windows": "Este Tipo de Hora ainda tem janelas de classificação. Remova ou mova as janelas primeiro, para a semana continuar classificada por completo."
         },
         "toasts": {
           "created": "Opção criada com sucesso.",
@@ -603,6 +604,171 @@
           "save_failed": "Não foi possível salvar a opção. Tente novamente.",
           "delete_failed": "Não foi possível excluir a opção. Tente novamente.",
           "reorder_failed": "Não foi possível salvar a ordem. Tente novamente."
+        },
+        "holidays": {
+          "title": "Feriados",
+          "description": "Os dias que o motor de classificação trata como feriado. Feriado vale o dia inteiro e, por padrão, vence a janela do dia da semana em que cai.",
+          "add": "Adicionar feriado",
+          "create_title": "Adicionar feriado",
+          "edit_title": "Editar feriado",
+          "name": "Nome",
+          "date": "Data",
+          "is_recurring": "Repete todo ano",
+          "is_recurring_hint_on": "Vale neste dia e mês em todos os anos, passados e futuros. Use para datas fixas, como o Natal.",
+          "is_recurring_hint_off": "Vale apenas nesta data exata. Use para datas que mudam, como o Carnaval, cadastrando ano a ano.",
+          "recurring_badge": "Anual",
+          "scope": "Abrangência",
+          "scope_hint": "Registrada para relatório. Ainda não filtra nada.",
+          "scopes": {
+            "national": "Nacional",
+            "state": "Estadual",
+            "municipal": "Municipal"
+          },
+          "observed_in": "Observados em {year}",
+          "none_observed": "Nenhum feriado observado em {year}.",
+          "registered": "Entradas cadastradas",
+          "previous_year": "Ano anterior",
+          "next_year": "Próximo ano",
+          "imported_tooltip": "Criado por importação de CSV.",
+          "empty": {
+            "title": "Nenhum feriado cadastrado",
+            "description": "Cadastre os feriados que seus contratos reconhecem, para que o trabalho feito neles seja classificado automaticamente."
+          },
+          "delete": {
+            "title": "Excluir feriado",
+            "description": "{name} deixa de ser tratado como feriado. Apontamentos já registrados mantêm o Tipo de Hora com que foram registrados.",
+            "description_recurring": "{name} repete todo ano, então excluir remove o feriado de todos os anos futuros também. Apontamentos já registrados mantêm o Tipo de Hora com que foram registrados."
+          },
+          "errors": {
+            "name_required": "O nome é obrigatório",
+            "date_required": "A data é obrigatória",
+            "covered_by_recurring": "Um feriado anual já cobre este dia e abrangência. Edite aquela entrada em vez de criar uma segunda.",
+            "collides_with_specific": "Já existe feriado neste dia e abrangência em outro ano. Remova-o antes de tornar este anual."
+          },
+          "toasts": {
+            "created": {
+              "title": "Feriado adicionado",
+              "message": "O trabalho feito neste dia será classificado como feriado."
+            },
+            "not_created": {
+              "title": "Feriado não adicionado",
+              "message": "Algo deu errado. Tente novamente."
+            },
+            "updated": {
+              "title": "Feriado atualizado",
+              "message": "Apontamentos já registrados não são afetados."
+            },
+            "not_updated": {
+              "title": "Feriado não atualizado",
+              "message": "Algo deu errado. Tente novamente."
+            },
+            "removed": {
+              "title": "Feriado excluído",
+              "message": "Apontamentos já registrados não são afetados."
+            },
+            "not_removed": {
+              "title": "Feriado não excluído",
+              "message": "Algo deu errado. Tente novamente."
+            }
+          },
+          "import": {
+            "action": "Importar CSV",
+            "title": "Importar feriados de CSV",
+            "description": "Cole as linhas de uma planilha. Nada é salvo se alguma linha for inválida.",
+            "content": "Conteúdo do CSV",
+            "format_hint": "Colunas: name, date, is_recurring, scope. Datas aceitam 2026-12-25 ou 25/12/2026.",
+            "use_template": "Usar um modelo",
+            "submit": "Importar",
+            "line": "Linha {line}",
+            "errors": {
+              "nothing_imported": "Nada foi importado.",
+              "header": "O cabeçalho precisa conter ao menos name e date.",
+              "row": "Esta linha está sem um valor obrigatório, ou a recorrência não pôde ser lida.",
+              "date": "Não foi possível ler esta data.",
+              "scope": "Esta abrangência não é national, state nem municipal.",
+              "has_invalid_rows": "Algumas linhas não puderam ser lidas.",
+              "no_rows": "Não há linhas para importar."
+            },
+            "toasts": {
+              "imported": {
+                "title": "Feriados importados",
+                "message": "{count} feriados adicionados."
+              }
+            }
+          }
+        },
+        "windows": {
+          "title": "Janelas de classificação",
+          "description": "Qual faixa de qual tipo de dia corresponde a qual Tipo de Hora. O motor resolve um instante pegando a janela que casa cujo Tipo de Hora tem o menor número de prioridade.",
+          "add": "Adicionar janela",
+          "create_title": "Adicionar janela de classificação",
+          "edit_title": "Editar janela de classificação",
+          "hour_type": "Tipo de Hora",
+          "hour_type_required": "Escolha o Tipo de Hora",
+          "day_scope_label": "Aplica-se a",
+          "day_scope": {
+            "monday": "Segunda",
+            "tuesday": "Terça",
+            "wednesday": "Quarta",
+            "thursday": "Quinta",
+            "friday": "Sexta",
+            "saturday": "Sábado",
+            "sunday": "Domingo",
+            "holiday": "Feriados"
+          },
+          "start_time": "De",
+          "end_time": "Até",
+          "border_required": "As duas bordas são obrigatórias",
+          "border_hint": "Use 24:00 para o fim do dia. Fim igual ou anterior ao início significa que a janela segue no dia seguinte.",
+          "crosses_midnight_hint": "Esta janela atravessa a meia-noite e continua no dia seguinte.",
+          "whole_day_hint": "Esta janela cobre o dia inteiro.",
+          "priority_badge": "prioridade {value}",
+          "empty_day": "Nenhuma janela cobre este tipo de dia, então o trabalho feito nele não será classificado.",
+          "health": {
+            "complete": "Todos os minutos da semana estão classificados",
+            "complete_description": "{count} janelas, sem lacunas e sem conflitos.",
+            "incomplete": "Parte da semana não está classificada",
+            "incomplete_description": "Trabalho feito numa faixa descoberta volta sem Tipo de Hora sugerido, e o técnico precisa escolher. Apontamentos já registrados não são afetados.",
+            "gap_tooltip": "Nenhuma janela cobre esta faixa.",
+            "overlaps": "Janelas entre as quais o motor não consegue decidir"
+          },
+          "delete": {
+            "title": "Excluir janela de classificação",
+            "description": "{range} deixa de ser classificado como {hourType}. Apontamentos já registrados mantêm o Tipo de Hora com que foram registrados."
+          },
+          "errors": {
+            "overlap": "Outra janela cobre parte desta faixa com a mesma prioridade, então o motor não conseguiria decidir entre as duas. Mude uma das prioridades ou uma das faixas.",
+            "would_break_coverage": "Isso deixaria parte da semana sem classificação. Cubra a faixa com outra janela primeiro.",
+            "borders_must_differ": "As bordas precisam ser diferentes. Use 00:00 até 24:00 para o dia inteiro.",
+            "invalid_clock": "Informe o horário como HH:MM, por exemplo 18:00 ou 24:00.",
+            "foreign_hour_type": "Esse Tipo de Hora pertence a outro workspace."
+          },
+          "toasts": {
+            "created": {
+              "title": "Janela adicionada",
+              "message": "A cobertura da semana foi reverificada."
+            },
+            "not_created": {
+              "title": "Janela não adicionada",
+              "message": "Algo deu errado. Tente novamente."
+            },
+            "updated": {
+              "title": "Janela atualizada",
+              "message": "A cobertura da semana foi reverificada."
+            },
+            "not_updated": {
+              "title": "Janela não atualizada",
+              "message": "Algo deu errado. Tente novamente."
+            },
+            "removed": {
+              "title": "Janela excluída",
+              "message": "A cobertura da semana foi reverificada."
+            },
+            "not_removed": {
+              "title": "Janela não excluída",
+              "message": "Algo deu errado. Tente novamente."
+            }
+          }
         }
       }
     },
