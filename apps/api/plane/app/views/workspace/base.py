@@ -38,6 +38,7 @@ from plane.db.models import (
     Issue,
     IssueActivity,
     ServiceBillingType,
+    ServiceClassificationWindow,
     ServiceHourType,
     Workspace,
     WorkspaceMember,
@@ -148,7 +149,12 @@ class WorkSpaceViewSet(BaseViewSet):
                 # use work logs at all. The gap is visible (the admin panel shows an
                 # empty catalogue) and closable with `manage.py seed_service_catalogs`.
                 try:
-                    seed_service_catalogs(ServiceHourType, ServiceBillingType, serializer.data["id"])
+                    seed_service_catalogs(
+                        ServiceHourType,
+                        ServiceBillingType,
+                        serializer.data["id"],
+                        window_model=ServiceClassificationWindow,
+                    )
                 except Exception as seed_error:
                     log_exception(seed_error)
 

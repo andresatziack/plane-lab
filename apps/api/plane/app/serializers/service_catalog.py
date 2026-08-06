@@ -105,6 +105,11 @@ class ServiceHourTypeSerializer(ServiceCatalogBaseSerializer):
             "name",
             "description",
             "multiplier",
+            # The resolution order the classification engine uses, LOWER WINS. Writable,
+            # because "create an hour type with its own window and priority from the panel,
+            # with no code change" is an acceptance criterion of the calendar phase -- and
+            # without this field in the payload it would be impossible.
+            "priority",
             "color",
             "sequence",
             "is_active",
@@ -164,6 +169,13 @@ class ServiceConfigActivitySerializer(BaseSerializer):
             "workspace_id",
             "entity_name",
             "entity_identifier",
+            # `verb` distinguishes an edit from the creation or removal of the whole row.
+            # For a holiday or a classification window, creation and deletion ARE the
+            # financial events, so a consumer that ignored this field would miss the
+            # entries that matter most in those two tables.
+            "verb",
+            # Null when verb is created or deleted: those concern the whole row, not one
+            # field. The summary is in new_value or old_value respectively.
             "field_name",
             "old_value",
             "new_value",

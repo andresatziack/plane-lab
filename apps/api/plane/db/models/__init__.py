@@ -65,8 +65,17 @@ from .service_catalog import (
     ServiceConfigEntity,
     ServiceHourType,
 )
+from .service_calendar import (
+    COVERABLE_SCOPES,
+    DAY_SCOPE_SHORT_LABELS,
+    WEEKDAY_SCOPES,
+    ServiceClassificationWindow,
+    ServiceDayScope,
+    ServiceHoliday,
+    ServiceHolidayScope,
+)
 from .service_client import ServiceClient
-from .service_config_activity import ServiceConfigActivity
+from .service_config_activity import ServiceConfigActivity, ServiceConfigVerb
 from .service_log import ServiceLog, ServiceLogEntryMode, ServiceLogSource
 from .session import Session
 from .social_connection import SocialLoginConnection

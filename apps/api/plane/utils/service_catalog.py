@@ -16,7 +16,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.db import models, transaction
 
 # Module imports
-from plane.db.models import ServiceBillingType, ServiceConfigActivity
+from plane.db.models import ServiceBillingType, ServiceConfigActivity, ServiceConfigVerb
 
 # Error codes, in the UPPER_SNAKE style the client entity established. The
 # frontend maps them to translated strings; the API never returns Portuguese.
@@ -25,6 +25,7 @@ DEFAULT_CANNOT_BE_DEACTIVATED = "DEFAULT_CANNOT_BE_DEACTIVATED"
 DEFAULT_CANNOT_BE_DELETED = "DEFAULT_CANNOT_BE_DELETED"
 HOUR_TYPE_IN_USE_BY_SERVICE_LOGS = "HOUR_TYPE_IN_USE_BY_SERVICE_LOGS"
 BILLING_TYPE_IN_USE_BY_SERVICE_LOGS = "BILLING_TYPE_IN_USE_BY_SERVICE_LOGS"
+HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS = "HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS"
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +108,7 @@ def validate_catalog_delete(instance):
 
     EXTENSION POINT, and the only place these checks should be added:
       * the work log phase adds "in use by work logs" -- DONE, see below;
-      * the calendar and windows phase adds "has classification windows";
+      * the calendar and windows phase adds "has classification windows" -- DONE;
       * the pricing phase adds "referenced by a client price override".
     All three are reasons to refuse a delete on an hour type, and keeping them in
     one function is why the guard was not inlined into the viewset.
@@ -115,7 +116,36 @@ def validate_catalog_delete(instance):
     if instance.is_default:
         return DEFAULT_CANNOT_BE_DELETED
 
-    return _in_use_by_service_logs(instance)
+    in_use = _in_use_by_service_logs(instance)
+
+    if in_use:
+        return in_use
+
+    return _in_use_by_classification_windows(instance)
+
+
+def _in_use_by_classification_windows(instance):
+    """Refuse deleting an hour type that still has classification windows.
+
+    Deleting it would tear a hole in the week's coverage without any single window being
+    invalid -- the same failure the coverage ratchet exists to prevent, arriving through
+    a different door. The admin has to remove or move the windows first, which forces the
+    replacement coverage to be thought about.
+
+    Only hour types have windows; billing types are not classified, so this returns
+    ``None`` for them.
+
+    Imported inside the function for the same reason as the work log check: keeping the
+    dependency out of module scope stops these sibling utility modules from importing each
+    other at load time.
+    """
+    from plane.db.models import ServiceHourType
+    from plane.utils.service_calendar import hour_type_has_windows
+
+    if not isinstance(instance, ServiceHourType):
+        return None
+
+    return HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS if hour_type_has_windows(instance) else None
 
 
 def _in_use_by_service_logs(instance):
@@ -248,6 +278,7 @@ def record_config_activity(instance, changes, actor):
             workspace_id=instance.workspace_id,
             entity_name=instance.CONFIG_ENTITY_NAME,
             entity_identifier=instance.pk,
+            verb=ServiceConfigVerb.UPDATED,
             field_name=field_name,
             old_value=serialize_config_value(instance, field_name, old_value),
             new_value=serialize_config_value(instance, field_name, new_value),
@@ -255,6 +286,98 @@ def record_config_activity(instance, changes, actor):
         )
         for field_name, (old_value, new_value) in changes.items()
     ]
+
+
+def record_config_creation(instance, actor):
+    """Write the audit row for a configuration row that has just been created.
+
+    **ONE row, not one per field.** A creation is a single act, and a row per column would
+    bury it: registering one holiday would produce five entries that a reader has to
+    reassemble. The whole row is described by ``instance.config_summary()``, which each
+    audited model implements with the values that change the calculation.
+
+    Synchronous and inside the caller's transaction, like the update trail, and for the
+    same reason: a task that failed would lose the record of exactly the event the trail
+    exists to explain.
+
+    ``actor`` is required. An audit row with no author is not an audit row.
+
+    EXTENSION POINT: the contract and pricing phases must call this on create. Their
+    "when was this contract signed, and by whom" is the same question as this one.
+    """
+    if actor is None:
+        raise ValueError("An actor is required to record a service config creation.")
+
+    return ServiceConfigActivity.objects.create(
+        workspace_id=instance.workspace_id,
+        entity_name=instance.CONFIG_ENTITY_NAME,
+        entity_identifier=instance.pk,
+        verb=ServiceConfigVerb.CREATED,
+        # Null for created and deleted: no single field is involved, and the check
+        # constraint on the model enforces that.
+        field_name=None,
+        old_value=None,
+        new_value=instance.config_summary(),
+        actor=actor,
+    )
+
+
+def record_config_deletion(instance, actor):
+    """Write the audit row for a configuration row that is about to be deleted.
+
+    MUST be called **before** the delete, while the row can still describe itself.
+
+    The summary goes in ``old_value``: the reader needs to know what disappeared, and
+    telling them to go and find it in ``all_objects`` defeats the point of having one
+    place to look.
+
+    EXTENSION POINT: the contract and pricing phases must call this on delete.
+    """
+    if actor is None:
+        raise ValueError("An actor is required to record a service config deletion.")
+
+    return ServiceConfigActivity.objects.create(
+        workspace_id=instance.workspace_id,
+        entity_name=instance.CONFIG_ENTITY_NAME,
+        entity_identifier=instance.pk,
+        verb=ServiceConfigVerb.DELETED,
+        field_name=None,
+        old_value=instance.config_summary(),
+        new_value=None,
+        actor=actor,
+    )
+
+
+@transaction.atomic
+def create_with_config_activity(instance, actor=None):
+    """Save a new audited configuration row and record its creation, in one transaction.
+
+    The creation counterpart of ``save_with_config_activity``. Atomic because a
+    configuration row that exists with no audit entry is the state this trail was built to
+    make impossible.
+    """
+    instance.save()
+
+    if actor is not None:
+        record_config_creation(instance, actor)
+
+    return instance
+
+
+@transaction.atomic
+def delete_with_config_activity(instance, actor=None):
+    """Record the deletion, then soft delete the row, in one transaction.
+
+    In that order, deliberately: ``config_summary()`` reads the instance, and for a window
+    it reads through to its hour type. Recording first keeps that resolution simple and
+    keeps the audit row correct even if the delete cascades further than expected.
+    """
+    if actor is not None:
+        record_config_deletion(instance, actor)
+
+    instance.delete()
+
+    return instance
 
 
 def save_with_config_activity(instance, actor=None):

@@ -44,6 +44,7 @@ export * from "./reaction";
 export * from "./intake";
 export * from "./rich-filters";
 export * from "./search";
+export * from "./service-calendar";
 export * from "./service-catalog";
 export * from "./service-client";
 export * from "./service-log";

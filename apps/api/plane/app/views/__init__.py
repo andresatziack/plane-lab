@@ -83,6 +83,10 @@ from .workspace.cycle import WorkspaceCyclesEndpoint
 from .workspace.quick_link import QuickLinkViewSet
 from .workspace.sticky import WorkspaceStickyViewSet
 
+from .service_calendar.base import (
+    ServiceClassificationWindowViewSet,
+    ServiceHolidayViewSet,
+)
 from .service_catalog.base import (
     ServiceBillingTypeViewSet,
     ServiceConfigActivityEndpoint,

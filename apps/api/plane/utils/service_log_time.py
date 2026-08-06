@@ -73,6 +73,7 @@ LONG_ENTRY_WARNING_MINUTES = 24 * MINUTES_PER_HOUR
 INVALID_DURATION_FORMAT = "INVALID_DURATION_FORMAT"
 DURATION_MUST_BE_POSITIVE = "DURATION_MUST_BE_POSITIVE"
 INTERVAL_ENDPOINTS_MUST_DIFFER = "INTERVAL_ENDPOINTS_MUST_DIFFER"
+INVALID_CLOCK_FORMAT = "INVALID_CLOCK_FORMAT"
 
 
 class InvalidDurationError(ValueError):
@@ -374,3 +375,58 @@ def format_hours(hours):
         text = text.rstrip("0").rstrip(".")
 
     return f"{text.replace('.', ',')}h"
+
+
+
+# ---------------------------------------------------------------------------
+# Clock borders -- minutes since midnight
+# ---------------------------------------------------------------------------
+#
+# The classification windows of the calendar phase store their borders as whole
+# minutes since midnight rather than as ``TimeField``, because a window has to be
+# able to end at 24:00 and ``datetime.time`` cannot represent that hour. Keeping the
+# whole feature in one unit -- raw duration, the 15 minute block, and now window
+# borders -- also removes a class of conversion mistake.
+#
+# The cost is legibility: 1080 is not obviously 18:00. These two functions are how
+# that cost is paid back, at the API boundary and in the model's own repr.
+
+#: A whole day as a window: ``(0, MINUTES_PER_DAY)``.
+_CLOCK_PATTERN = re.compile(r"^(\d{1,2}):([0-5]\d)$")
+
+
+def minutes_to_clock(minutes):
+    """Minutes since midnight as ``HH:MM``. ``1080 -> "18:00"``, ``1440 -> "24:00"``.
+
+    24:00 is a legal output and is the whole reason these borders are not
+    ``TimeField``: it is how a window says "the end of the day" without colliding
+    with a window that genuinely starts at 00:00.
+    """
+    if minutes is None:
+        return None
+
+    hours, remaining = divmod(int(minutes), MINUTES_PER_HOUR)
+    return f"{hours:02d}:{remaining:02d}"
+
+
+def clock_to_minutes(clock):
+    """``HH:MM`` to minutes since midnight. ``"18:00" -> 1080``, ``"24:00" -> 1440``.
+
+    Accepts anything from ``00:00`` to ``24:00`` inclusive and rejects the rest, so a
+    payload cannot smuggle in a border outside the day. Raises
+    ``InvalidDurationError`` with ``INVALID_CLOCK_FORMAT``.
+    """
+    if clock is None:
+        raise InvalidDurationError(INVALID_CLOCK_FORMAT)
+
+    match = _CLOCK_PATTERN.match(str(clock).strip())
+
+    if match is None:
+        raise InvalidDurationError(INVALID_CLOCK_FORMAT)
+
+    minutes = int(match.group(1)) * MINUTES_PER_HOUR + int(match.group(2))
+
+    if minutes > MINUTES_PER_DAY:
+        raise InvalidDurationError(INVALID_CLOCK_FORMAT)
+
+    return minutes

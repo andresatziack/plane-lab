@@ -27,6 +27,8 @@ class ServiceConfigEntity:
 
     HOUR_TYPE = "service_hour_type"
     BILLING_TYPE = "service_billing_type"
+    HOLIDAY = "service_holiday"
+    CLASSIFICATION_WINDOW = "service_classification_window"
 
 
 class ServiceCatalogBaseModel(ChangeTrackerMixin, WorkspaceBaseModel):
@@ -115,6 +117,15 @@ class ServiceCatalogBaseModel(ChangeTrackerMixin, WorkspaceBaseModel):
     def __str__(self):
         return f"{self.name} <{self.workspace.name}>"
 
+    def config_summary(self):
+        """One human-readable line describing this row, for a creation or deletion entry.
+
+        Subclasses extend it with whatever changes the calculation. Kept deliberately
+        short: it lands in a single audit column that someone reads under pressure while
+        reconstructing an invoice, not in a debugger.
+        """
+        return f"{self.name}"
+
     def save(self, *args, **kwargs):
         if self._state.adding:
             largest_sequence = (
@@ -143,18 +154,24 @@ class ServiceHourType(ServiceCatalogBaseModel):
     Brazilian operation, editable by the admin, and a work log has to keep
     displaying the name it was recorded against -- not UI chrome to be localised.
 
-    **Prepared for the calendar and windows phase, not implemented here.** That
-    phase adds the classification windows (weekday plus time range) and a
-    ``priority`` column, together with the engine that consumes them. Until then
-    every hour type is manual-only, which matches that phase's own rule that an
-    hour type with no window is never suggested. What this model does to stay
-    ready: keeps ``sequence`` strictly about display so ``priority`` can be added
-    without overloading it, leaves the ``windows`` reverse name free, and holds the
-    deletion guard in one place so a window check can join the work log check.
+    Classification is driven from here by ``priority`` plus the reverse ``windows``
+    relation (``ServiceClassificationWindow``). An hour type with **no window is never
+    suggested** by the engine and remains selectable by hand only, which is what makes
+    a newly created type inert until an admin gives it a range.
     """
 
-    TRACKED_FIELDS = ["multiplier", "is_active"]
+    # `priority` is tracked for the same reason as `multiplier`: it decides which hour
+    # type the classification engine picks, so changing it alters future billing with
+    # exactly the same weight. The audit row is written automatically by
+    # `save_with_config_activity`.
+    TRACKED_FIELDS = ["multiplier", "priority", "is_active"]
     CONFIG_ENTITY_NAME = ServiceConfigEntity.HOUR_TYPE
+
+    #: Priority of an hour type that the admin created without thinking about it.
+    #: Far above the seeded values so a new type never silently outranks them. It is
+    #: inert until the type is given a window, because an hour type with no window is
+    #: never suggested.
+    DEFAULT_PRIORITY = 1000
 
     # Scale fixed by section 4b of the master context. Do not widen locally.
     #
@@ -178,11 +195,35 @@ class ServiceHourType(ServiceCatalogBaseModel):
 
     color = models.CharField(max_length=255, default="#60646C")
 
+    # Resolution order for the classification engine: LOWER WINS. Seeded 10 for
+    # Domingos e feriados, 20 for Fora do expediente, 30 for Horário comercial, so the
+    # holiday window beats the weekday window that covers the same instant.
+    #
+    # A SECOND ORDERING, AND NOT `sequence`. `sequence` is what the admin drags in the
+    # panel and is cosmetic; this is what the engine resolves by and is financial.
+    # Merging them would let a drag reclassify hours and therefore change an invoice --
+    # the warning has been on `sequence` since the catalogue was built, and this field
+    # is the other half of it.
+    #
+    # The gaps are deliberate: they leave room for the kind of configuration the
+    # calendar phase promises without a deploy. A "Plantão de madrugada" at 15 sits
+    # between the seeded 10 and 20, so it beats Fora do expediente and still loses to
+    # a holiday.
+    priority = models.IntegerField(default=DEFAULT_PRIORITY)
+
+    def config_summary(self):
+        """Includes the multiplier and the priority: both decide what an hour costs."""
+        return f"{self.name} (multiplicador {self.multiplier}, prioridade {self.priority})"
+
     class Meta(ServiceCatalogBaseModel.Meta):
         verbose_name = "Service Hour Type"
         verbose_name_plural = "Service Hour Types"
         db_table = "service_hour_types"
-        indexes = [models.Index(fields=["workspace", "is_active"], name="svc_hour_type_active_idx")]
+        indexes = [
+            models.Index(fields=["workspace", "is_active"], name="svc_hour_type_active_idx"),
+            # The engine reads active hour types of a workspace in priority order.
+            models.Index(fields=["workspace", "priority"], name="svc_hour_type_priority_idx"),
+        ]
 
 
 class ServiceBillingType(ServiceCatalogBaseModel):
@@ -216,6 +257,10 @@ class ServiceBillingType(ServiceCatalogBaseModel):
         choices=BillingRoute.choices,
         default=BillingRoute.DEBIT_POOL,
     )
+
+    def config_summary(self):
+        """Includes the route, which decides whether the client is charged at all."""
+        return f"{self.name} (rota {self.billing_route})"
 
     class Meta(ServiceCatalogBaseModel.Meta):
         verbose_name = "Service Billing Type"

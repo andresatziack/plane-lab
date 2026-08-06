@@ -16,9 +16,16 @@ Walks the acceptance criteria of this phase that are reachable over HTTP:
 * 15 -- a later multiplier change does not move an existing log
 * 16 -- an edit recalculates the totals and records the change
 
-Criteria 8, 9 and 10 depend on the classification engine of the calendar and windows
-phase, which does not exist. 10 passes today as a side effect of there being no engine
-(the technician chooses); 8 and 9 cannot be tested yet.
+Criteria 8 and 9 depend on the classification engine of the calendar and windows phase.
+They are closed in `test_service_log_classification_app.py`, which is a separate file
+because it needs the opposite fixture: the hour types below are built by hand, with no
+windows and no priority, and they stay that way deliberately. The parser, the rounding
+and the totals must not depend on a calendar, and these tests are what says so.
+
+Criterion 10 -- duration mode on a weekday leaves the choice to the technician -- passes
+here and passes there. It used to pass as a side effect of there being no engine at all;
+it now passes because R10 requires a weekday in duration mode to carry no suggestion,
+which is a rule rather than an accident.
 """
 
 from decimal import Decimal
@@ -830,13 +837,14 @@ class TestAuditTrail:
         assert deleted is not None
         assert "2.0000" in deleted.old_value
 
-    def test_no_override_activity_is_recorded_when_nothing_diverged(
+    def test_no_override_activity_is_recorded_when_the_choice_matches_the_suggestion(
         self, session_client, issue, commercial_hours, contract_billing
     ):
-        """No engine exists, so there is never a suggestion to diverge from.
+        """R10 records an override only when it *diverges* from the suggestion.
 
-        Pins today's behaviour so the calendar and windows phase can see that wiring
-        suggestions is all it has to add.
+        This project has no classification windows, so nothing is suggested and there is
+        nothing to diverge from. The override trail with the engine configured is tested
+        in `test_service_calendar_app.py`.
         """
         session_client.post(
             _urls(issue)["list"], _payload(commercial_hours, contract_billing), format="json"

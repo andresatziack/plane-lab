@@ -12,14 +12,18 @@ import { TabNavigationItem, TabNavigationList } from "@plane/propel/tab-navigati
 /**
  * The sections of the work log administration panel.
  *
- * Section 6 of the phase brief asks for the navigation to be structured for what
- * comes next: the calendar and windows phase adds the holiday calendar and the
- * classification windows to this same panel. Adding them is one entry each in this
- * array plus one route, with no change to the sidebar or to this component.
+ * Section 6 of the catalogue phase asked for the navigation to be structured for what came
+ * next, and it paid off: the calendar and windows phase added its two sections as two
+ * entries below plus one route each, with no change to the sidebar or to this component.
  */
 export const WORKLOG_SETTINGS_SECTIONS = [
   { key: "hour-types", i18nLabel: "workspace_settings.settings.worklog.hour_types.title" },
   { key: "billing-types", i18nLabel: "workspace_settings.settings.worklog.billing_types.title" },
+  { key: "holidays", i18nLabel: "workspace_settings.settings.worklog.holidays.title" },
+  {
+    key: "classification-windows",
+    i18nLabel: "workspace_settings.settings.worklog.windows.title",
+  },
 ] as const;
 
 export type TWorklogSettingsSection = (typeof WORKLOG_SETTINGS_SECTIONS)[number]["key"];

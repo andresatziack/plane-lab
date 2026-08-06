@@ -593,7 +593,8 @@
           "name_already_exists": "An option with this name already exists in this catalogue.",
           "default_cannot_be_unset": "Pick another option as the default first. A catalogue always has exactly one.",
           "default_cannot_be_deactivated": "The default option cannot be deactivated. Make another option the default first.",
-          "default_cannot_be_deleted": "The default option cannot be deleted. Make another option the default first."
+          "default_cannot_be_deleted": "The default option cannot be deleted. Make another option the default first.",
+          "hour_type_has_windows": "This hour type still has classification windows. Remove or move them first, so the week stays fully classified."
         },
         "toasts": {
           "created": "Option created successfully.",
@@ -603,6 +604,171 @@
           "save_failed": "The option could not be saved. Please try again.",
           "delete_failed": "The option could not be deleted. Please try again.",
           "reorder_failed": "The order could not be saved. Please try again."
+        },
+        "holidays": {
+          "title": "Holidays",
+          "description": "The days the classification engine treats as holidays. A holiday applies for the whole day and, by default, outranks the window of the weekday it falls on.",
+          "add": "Add holiday",
+          "create_title": "Add holiday",
+          "edit_title": "Edit holiday",
+          "name": "Name",
+          "date": "Date",
+          "is_recurring": "Repeats every year",
+          "is_recurring_hint_on": "Applies on this day and month in every year, past and future. Use it for fixed dates like Christmas.",
+          "is_recurring_hint_off": "Applies only to this exact date. Use it for dates that move, like Carnival, and enter each year separately.",
+          "recurring_badge": "Yearly",
+          "scope": "Reach",
+          "scope_hint": "Recorded for reporting. It does not filter anything yet.",
+          "scopes": {
+            "national": "National",
+            "state": "State",
+            "municipal": "Municipal"
+          },
+          "observed_in": "Observed in {year}",
+          "none_observed": "No holidays observed in {year}.",
+          "registered": "Registered entries",
+          "previous_year": "Previous year",
+          "next_year": "Next year",
+          "imported_tooltip": "Created by a CSV import.",
+          "empty": {
+            "title": "No holidays yet",
+            "description": "Add the holidays your contracts recognise, so work logged on them is classified automatically."
+          },
+          "delete": {
+            "title": "Delete holiday",
+            "description": "{name} will stop being treated as a holiday. Work logs already recorded keep the hour type they were recorded with.",
+            "description_recurring": "{name} repeats every year, so deleting it removes the holiday from every future year as well. Work logs already recorded keep the hour type they were recorded with."
+          },
+          "errors": {
+            "name_required": "Name is required",
+            "date_required": "Date is required",
+            "covered_by_recurring": "A yearly holiday already covers this day and reach. Edit that entry instead of adding a second one.",
+            "collides_with_specific": "A holiday already exists on this day and reach in another year. Remove it before making this one yearly."
+          },
+          "toasts": {
+            "created": {
+              "title": "Holiday added",
+              "message": "Work logged on this day will be classified as a holiday."
+            },
+            "not_created": {
+              "title": "Holiday not added",
+              "message": "Something went wrong. Please try again."
+            },
+            "updated": {
+              "title": "Holiday updated",
+              "message": "Work logs already recorded are unaffected."
+            },
+            "not_updated": {
+              "title": "Holiday not updated",
+              "message": "Something went wrong. Please try again."
+            },
+            "removed": {
+              "title": "Holiday deleted",
+              "message": "Work logs already recorded are unaffected."
+            },
+            "not_removed": {
+              "title": "Holiday not deleted",
+              "message": "Something went wrong. Please try again."
+            }
+          },
+          "import": {
+            "action": "Import CSV",
+            "title": "Import holidays from CSV",
+            "description": "Paste the rows from a spreadsheet. Nothing is saved unless every row is valid.",
+            "content": "CSV content",
+            "format_hint": "Columns: name, date, is_recurring, scope. Dates accept 2026-12-25 or 25/12/2026.",
+            "use_template": "Use a template",
+            "submit": "Import",
+            "line": "Line {line}",
+            "errors": {
+              "nothing_imported": "Nothing was imported.",
+              "header": "The header must contain at least name and date.",
+              "row": "This row is missing a required value, or its recurrence is unreadable.",
+              "date": "This date could not be read.",
+              "scope": "This reach is not one of national, state or municipal.",
+              "has_invalid_rows": "Some rows could not be read.",
+              "no_rows": "There are no rows to import."
+            },
+            "toasts": {
+              "imported": {
+                "title": "Holidays imported",
+                "message": "{count} holidays added."
+              }
+            }
+          }
+        },
+        "windows": {
+          "title": "Classification windows",
+          "description": "Which stretch of which kind of day maps to which hour type. The engine resolves an instant by taking the matching window whose hour type has the lowest priority number.",
+          "add": "Add window",
+          "create_title": "Add classification window",
+          "edit_title": "Edit classification window",
+          "hour_type": "Hour type",
+          "hour_type_required": "Choose an hour type",
+          "day_scope_label": "Applies to",
+          "day_scope": {
+            "monday": "Monday",
+            "tuesday": "Tuesday",
+            "wednesday": "Wednesday",
+            "thursday": "Thursday",
+            "friday": "Friday",
+            "saturday": "Saturday",
+            "sunday": "Sunday",
+            "holiday": "Holidays"
+          },
+          "start_time": "From",
+          "end_time": "To",
+          "border_required": "Both borders are required",
+          "border_hint": "Use 24:00 for the end of the day. An end at or before the start means the window runs into the next day.",
+          "crosses_midnight_hint": "This window crosses midnight, so it continues into the following day.",
+          "whole_day_hint": "This window covers the whole day.",
+          "priority_badge": "priority {value}",
+          "empty_day": "No window covers this kind of day, so work logged in it will not be classified.",
+          "health": {
+            "complete": "Every minute of the week is classified",
+            "complete_description": "{count} windows, with no gaps and no conflicts.",
+            "incomplete": "Part of the week is not classified",
+            "incomplete_description": "Work logged in an uncovered range comes back with no suggested hour type, and the technician has to choose one. Existing work logs are unaffected.",
+            "gap_tooltip": "No window covers this range.",
+            "overlaps": "Windows the engine cannot decide between"
+          },
+          "delete": {
+            "title": "Delete classification window",
+            "description": "{range} will stop being classified as {hourType}. Work logs already recorded keep the hour type they were recorded with."
+          },
+          "errors": {
+            "overlap": "Another window covers part of this range with the same priority, so the engine could not decide between them. Change one of the priorities or the ranges.",
+            "would_break_coverage": "This would leave part of the week unclassified. Cover the range with another window first.",
+            "borders_must_differ": "The borders must differ. Use 00:00 to 24:00 for a whole day.",
+            "invalid_clock": "Enter a time as HH:MM, for example 18:00 or 24:00.",
+            "foreign_hour_type": "That hour type belongs to another workspace."
+          },
+          "toasts": {
+            "created": {
+              "title": "Window added",
+              "message": "The week's coverage has been rechecked."
+            },
+            "not_created": {
+              "title": "Window not added",
+              "message": "Something went wrong. Please try again."
+            },
+            "updated": {
+              "title": "Window updated",
+              "message": "The week's coverage has been rechecked."
+            },
+            "not_updated": {
+              "title": "Window not updated",
+              "message": "Something went wrong. Please try again."
+            },
+            "removed": {
+              "title": "Window deleted",
+              "message": "The week's coverage has been rechecked."
+            },
+            "not_removed": {
+              "title": "Window not deleted",
+              "message": "Something went wrong. Please try again."
+            }
+          }
         }
       }
     },

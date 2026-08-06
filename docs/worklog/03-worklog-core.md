@@ -144,9 +144,9 @@ recalcular apontamento por apontamento.
 
 ## Critérios de aceite
 
-Status registrado após a implementação. **Catorze dos dezesseis atendidos.** Os dois
-que faltam são os que dependem do motor de classificação da Fase 2b, que não existe —
-ver a seção "O que ficou bloqueado na Fase 2b" abaixo.
+Status registrado após a implementação. **Os dezesseis estão atendidos.** Catorze foram
+fechados nesta fase; os dois que dependiam do motor de classificação ficaram bloqueados e
+**foram fechados na Fase 2b** — ver "O que estava bloqueado na Fase 2b" abaixo.
 
 1. Digitar `1h 15min` persiste `horas_apontadas = 1.25` — **atendido**
 2. Digitar `1h 08min` persiste `1.25` e a UI avisa que houve arredondamento
@@ -162,16 +162,17 @@ ver a seção "O que ficou bloqueado na Fase 2b" abaixo.
    `horas_apontadas = 1.0` e `horas_equivalentes = 1.5` — **atendido**
 8. Apontamento em data de feriado já abre com "Domingos e feriados"
    pré-selecionado e o motivo visível, nos dois modos de entrada
-   — **BLOQUEADO na Fase 2b.** Não existe calendário de feriados, não existe janela de
-   classificação, não existe `priority` no Tipo de Hora e não existe motor. O modelo já
-   tem `suggested_hour_type`, `is_hour_type_overridden` e `classification_reason`
-   gravando o que o motor disser, e a UI já exibe o motivo quando ele vem preenchido
+   — **atendido na Fase 2b.** Esta fase entregou a metade que não dependia do motor:
+   `suggested_hour_type`, `is_hour_type_overridden` e `classification_reason` no modelo,
+   e a UI exibindo o motivo quando ele vem preenchido. A 2b entregou o calendário, a
+   janela, `priority` e o motor, e fechou o critério em
+   `test_service_log_classification_app.py`
 9. Intervalo de segunda-feira 17:00 às 20:00 cria 2 apontamentos agrupados: 1h
    Horário comercial e 2h Fora do expediente, com preview antes de salvar
-   — **BLOQUEADO na Fase 2b.** A metade que não depende do motor está pronta e testada:
+   — **atendido na Fase 2b.** Esta fase entregou tudo menos a decisão de _onde_ cortar:
    lote com N segmentos, `batch_id`, arredondamento por segmento, guardrail abaixo de
    15 minutos, preview que renderiza N segmentos com total, e edição e exclusão do lote
-   inteiro de forma transacional. Falta só quem decida _onde_ cortar
+   inteiro de forma transacional. A 2b entregou o motor que corta
 10. Modo Duração com `3h` numa terça-feira cria 1 apontamento e deixa o Tipo de
     Hora para o técnico escolher — **atendido**, e hoje por construção: sem motor não há
     sugestão, então o técnico sempre escolhe. Continuará valendo quando a 2b entrar,
@@ -191,27 +192,41 @@ ver a seção "O que ficou bloqueado na Fase 2b" abaixo.
     registra a alteração na trilha de auditoria — **atendido.** A trilha grava os dois
     lados da mudança, e uma edição que não altera nada não gera evento
 
-### O que ficou bloqueado na Fase 2b
+### O que estava bloqueado na Fase 2b — e foi fechado lá
 
-Os critérios 8 e 9 **não podem ser fechados nesta fase**, e isso não é omissão: o
-`README.md` declara que a Fase 3 depende da Fase 2b, e a 2b não foi implementada. Esta
+Os critérios 8 e 9 **não podiam ser fechados nesta fase**, e isso não foi omissão: o
+`README.md` declara que a Fase 3 depende da Fase 2b, e a 2b não estava implementada. Esta
 fase foi executada fora de ordem.
 
-A costura existe e está documentada em um único lugar:
-`plane/utils/service_log.build_segments`. Hoje ela devolve um segmento sem
-classificação. O docstring lista o que a 2b precisa fazer ali e o que ela **não** deve
-tocar — em particular, o arredondamento da R2 é desta fase e é aplicado por segmento em
-`build_batch_rows`; a 2b classifica, não faz aritmética.
+**A Fase 2b fechou os dois**, e o registro do fechamento está em
+`02b-calendario-janelas-classificacao.md`, seção "Critérios herdados da Fase 3". Os
+testes estão em `plane/tests/contract/app/test_service_log_classification_app.py`.
 
-Também já está pronto e sem uso, esperando a 2b:
+A costura ficou em um único lugar, como planejado:
+`plane/utils/service_log.build_segments`. Ela devolvia um segmento sem classificação; a
+2b a transformou em um adaptador fino sobre o motor, e a divisão de responsabilidade que
+o docstring pedia foi respeitada — o arredondamento da R2 continua sendo desta fase e
+continua sendo aplicado por segmento em `build_batch_rows`. A 2b classifica, não faz
+aritmética. `build_segments` guardou uma regra própria: descartar os horários no modo
+Duração, para que não exista caminho pelo qual o motor divida o que a D13 proíbe.
 
-- `service_log.activity.overridden` registrado no `ACTIVITY_MAPPER`, com o gerador que
-  grava sugestão e escolha final quando divergirem (R10, e seção 7 da 2b). Não emite
-  nada hoje porque sem sugestão não há divergência
-- `apply_minimum_block_guardrail`, que implementa o guardrail da seção 6 da 2b, com
-  teste dos dois casos de referência (17:50–18:10 divide, 17:57–18:03 não)
-- `suggested_hour_type`, `is_hour_type_overridden` e `classification_reason` no modelo,
-  e a exibição do motivo por segmento na lista e no preview
+Estava pronto e sem uso, e a 2b passou a usar:
+
+- `service_log.activity.overridden` no `ACTIVITY_MAPPER`, com o gerador que grava
+  sugestão e escolha final quando divergirem (R10, e seção 7 da 2b). Não emitia nada
+  porque sem sugestão não há divergência — agora emite
+- `apply_minimum_block_guardrail`, o guardrail da seção 6 da 2b, com teste dos dois casos
+  de referência (17:50–18:10 divide, 17:57–18:03 não). O motor divide e ele recolhe, nessa
+  ordem
+- `suggested_hour_type`, `is_hour_type_overridden` e `classification_reason` no modelo, e
+  a exibição do motivo por segmento na lista e no preview
+
+Uma lição do fechamento, registrada aqui porque nasceu de um teste **desta** fase: a
+classe `TestBuildSegments` afirmava que nada era sugerido. Aquilo passava porque o
+workspace da fixture não tinha janelas semeadas, então o motor devolveria "não
+classificado" **por acidente**. Um teste que afirma ausência sem afirmar o _motivo_ da
+ausência passa com e sem a feature. A 2b reescreveu a classe para afirmar o motivo
+(`UNCLASSIFIED_REASON`) e acrescentou o caso positivo ao lado.
 
 ### Correção ao próprio documento
 
@@ -339,11 +354,21 @@ append-only de alterações em configuração que afeta dinheiro, com
 
 Duas coisas a considerar aqui:
 
-- A trilha registra **apenas alterações de campos rastreados** (`TRACKED_FIELDS`), não
+- A trilha registrava **apenas alterações de campos rastreados** (`TRACKED_FIELDS`), não
   criação nem exclusão — `ChangeTrackerMixin` estruturalmente não emite evento de
-  criação, e criação/exclusão já estão respondidas por `created_by`, `created_at` e
-  `deleted_at` da própria entidade. Se a Fase 3 precisar de eventos de criação ou
-  exclusão, isso exige uma coluna `verb` nova (nullable, sem backfill).
+  criação, e para os catálogos criação/exclusão já estão respondidas por `created_by`,
+  `created_at` e `deleted_at` da própria entidade. Esta fase não precisou de mais que
+  isso.
+
+  **Corrigido pela Fase 2b:** ela acrescentou a coluna `verb` (migração 0127), porque
+  para feriado e janela a relação se inverte — criar e excluir _são_ os eventos
+  financeiros. E a acrescentou **não nullable, com back-fill para `updated`**, ao
+  contrário do que este parágrafo previa: o back-fill é fato, não palpite, já que toda
+  linha existente veio do `ChangeTrackerMixin`, que só dispara em edição. Uma coluna de
+  auditoria nullable obrigaria todo consumidor a tratar o nulo, e o nulo codificaria um
+  chute. Ver a seção "Fora do escopo original" em
+  `02b-calendario-janelas-classificacao.md`.
+
 - Auditoria **do apontamento** (R8) é outra coisa e não deve usar este modelo: a R8
   pede trilha por work item, e o padrão para isso é `IssueActivity` mais
   `issue_activity.delay(...)`, como manda a seção 6 do contexto mestre.
