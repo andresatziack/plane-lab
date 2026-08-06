@@ -89,6 +89,7 @@ from .service_catalog.base import (
     ServiceHourTypeViewSet,
 )
 from .service_client.base import ServiceClientViewSet, UserServiceClientEndpoint
+from .service_log.base import ServiceLogViewSet
 from .state.base import StateViewSet, IntakeStateEndpoint
 from .view.base import (
     WorkspaceViewViewSet,

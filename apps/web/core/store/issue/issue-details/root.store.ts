@@ -31,6 +31,8 @@ import { IssueStore } from "./issue.store";
 import type { IIssueStore, IIssueStoreActions } from "./issue.store";
 import { IssueLinkStore } from "./link.store";
 import type { IIssueLinkStore, IIssueLinkStoreActions } from "./link.store";
+import { ServiceLogStore } from "./service-log.store";
+import type { IServiceLogStore } from "./service-log.store";
 import { IssueReactionStore } from "./reaction.store";
 import type { IIssueReactionStore, IIssueReactionStoreActions } from "./reaction.store";
 import { IssueRelationStore } from "./relation.store";
@@ -118,6 +120,7 @@ export interface IIssueDetail
   commentReaction: IIssueCommentReactionStore;
   subIssues: IIssueSubIssuesStore;
   link: IIssueLinkStore;
+  serviceLog: IServiceLogStore;
   subscription: IIssueSubscriptionStore;
   relation: IIssueRelationStore;
 }
@@ -158,6 +161,7 @@ export class IssueDetail implements IIssueDetail {
   attachment: IIssueAttachmentStore;
   subIssues: IIssueSubIssuesStore;
   link: IIssueLinkStore;
+  serviceLog: IServiceLogStore;
   subscription: IIssueSubscriptionStore;
   relation: IIssueRelationStore;
   activity: IIssueActivityStore;
@@ -213,6 +217,9 @@ export class IssueDetail implements IIssueDetail {
     this.commentReaction = new IssueCommentReactionStore(this);
     this.subIssues = new IssueSubIssuesStore(this, serviceType);
     this.link = new IssueLinkStore(this, serviceType);
+    // Not passed a serviceType: work logs exist only for real work items. Drafts and
+    // epics do not have them, and the endpoint is nested under a project's issues.
+    this.serviceLog = new ServiceLogStore(this);
     this.subscription = new IssueSubscriptionStore(this, serviceType);
     this.relation = new IssueRelationStore(this);
   }
@@ -255,8 +262,11 @@ export class IssueDetail implements IIssueDetail {
     this.openWidgets = state;
     if (this.lastWidgetAction) this.lastWidgetAction = null;
   };
-  setLastWidgetAction = (action: TWorkItemWidgets) => {
-    this.openWidgets = [action];
+  // Parameter renamed from `action`, which shadowed mobx's `action` imported at the
+  // top of this file. Pre-existing, and surfaced by lint-staged once this file was
+  // touched to register the work log store.
+  setLastWidgetAction = (widget: TWorkItemWidgets) => {
+    this.openWidgets = [widget];
   };
   toggleOpenWidget = (state: TWorkItemWidgets) => {
     if (this.openWidgets && this.openWidgets.includes(state))

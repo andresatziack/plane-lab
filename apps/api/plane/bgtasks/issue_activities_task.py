@@ -4,6 +4,7 @@
 
 # Python imports
 import json
+from decimal import Decimal
 
 
 # Third Party imports
@@ -1014,6 +1015,199 @@ def delete_link_activity(
     )
 
 
+# ---------------------------------------------------------------------------
+# Work log activity -- rule R8 of the service desk work log feature
+# ---------------------------------------------------------------------------
+#
+# A work log is a sub-entity of a work item, so it records its activity against its
+# parent issue, exactly as links and attachments above do. There is no generic
+# content_type anchor in IssueActivity, and section 6 of the work log master context
+# names this pattern explicitly -- ServiceConfigActivity is for configuration that
+# affects money, and must not be used here.
+#
+# One activity row per submission rather than per segment. An interval crossing a
+# window boundary creates several rows, but the technician performed one action, and a
+# feed that reported "created a work log" three times for one click would be noise.
+# The segment detail is recoverable from the batch itself.
+
+
+def _service_log_batch_summary(rows):
+    """A one-line description of a work log batch for the activity feed.
+
+    Reads the *snapshotted* values, never the catalogue, so an entry rendered in the
+    feed a year from now says what was true when it was recorded (R4).
+    """
+    if not rows:
+        return "", None
+
+    total_logged = sum(Decimal(str(row.get("logged_hours") or "0")) for row in rows)
+    labels = [row.get("hour_type_name") for row in rows if row.get("hour_type_name")]
+    detail = f"{total_logged} h"
+
+    if labels:
+        # dict.fromkeys keeps first-seen order while removing repeats, so a two
+        # segment entry reads "1.5000 h (Horário comercial, Fora do expediente)".
+        detail = f"{detail} ({', '.join(dict.fromkeys(labels))})"
+
+    return detail, rows[0].get("batch_id")
+
+
+def create_service_log_activity(
+    requested_data,
+    current_instance,
+    issue_id,
+    project_id,
+    workspace_id,
+    actor_id,
+    issue_activities,
+    epoch,
+):
+    requested_data = json.loads(requested_data) if requested_data is not None else None
+
+    rows = requested_data or []
+    detail, batch_id = _service_log_batch_summary(rows)
+
+    issue_activities.append(
+        IssueActivity(
+            issue_id=issue_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            comment="created a work log",
+            verb="created",
+            actor_id=actor_id,
+            field="service_log",
+            new_value=detail,
+            new_identifier=batch_id,
+            epoch=epoch,
+        )
+    )
+
+
+def update_service_log_activity(
+    requested_data,
+    current_instance,
+    issue_id,
+    project_id,
+    workspace_id,
+    actor_id,
+    issue_activities,
+    epoch,
+):
+    """Acceptance criterion 16: an edit is recorded in the audit trail.
+
+    Records old and new together, because the point of the trail is answering "this
+    invoice line changed, by how much and who did it" -- which needs both sides.
+    """
+    requested_data = json.loads(requested_data) if requested_data is not None else None
+    current_instance = json.loads(current_instance) if current_instance is not None else None
+
+    new_detail, batch_id = _service_log_batch_summary(requested_data or [])
+    old_detail, old_batch_id = _service_log_batch_summary(current_instance or [])
+
+    if old_detail == new_detail:
+        return
+
+    issue_activities.append(
+        IssueActivity(
+            issue_id=issue_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            comment="updated a work log",
+            verb="updated",
+            actor_id=actor_id,
+            field="service_log",
+            old_value=old_detail,
+            old_identifier=old_batch_id,
+            new_value=new_detail,
+            new_identifier=batch_id,
+            epoch=epoch,
+        )
+    )
+
+
+def delete_service_log_activity(
+    requested_data,
+    current_instance,
+    issue_id,
+    project_id,
+    workspace_id,
+    actor_id,
+    issue_activities,
+    epoch,
+):
+    """R8 requires the history of deletions, not only of edits.
+
+    The deleted hours go in ``old_value``: the rows are soft deleted and still in
+    ``all_objects``, but a reader of the feed should not have to go looking to find out
+    how much time disappeared from the work item.
+    """
+    current_instance = json.loads(current_instance) if current_instance is not None else None
+
+    old_detail, old_batch_id = _service_log_batch_summary(current_instance or [])
+
+    issue_activities.append(
+        IssueActivity(
+            issue_id=issue_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            comment="deleted a work log",
+            verb="deleted",
+            actor_id=actor_id,
+            field="service_log",
+            old_value=old_detail,
+            old_identifier=old_batch_id,
+            new_value="",
+            epoch=epoch,
+        )
+    )
+
+
+def create_service_log_override_activity(
+    requested_data,
+    current_instance,
+    issue_id,
+    project_id,
+    workspace_id,
+    actor_id,
+    issue_activities,
+    epoch,
+):
+    """Records that the technician disagreed with the classification engine.
+
+    R10: "Sobrescrita manual sempre permitida, e registrada na auditoria quando
+    divergir da sugestão", and section 7 of the calendar and windows brief repeats it.
+    A separate activity type from the creation itself because it answers a different
+    question -- not "how much time" but "why is this priced this way" -- and that is
+    the question an invoice dispute actually asks.
+
+    Emits nothing until the classification engine exists: with no suggestion there can
+    be no divergence, so ``is_hour_type_overridden`` is never true today. Wired now so
+    that phase has nothing to add here beyond producing suggestions.
+    """
+    requested_data = json.loads(requested_data) if requested_data is not None else None
+
+    for row in requested_data or []:
+        if not row.get("is_hour_type_overridden"):
+            continue
+
+        issue_activities.append(
+            IssueActivity(
+                issue_id=issue_id,
+                project_id=project_id,
+                workspace_id=workspace_id,
+                comment="overrode the suggested hour type on a work log",
+                verb="updated",
+                actor_id=actor_id,
+                field="service_log_hour_type_override",
+                old_value=row.get("suggested_hour_type_name") or "",
+                old_identifier=row.get("suggested_hour_type"),
+                new_value=row.get("hour_type_name") or "",
+                new_identifier=row.get("hour_type"),
+                epoch=epoch,
+            )
+        )
+
+
 def create_attachment_activity(
     requested_data,
     current_instance,
@@ -1553,6 +1747,14 @@ def issue_activity(
             "link.activity.deleted": delete_link_activity,
             "attachment.activity.created": create_attachment_activity,
             "attachment.activity.deleted": delete_attachment_activity,
+            # Work log activity, rule R8. An unknown type is silently ignored by the
+            # lookup below, so a missing entry here would mean an audit trail that
+            # quietly records nothing -- which is why these are registered alongside
+            # the generators rather than left to a later phase.
+            "service_log.activity.created": create_service_log_activity,
+            "service_log.activity.updated": update_service_log_activity,
+            "service_log.activity.deleted": delete_service_log_activity,
+            "service_log.activity.overridden": create_service_log_override_activity,
             "issue_relation.activity.created": create_issue_relation_activity,
             "issue_relation.activity.deleted": delete_issue_relation_activity,
             "issue_reaction.activity.created": create_issue_reaction_activity,

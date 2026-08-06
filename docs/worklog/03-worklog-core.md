@@ -144,31 +144,82 @@ recalcular apontamento por apontamento.
 
 ## Critérios de aceite
 
-1. Digitar `1h 15min` persiste `horas_apontadas = 1.25`
+Status registrado após a implementação. **Catorze dos dezesseis atendidos.** Os dois
+que faltam são os que dependem do motor de classificação da Fase 2b, que não existe —
+ver a seção "O que ficou bloqueado na Fase 2b" abaixo.
+
+1. Digitar `1h 15min` persiste `horas_apontadas = 1.25` — **atendido**
 2. Digitar `1h 08min` persiste `1.25` e a UI avisa que houve arredondamento
-3. Digitar `1h 07min` persiste `1.0`
-4. Digitar `3min` persiste `0.25` (piso de 15 minutos)
-5. Digitar `banana` bloqueia o envio com mensagem clara
+   — **atendido.** O endpoint de preview devolve `was_rounded`, e o formulário mostra
+   "Arredondado para 1h 15min"
+3. Digitar `1h 07min` persiste `1.0` — **atendido**
+4. Digitar `3min` persiste `0.25` (piso de 15 minutos) — **atendido**
+5. Digitar `banana` bloqueia o envio com mensagem clara — **atendido.** Também
+   `90` sem unidade, `1:30` e `0min`, todos com código próprio
 6. Informar intervalo de 14:00 às 15:30 produz o mesmo resultado que digitar
-   `1h 30min`
+   `1h 30min` — **atendido**, com teste de equivalência nas três etapas do cálculo
 7. Um apontamento de `1h` com Tipo de Hora de multiplicador 1.5 persiste
-   `horas_apontadas = 1.0` e `horas_equivalentes = 1.5`
+   `horas_apontadas = 1.0` e `horas_equivalentes = 1.5` — **atendido**
 8. Apontamento em data de feriado já abre com "Domingos e feriados"
    pré-selecionado e o motivo visível, nos dois modos de entrada
+   — **BLOQUEADO na Fase 2b.** Não existe calendário de feriados, não existe janela de
+   classificação, não existe `priority` no Tipo de Hora e não existe motor. O modelo já
+   tem `suggested_hour_type`, `is_hour_type_overridden` e `classification_reason`
+   gravando o que o motor disser, e a UI já exibe o motivo quando ele vem preenchido
 9. Intervalo de segunda-feira 17:00 às 20:00 cria 2 apontamentos agrupados: 1h
    Horário comercial e 2h Fora do expediente, com preview antes de salvar
+   — **BLOQUEADO na Fase 2b.** A metade que não depende do motor está pronta e testada:
+   lote com N segmentos, `batch_id`, arredondamento por segmento, guardrail abaixo de
+   15 minutos, preview que renderiza N segmentos com total, e edição e exclusão do lote
+   inteiro de forma transacional. Falta só quem decida _onde_ cortar
 10. Modo Duração com `3h` numa terça-feira cria 1 apontamento e deixa o Tipo de
-    Hora para o técnico escolher
-11. Excluir um lançamento dividido remove todos os seus segmentos
+    Hora para o técnico escolher — **atendido**, e hoje por construção: sem motor não há
+    sugestão, então o técnico sempre escolhe. Continuará valendo quando a 2b entrar,
+    porque a R10 manda o dia útil em modo Duração ficar sem sugestão
+11. Excluir um lançamento dividido remove todos os seus segmentos — **atendido**,
+    transacional, e por soft delete (as linhas seguem em `all_objects`)
 12. Apontamento com Tipo de Atendimento de rota `NON_BILLABLE` (Garantia ou
     Cortesia) soma no total apontado, tem `horas_equivalentes` calculadas
     normalmente e `horas_debitadas = 0`, e não soma no total faturável
-13. Apontamento de `30h` salva, mostrando aviso de confirmação antes
-14. Data futura é rejeitada
+    — **atendido**, e garantido em DDL por `CheckConstraint`, não só em Python
+13. Apontamento de `30h` salva, mostrando aviso de confirmação antes — **atendido**
+14. Data futura é rejeitada — **atendido**, com "hoje" resolvido no fuso do
+    **workspace**, não no do usuário da request
 15. Alterar o multiplicador do catálogo depois não muda `horas_equivalentes` de
-    apontamentos já salvos
+    apontamentos já salvos — **atendido** pelos snapshots da R4
 16. Editar um apontamento recalcula os totais do work item corretamente e
-    registra a alteração na trilha de auditoria
+    registra a alteração na trilha de auditoria — **atendido.** A trilha grava os dois
+    lados da mudança, e uma edição que não altera nada não gera evento
+
+### O que ficou bloqueado na Fase 2b
+
+Os critérios 8 e 9 **não podem ser fechados nesta fase**, e isso não é omissão: o
+`README.md` declara que a Fase 3 depende da Fase 2b, e a 2b não foi implementada. Esta
+fase foi executada fora de ordem.
+
+A costura existe e está documentada em um único lugar:
+`plane/utils/service_log.build_segments`. Hoje ela devolve um segmento sem
+classificação. O docstring lista o que a 2b precisa fazer ali e o que ela **não** deve
+tocar — em particular, o arredondamento da R2 é desta fase e é aplicado por segmento em
+`build_batch_rows`; a 2b classifica, não faz aritmética.
+
+Também já está pronto e sem uso, esperando a 2b:
+
+- `service_log.activity.overridden` registrado no `ACTIVITY_MAPPER`, com o gerador que
+  grava sugestão e escolha final quando divergirem (R10, e seção 7 da 2b). Não emite
+  nada hoje porque sem sugestão não há divergência
+- `apply_minimum_block_guardrail`, que implementa o guardrail da seção 6 da 2b, com
+  teste dos dois casos de referência (17:50–18:10 divide, 17:57–18:03 não)
+- `suggested_hour_type`, `is_hour_type_overridden` e `classification_reason` no modelo,
+  e a exibição do motivo por segmento na lista e no preview
+
+### Correção ao próprio documento
+
+A seção "Herdado da Fase 1" afirma, sobre o critério 11, que o `PATCH` de project é
+"o único lugar por onde o vínculo é gravado". **Isso deixou de ser verdade na Fase 2**,
+que acrescentou `ServiceClientViewSet.assign_projects` — atribuição em lote que grava
+`service_client_id` por `.update()` de queryset e nunca passa por serializer. A guarda
+foi implementada nos dois caminhos; em um só ela seria contornável trivialmente.
 
 ## Herdado da Fase 1: dois critérios que só podem ser fechados aqui
 
@@ -176,10 +227,37 @@ A Fase 1 foi implementada, mas **dois dos seus critérios de aceite dependem da
 existência de apontamentos** e por isso ficaram sem efeito. Eles são
 responsabilidade desta fase:
 
-| Critério da Fase 1                                                                         | O que falta                                                                                  |
-| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| 11 — "Remover o Cliente de um project com apontamentos é rejeitado"                        | rejeitar o `PATCH` de project que zera `service_client` quando o project já tem apontamentos |
-| 10 — "Mover um chamado com apontamentos para um project de outro Cliente alerta o usuário" | detectar a troca de cliente no move e devolver o alerta                                      |
+| Critério da Fase 1                                                                         | O que falta                                                                                  | Status                                                                        |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 11 — "Remover o Cliente de um project com apontamentos é rejeitado"                        | rejeitar o `PATCH` de project que zera `service_client` quando o project já tem apontamentos | **atendido**, nos dois caminhos de escrita, e estendido para troca de cliente |
+| 10 — "Mover um chamado com apontamentos para um project de outro Cliente alerta o usuário" | detectar a troca de cliente no move e devolver o alerta                                      | **BLOQUEADO — não existe move.** Ver abaixo                                   |
+
+### Critério 10: não existe caminho de move para instrumentar
+
+O critério pede alerta ao mover um chamado. **Nenhum caminho do backend altera
+`Issue.project_id`**, verificado:
+
+- `project` está em `read_only_fields` no `IssueCreateSerializer`
+  (`app/serializers/issue.py`) e também no serializer da API v1
+  (`api/serializers/issue.py`)
+- toda rota de work item é aninhada em `.../projects/<project_id>/issues/...`, e o
+  project vem da URL, nunca do corpo
+- `handleMoveToProjects` (`apps/web/core/components/issues/issue-modal/form.tsx`) passa
+  `isDraft: true` — move **draft**, que ainda não é work item
+- o próprio board diz que a feature não existe:
+  `issue-layouts/utils.tsx` → "To change the client of a work item, move it to a project
+  of that client"
+
+Ou seja, o ponto de alteração que este documento mapeou descreve algo que não está lá.
+Construir o move é uma feature (remapear `state_id`, labels, assignees, `sequence_id`,
+participação em cycle e module, mais atividade), não um detalhe da Fase 3, e mexeria
+justamente na superfície de core que a seção 6 do contexto mestre pede para evitar.
+
+**O que foi entregue:** `service_client_change_alert(issue, destination_project)` em
+`plane/utils/service_log.py`, com teste unitário dos três casos (clientes diferentes com
+apontamentos → alerta; mesmo cliente em dois projects → sem alerta; sem apontamentos →
+sem alerta). A regra fica escrita para quem construir o move, em vez de ser reinventada
+depois. O critério 10 da Fase 1 permanece **em aberto** até existir o move.
 
 **Nada foi deixado no código para isso** — nem função vazia, nem `TODO`. A
 decisão foi implementar os dois de uma vez, aqui, junto com o modelo que os torna
@@ -206,13 +284,15 @@ A Fase 2 foi implementada, mas **cinco dos seus sete critérios de aceite depend
 existência de apontamentos**. Eles estão marcados na `02-catalogos-configuraveis.md`
 como parciais ou como "verificável na Fase 3", e são responsabilidade desta fase.
 
-| Critério da Fase 2                                                       | O que falta                                                                                     |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| 1 — novo Tipo de Hora "passa a aparecer no formulário de apontamento"    | o formulário. O CRUD e a API já existem e são testados                                          |
-| 2 — "a ordem se reflete no dropdown do formulário"                       | o dropdown. A reordenação por arraste e o `ordering` da API já existem                           |
-| 3 — "apontamentos antigos continuam exibindo o nome corretamente"        | os FKs `DO_NOTHING` no apontamento, e o serializer resolvendo o nome mesmo com a opção inativa   |
-| 4 — "excluir um Tipo de Hora **em uso** retorna erro explicativo"        | a contagem de apontamentos vinculados em `validate_catalog_delete`                                |
-| 5 — "alterar o multiplicador não altera apontamento já registrado"       | o snapshot da R4 no apontamento                                                                  |
+**Todos os cinco foram fechados nesta fase.**
+
+| Critério da Fase 2                                                    | O que falta                                                                                    | Status                                                                                                                                                                                          |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — novo Tipo de Hora "passa a aparecer no formulário de apontamento" | o formulário. O CRUD e a API já existem e são testados                                         | **atendido**                                                                                                                                                                                    |
+| 2 — "a ordem se reflete no dropdown do formulário"                    | o dropdown. A reordenação por arraste e o `ordering` da API já existem                         | **atendido** — o dropdown consome `activeHourTypes`, já ordenado por `sequence`                                                                                                                 |
+| 3 — "apontamentos antigos continuam exibindo o nome corretamente"     | os FKs `DO_NOTHING` no apontamento, e o serializer resolvendo o nome mesmo com a opção inativa | **atendido** — FKs `DO_NOTHING` e serializer lendo por `all_objects`, com teste para opção inativa e para opção soft-deletada                                                                   |
+| 4 — "excluir um Tipo de Hora **em uso** retorna erro explicativo"     | a contagem de apontamentos vinculados em `validate_catalog_delete`                             | **atendido** — `HOUR_TYPE_IN_USE_BY_SERVICE_LOGS` / `BILLING_TYPE_IN_USE_BY_SERVICE_LOGS`, contando por `all_objects`, e bloqueando também quando a opção só aparece como `suggested_hour_type` |
+| 5 — "alterar o multiplicador não altera apontamento já registrado"    | o snapshot da R4 no apontamento                                                                | **atendido** — `applied_multiplier` e `applied_billing_route`                                                                                                                                   |
 
 Pontos de alteração exatos:
 

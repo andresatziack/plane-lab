@@ -18,6 +18,7 @@ from plane.app.serializers import (
     ServiceClientSerializer,
 )
 from plane.db.models import Project, ServiceClient, Workspace
+from plane.utils.service_log import validate_service_client_change
 
 from ..base import BaseAPIView, BaseViewSet
 
@@ -190,6 +191,31 @@ class ServiceClientViewSet(BaseViewSet):
         if missing:
             return Response(
                 {"error": "Some projects do not belong to this workspace.", "project_ids": missing},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Phase 1's acceptance criterion 11, on the write path the phase brief did not
+        # know about. This action assigns through a queryset `update()`, which skips
+        # serializers, `save()` and signals -- so the guard in
+        # `ProjectSerializer.validate_service_client` cannot see it, and a client
+        # reassignment here would silently reattribute already-invoiced hours.
+        #
+        # Reported per project rather than as one opaque error: an admin bulk assigning
+        # twenty legacy projects needs to know which of them refused and why.
+        blocked = []
+
+        for project in projects:
+            error_code = validate_service_client_change(project, service_client)
+
+            if error_code:
+                blocked.append({"project_id": str(project.id), "error": error_code})
+
+        if blocked:
+            return Response(
+                {
+                    "error": "Some projects already have work logs under another client.",
+                    "projects": blocked,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

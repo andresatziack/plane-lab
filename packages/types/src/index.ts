@@ -46,6 +46,7 @@ export * from "./rich-filters";
 export * from "./search";
 export * from "./service-catalog";
 export * from "./service-client";
+export * from "./service-log";
 export * from "./settings";
 export * from "./state";
 export * from "./stickies";

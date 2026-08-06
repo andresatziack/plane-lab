@@ -50,6 +50,11 @@ from .service_catalog import (
     ServiceConfigActivitySerializer,
     ServiceHourTypeSerializer,
 )
+from .service_log import (
+    ServiceLogClientSerializer,
+    ServiceLogSerializer,
+    ServiceLogWriteSerializer,
+)
 from .service_client import (
     ServiceClientSerializer,
     ServiceClientLiteSerializer,

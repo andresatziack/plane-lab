@@ -17,6 +17,7 @@ from .project import urlpatterns as project_urls
 from .search import urlpatterns as search_urls
 from .service_catalog import urlpatterns as service_catalog_urls
 from .service_client import urlpatterns as service_client_urls
+from .service_log import urlpatterns as service_log_urls
 from .state import urlpatterns as state_urls
 from .user import urlpatterns as user_urls
 from .views import urlpatterns as view_urls
@@ -40,6 +41,7 @@ urlpatterns = [
     *search_urls,
     *service_catalog_urls,
     *service_client_urls,
+    *service_log_urls,
     *state_urls,
     *user_urls,
     *view_urls,

@@ -15,6 +15,7 @@ transformam regras de negócio em configuração, em vez de código.
 Ex.: Horário comercial, Fora do expediente, Domingos e feriados.
 
 Campos:
+
 - Nome e descrição
 - **Multiplicador** (`Decimal`, ex.: 1.0 / 1.5 / 2.0) — aplicado sobre as horas
   apontadas para gerar as horas equivalentes (ver seção 4 do contexto mestre)
@@ -33,6 +34,7 @@ aqui.
 Ex.: Contrato, Avulso, Cortesia, Projeto.
 
 Campos:
+
 - Nome e descrição
 - **Rota de faturamento** — enum: `DEBIT_POOL`, `BILL_AMOUNT`,
   `NON_BILLABLE`. Este campo é o que decide, no momento do apontamento, para
@@ -79,30 +81,36 @@ janelas de classificação. Estruture a navegação prevendo essas seções.
 
 ## Critérios de aceite
 
-Status registrado após a implementação. **Cinco dos sete dependem da existência de
-apontamentos** e por isso só são verificáveis na Fase 3 — inteira ou parcialmente.
-A lista completa, com os pontos de alteração exatos, está em
+Status registrado após a implementação. **Cinco dos sete dependiam da existência de
+apontamentos** e por isso só eram verificáveis na Fase 3. **A Fase 3 fechou os cinco**,
+e os sete estão atendidos. Os pontos de alteração usados estão em
 `03-worklog-core.md`, seção "Critérios herdados da Fase 2". Sem esse registro eles
-nunca seriam verificados: a Fase 2 não consegue e a Fase 3 não saberia que existem.
+nunca seriam verificados: a Fase 2 não conseguia e a Fase 3 não saberia que existem.
 
 1. Admin cria um Tipo de Hora "Sábado" com multiplicador 1.5 e ele passa a
    aparecer no formulário de apontamento
-   — **parcial.** O CRUD e a API estão prontos e testados; **a metade do formulário
-   é verificável na Fase 3**
+   — **atendido.** O CRUD e a API na Fase 2; o formulário na Fase 3
 2. Admin reordena as opções e a ordem se reflete no dropdown do formulário
-   — **parcial.** Reordenação por arraste e `ordering` na API prontos; **o dropdown
-   é verificável na Fase 3**
+   — **atendido.** Reordenação por arraste e `ordering` na Fase 2; o dropdown na Fase 3,
+   que consome `activeHourTypes` já ordenado por `sequence`
 3. Ao inativar "Fora do expediente", ele desaparece de novos apontamentos mas
    os apontamentos antigos continuam exibindo o nome corretamente
-   — **parcial.** `?only_active=true` pronto; **a preservação do nome histórico é
-   verificável na Fase 3**, e depende dos FKs do apontamento serem `DO_NOTHING`
+   — **atendido.** `?only_active=true` na Fase 2; na Fase 3, os FKs `DO_NOTHING` no
+   apontamento e o serializer resolvendo o nome por `all_objects`. Coberto por teste
+   tanto para opção inativa quanto para opção soft-deletada, e a API recusa escolher uma
+   opção inativa em apontamento novo
 4. Tentar excluir um Tipo de Hora em uso retorna erro explicativo
-   — **verificável na Fase 3.** Hoje a exclusão só é recusada para a opção padrão;
-   "em uso" não é avaliável sem apontamentos
+   — **atendido na Fase 3**, em `validate_catalog_delete`, no ponto de extensão que esta
+   fase deixou documentado. Códigos `HOUR_TYPE_IN_USE_BY_SERVICE_LOGS` e
+   `BILLING_TYPE_IN_USE_BY_SERVICE_LOGS`, contados por `all_objects` — apontamento
+   soft-deletado ainda conta — e bloqueando também quando a opção aparece apenas como
+   `suggested_hour_type`
 5. Alterar o multiplicador de 1.5 para 1.8 não altera nenhum valor ou débito de
    apontamento já registrado
-   — **verificável na Fase 3.** Depende do snapshot da R4. A Fase 2 entrega o aviso
-   na UI e a trilha de auditoria da alteração
+   — **atendido na Fase 3** pelo snapshot da R4. A Fase 3 snapshota também a **rota de
+   faturamento**, que a R4 não citava: dois Tipos de Atendimento podem compartilhar a
+   mesma rota (Garantia e Cortesia), e sem isso um relatório histórico não consegue
+   separá-los depois de uma edição de catálogo
 6. Cada catálogo tem exatamente uma opção padrão a qualquer momento
    — **atendido.** Constraint parcial no banco mais recusa de despadronizar,
    inativar ou excluir a opção padrão
