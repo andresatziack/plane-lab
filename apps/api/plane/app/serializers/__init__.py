@@ -55,6 +55,17 @@ from .service_catalog import (
     ServiceConfigActivitySerializer,
     ServiceHourTypeSerializer,
 )
+from .service_contract import (
+    ServiceAlertDismissalSerializer,
+    ServiceContractedHoursSerializer,
+    ServiceContractLiteSerializer,
+    ServiceContractPeriodCloseSerializer,
+    ServiceContractPeriodSerializer,
+    ServiceContractRenewalSerializer,
+    ServiceContractSerializer,
+    ServiceContractSuccessorSerializer,
+    ServiceHourLedgerEntrySerializer,
+)
 from .service_log import (
     ServiceLogClientSerializer,
     ServiceLogSerializer,

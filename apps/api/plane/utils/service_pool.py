@@ -1,0 +1,1486 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+"""Domain logic for contracts and monthly hour pools.
+
+Pure functions over models, with no dependency on views, serializers or DRF, in the
+same shape as ``plane.utils.service_log``. Everything that moves a balance lives here
+so it can be unit tested without an HTTP layer -- and so that there is exactly one
+implementation of each rule, because a second copy of a pool debit is a second answer
+to "what does this client owe".
+
+Two invariants hold everything else up, and both are asserted by ``reconcile_period``:
+
+1. **The period carries the balance; the ledger carries the history** (decision D2).
+   The period row holds the totals and is the row that ``select_for_update()`` locks;
+   the ledger holds every movement. They are written **in the same transaction,
+   always**.
+2. **No balance moves without a row.** Every reduction *is* a ledger insert, which
+   makes acceptance criterion 20 true by construction rather than by diligence.
+
+Concurrency, for acceptance criterion 14: ``transaction.atomic()`` plus
+``select_for_update()`` on the period row, and ``consumed_hours`` moved with an ``F()``
+expression -- never read, add, write. Concurrent materialisation of the same competency
+is resolved by the partial unique index, with a retry that reads the winner's row.
+"""
+
+# Python imports
+import calendar
+from datetime import date
+from decimal import Decimal
+
+# Django imports
+from django.db import IntegrityError, transaction
+from django.db.models import F, Q, Sum
+from django.utils import timezone
+
+# Module imports
+from plane.db.models import (
+    ServiceBillingType,
+    ServiceContract,
+    ServiceContractPeriod,
+    ServiceHourLedgerEntry,
+    ServiceLedgerEntryType,
+    ServiceLog,
+    ServiceOveragePolicy,
+    ServiceOverageSettlement,
+    ServicePeriodStatus,
+)
+from plane.utils.service_log_time import HOUR_SCALE, ZERO_HOURS
+
+# ---------------------------------------------------------------------------
+# Error and warning codes
+# ---------------------------------------------------------------------------
+#
+# UPPER_SNAKE, in the style the client entity and the catalogues established. The
+# frontend maps them to translated strings; the API never returns Portuguese.
+
+#: The project has no client, so there is no contract to look for. Section 5, step 1.
+NO_SERVICE_CLIENT_FOR_PROJECT = "NO_SERVICE_CLIENT_FOR_PROJECT"
+
+#: The client holds no contract at all.
+NO_CONTRACT_FOR_CLIENT = "NO_CONTRACT_FOR_CLIENT"
+
+#: The client holds several contracts, none pinned on the project and none marked as
+#: the default. Acceptance criterion 24: refuse rather than pick one, because debiting
+#: the wrong pool is worse than refusing the entry.
+AMBIGUOUS_CONTRACT_RESOLUTION = "AMBIGUOUS_CONTRACT_RESOLUTION"
+
+#: The project pins a contract belonging to a different client than the project's own.
+#: A misconfiguration, and the one case where following the pin would silently bill the
+#: wrong company.
+CONTRACT_PINNED_ON_PROJECT_BELONGS_TO_ANOTHER_CLIENT = "CONTRACT_PINNED_ON_PROJECT_BELONGS_TO_ANOTHER_CLIENT"
+
+#: The competency period is closed. Acceptance criterion 13.
+PERIOD_IS_CLOSED = "PERIOD_IS_CLOSED"
+
+#: Closing a period that is already closed.
+PERIOD_ALREADY_CLOSED = "PERIOD_ALREADY_CLOSED"
+
+#: A deficit was to be carried, but the contract has no period after this one to carry
+#: it into. Forcing the choice is deliberate: writing a deficit off at contract end
+#: would be a gift nobody authorised.
+NO_NEXT_PERIOD_FOR_DEFICIT = "NO_NEXT_PERIOD_FOR_DEFICIT"
+
+#: Editing the contracted hours of a closed period. Decision B1.
+PERIOD_IS_CLOSED_FOR_CONTRACTED_HOURS = "PERIOD_IS_CLOSED_FOR_CONTRACTED_HOURS"
+
+#: Converting a remaining balance into a work item allowance, which is Phase 5's
+#: mechanism. The interface exists and is documented; the mechanism does not.
+ISSUE_ALLOWANCE_NOT_AVAILABLE = "ISSUE_ALLOWANCE_NOT_AVAILABLE"
+
+#: Warning, never a blocker. D9 and section 1: an entry outside contractual vigency is
+#: recorded, flagged in the form and on the work item, and marked in reports. "Nunca
+#: descartar o registro por causa de uma pendência comercial."
+CONTRACT_OUT_OF_VIGENCY = "CONTRACT_OUT_OF_VIGENCY"
+
+#: Warning, never a blocker, and **a distinct code from the one above** -- decision B4,
+#: so the operations report can tell a suspended contract from a lapsed one.
+CONTRACT_SUSPENDED = "CONTRACT_SUSPENDED"
+
+
+#: Resolution failures that mean "the configuration is simply ABSENT", and which
+#: therefore must **not** cost the technician their work log.
+#:
+#: This is the one place where the letter of acceptance criterion 24 -- "resolução de
+#: contrato ambígua **ou vazia** falha com mensagem explícita" -- is read against section
+#: 4, and the two genuinely pull in opposite directions. The reconciliation:
+#:
+#: * criterion 24's own justification is "debitar o pool errado é pior que bloquear o
+#:   apontamento". That reasoning only bites when a **wrong pool could be chosen**, which
+#:   is the ambiguous case. With no client and no contract there is no wrong pool -- there
+#:   is no pool;
+#: * section 4, D4 and D9 all say the same thing three times over: "bloquear gera
+#:   apontamento perdido, que é pior que saldo negativo", and "nunca descartar o registro
+#:   por causa de uma pendência comercial". A contract that sales has not registered yet
+#:   is precisely a commercial pendency;
+#: * D21 settled the identical question for the classification engine and made it total,
+#:   on the grounds that a bad configuration must never stop **all** logging in a
+#:   workspace. The same argument applies unchanged here.
+#:
+#: So these two fail **loudly but without blocking**: no debit happens, ``debited_period``
+#: stays null, and the reason is reported by ``issue_pool_snapshot`` on the work item and
+#: in the write response. Ambiguity, a pin to another client's contract, and a closed
+#: period all still raise.
+#:
+#: **This is a deviation from the literal wording of criterion 24 and is flagged as such
+#: for confirmation** -- it is a business rule, not a coding choice, and the phase brief
+#: says to ask rather than assume.
+NON_BLOCKING_RESOLUTION_FAILURES = frozenset(
+    {NO_SERVICE_CLIENT_FOR_PROJECT, NO_CONTRACT_FOR_CLIENT}
+)
+
+
+class ServicePoolValidationError(ValueError):
+    """A pool operation could not be completed.
+
+    Carries an UPPER_SNAKE ``code`` and, when there is one, a ``detail`` dict for the
+    payload. Mirrors ``ServiceLogValidationError`` so callers have one shape to handle.
+    """
+
+    def __init__(self, code, detail=None):
+        self.code = code
+        self.detail = detail or {}
+        super().__init__(code)
+
+    @property
+    def blocks_the_work_log(self):
+        """Whether this failure should stop the work log from being recorded.
+
+        See ``NON_BLOCKING_RESOLUTION_FAILURES``. Asked as a property rather than
+        compared at each call site so there is one answer, in one place.
+        """
+        return self.code not in NON_BLOCKING_RESOLUTION_FAILURES
+
+
+def _quantize(value):
+    """Every hour figure this module writes, at the one scale section 4b fixes.
+
+    Applied at the boundary rather than trusted from the caller: a value that arrives a
+    digit wide would be silently truncated by the column, and the balance would stop
+    reconciling for a reason nobody could see.
+    """
+    return Decimal(value).quantize(HOUR_SCALE)
+
+
+# ---------------------------------------------------------------------------
+# Contract resolution -- section 5, steps 1 and 2
+# ---------------------------------------------------------------------------
+
+
+def contract_warnings(contract, worked_on):
+    """Every non-blocking flag that applies to debiting this contract on this date.
+
+    A list, because more than one can be true at once: a contract can be both suspended
+    and outside its vigency, and a report that only ever saw one of the two would
+    mis-describe it.
+
+    None of these blocks anything. D4 and D9 both say the same thing from different
+    directions -- work already performed is recorded regardless of a commercial
+    pendency.
+    """
+    warnings = []
+
+    if contract.status == ServiceContract.Status.SUSPENDED:
+        warnings.append(CONTRACT_SUSPENDED)
+
+    if not contract.covers(worked_on):
+        warnings.append(CONTRACT_OUT_OF_VIGENCY)
+
+    return warnings
+
+
+def resolve_contract(issue, worked_on):
+    """Which contract a work log on ``issue`` at ``worked_on`` debits.
+
+    Returns ``(contract, warning_code_or_None)``. Raises
+    ``ServicePoolValidationError`` when resolution is empty or ambiguous.
+
+    Precedence, from section 1b of the phase brief:
+
+    1. the contract **pinned on the project**, which is how two projects of one client
+       debit separate pools (acceptance criterion 22);
+    2. otherwise, among the client's contracts: the single one that exists, or the one
+       flagged ``is_default`` (criterion 23);
+    3. otherwise, an explicit failure (criterion 24). Never an arbitrary choice.
+
+    Within step 2, contracts **in force on the service date are preferred** before the
+    default flag is consulted. That ordering matters at a renewal boundary: when an old
+    contract and its successor both exist and only one covers the date, the date decides
+    -- consulting ``is_default`` first would debit a contract that had not started.
+    Nothing is *excluded* for being out of vigency, though; if no contract covers the
+    date the whole set is reconsidered, because D9 permits the entry and only warns.
+
+    The returned warning is the highest-precedence element of ``contract_warnings``,
+    suspension first: a suspension is an active commercial decision, while a lapsed
+    vigency is usually an administrative delay. Callers that need the full set -- the
+    alert panel does -- call ``contract_warnings`` directly.
+    """
+    project = issue.project
+
+    if project.service_contract_id:
+        # Read through the manager rather than the descriptor. The foreign key is
+        # DO_NOTHING, so it can point at a soft deleted contract, and the forward
+        # descriptor resolves through the soft-delete-filtered base manager -- which
+        # raises DoesNotExist instead of returning None.
+        pinned = ServiceContract.objects.filter(pk=project.service_contract_id).first()
+
+        if pinned is not None:
+            if project.service_client_id and str(pinned.service_client_id) != str(project.service_client_id):
+                raise ServicePoolValidationError(
+                    CONTRACT_PINNED_ON_PROJECT_BELONGS_TO_ANOTHER_CLIENT,
+                    {
+                        "project_service_client_id": str(project.service_client_id),
+                        "contract_service_client_id": str(pinned.service_client_id),
+                    },
+                )
+
+            return pinned, _primary_warning(pinned, worked_on)
+
+    if not project.service_client_id:
+        raise ServicePoolValidationError(NO_SERVICE_CLIENT_FOR_PROJECT, {"project_id": str(project.pk)})
+
+    contracts = list(ServiceContract.objects.filter(service_client_id=project.service_client_id))
+
+    if not contracts:
+        raise ServicePoolValidationError(
+            NO_CONTRACT_FOR_CLIENT, {"service_client_id": str(project.service_client_id)}
+        )
+
+    in_vigency = [contract for contract in contracts if contract.covers(worked_on)]
+    candidates = in_vigency or contracts
+
+    if len(candidates) == 1:
+        resolved = candidates[0]
+        return resolved, _primary_warning(resolved, worked_on)
+
+    defaults = [contract for contract in candidates if contract.is_default]
+
+    if len(defaults) == 1:
+        return defaults[0], _primary_warning(defaults[0], worked_on)
+
+    raise ServicePoolValidationError(
+        AMBIGUOUS_CONTRACT_RESOLUTION,
+        {
+            "service_client_id": str(project.service_client_id),
+            "candidate_contract_ids": [str(contract.pk) for contract in candidates],
+        },
+    )
+
+
+def _primary_warning(contract, worked_on):
+    warnings = contract_warnings(contract, worked_on)
+    return warnings[0] if warnings else None
+
+
+# ---------------------------------------------------------------------------
+# Period materialisation -- section 2, and R7
+# ---------------------------------------------------------------------------
+
+
+def month_bounds(year, month):
+    """First and last calendar day of a competency month."""
+    return date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
+
+
+def _period_bounds(contract, year, month):
+    """The real boundaries of one competency month of a contract.
+
+    Clipped to the contract's vigency, so a contract starting on the 10th gets a first
+    period that runs from the 10th -- which is the fact decision B1 then lets an admin
+    price, by editing ``contracted_hours``, instead of the system inventing a pro-rata
+    rule.
+
+    A month that the vigency does not touch at all keeps its natural bounds. That
+    happens for a backdated or late entry, which D9 permits, and it keeps the check
+    constraint ``ends_on >= starts_on`` satisfiable in a case where clipping would
+    invert the range.
+    """
+    first, last = month_bounds(year, month)
+
+    if contract.ends_on < first or contract.starts_on > last:
+        return first, last
+
+    return max(first, contract.starts_on), min(last, contract.ends_on)
+
+
+def resolve_period(contract, worked_on, *, materialize=True, actor=None):
+    """The competency period of ``worked_on`` for ``contract``. Rule R7.
+
+    The month of the **service date**, never of the moment the row was typed: a
+    backdated entry debits the backdated month, which is acceptance criterion 10.
+
+    Materialising a period is what grants its monthly quota, so this writes the
+    ``GRANT`` ledger entry in the same transaction as the row. ``contracted_hours``
+    starts as a snapshot of ``monthly_hours`` (R4) and may then be edited while the
+    period is open, through ``update_contracted_hours``.
+
+    Two requests racing to materialise the same competency both reach ``create``; the
+    partial unique index lets one through and the loser reads the winner's row. That is
+    why the ``IntegrityError`` is caught rather than prevented -- preventing it would
+    need a lock on something that does not exist yet.
+
+    ``materialize=False`` returns ``None`` instead of creating, for callers that only
+    want to read -- a dashboard must not create rows as a side effect of being looked
+    at.
+    """
+    existing = ServiceContractPeriod.objects.filter(
+        contract_id=contract.pk,
+        competence_year=worked_on.year,
+        competence_month=worked_on.month,
+    ).first()
+
+    if existing is not None or not materialize:
+        return existing
+
+    starts_on, ends_on = _period_bounds(contract, worked_on.year, worked_on.month)
+
+    try:
+        with transaction.atomic():
+            period = ServiceContractPeriod.objects.create(
+                workspace_id=contract.workspace_id,
+                contract=contract,
+                competence_year=worked_on.year,
+                competence_month=worked_on.month,
+                starts_on=starts_on,
+                ends_on=ends_on,
+                contracted_hours=_quantize(contract.monthly_hours),
+            )
+            _write_entry(
+                period=period,
+                entry_type=ServiceLedgerEntryType.GRANT,
+                hours=period.contracted_hours,
+                origin_period=period,
+                actor=actor,
+                notes=f"Cota mensal de {period.competence_label}",
+            )
+    except IntegrityError:
+        # Lost the race. The winner's row is the right one to use.
+        return ServiceContractPeriod.objects.filter(
+            contract_id=contract.pk,
+            competence_year=worked_on.year,
+            competence_month=worked_on.month,
+        ).first()
+
+    return period
+
+
+def materialize_contract_periods(contract, *, actor=None):
+    """Every competency period of a contract's vigency. Acceptance criterion 1.
+
+    Deterministic, as section 2 requires: a 30h/month contract running 12 months
+    produces 12 periods, each with its own real bounds, and running it twice produces
+    nothing new because ``resolve_period`` is idempotent.
+    """
+    periods = []
+    year, month = contract.starts_on.year, contract.starts_on.month
+
+    while (year, month) <= (contract.ends_on.year, contract.ends_on.month):
+        periods.append(resolve_period(contract, date(year, month, 1), actor=actor))
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+
+    return periods
+
+
+def next_period(period, *, materialize=True, actor=None):
+    """The competency period following ``period``, or ``None`` past the vigency.
+
+    ``None`` is what tells ``close_period`` that a remaining balance has nowhere to go
+    and must be written off as ``EXPIRED_BY_CONTRACT_END`` -- section 8, and the reason
+    criterion 20 needs an entry type of its own for contract end.
+    """
+    year, month = period.competence_year, period.competence_month
+    year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+
+    contract = period.contract
+
+    if (year, month) > (contract.ends_on.year, contract.ends_on.month):
+        return None
+
+    return resolve_period(contract, date(year, month, 1), materialize=materialize, actor=actor)
+
+
+def annotate_period_balance(queryset):
+    """Attach ``granted`` and ``balance`` to a queryset of periods. Decision D3.
+
+    The queryset counterpart of the ``granted_hours`` and ``balance_hours`` properties,
+    and the reason neither needs to be a stored column: filtering the alert panel on
+    ``balance__lt=0`` works from this without a ``GeneratedField``.
+
+    A ``GeneratedField`` was considered and refused. It would have been the first in the
+    repository, introduced in the phase that handles money, and it interacts with three
+    things this phase relies on -- ``F()`` plus ``refresh_from_db``, ``update()`` having
+    to exclude the generated column, and the behaviour under ``--nomigrations``. What it
+    would buy is an index on a table holding one row per contract per month. If a slow
+    query ever appears, that is the moment to revisit, with evidence.
+    """
+    return queryset.annotate(
+        granted=F("contracted_hours") + F("carried_hours"),
+        balance=F("contracted_hours") + F("carried_hours") - F("consumed_hours"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# The ledger
+# ---------------------------------------------------------------------------
+
+
+def _write_entry(*, period, entry_type, hours, origin_period=None, service_log=None, actor=None, notes=""):
+    """Insert one ledger row. The only place rows are created.
+
+    Not a public function on purpose: a caller that could write an arbitrary entry could
+    move a balance without moving the period's totals, and the two are supposed to be
+    impossible to separate.
+    """
+    return ServiceHourLedgerEntry.objects.create(
+        workspace_id=period.workspace_id,
+        contract_id=period.contract_id,
+        period=period,
+        origin_period=origin_period,
+        hours=_quantize(hours),
+        entry_type=entry_type,
+        service_log=service_log,
+        actor=actor,
+        notes=notes,
+    )
+
+
+def _lock_period(period):
+    """Re-read a period under a row lock. Acceptance criterion 14.
+
+    ``select_for_update()`` serialises everything that touches one period's totals. Every
+    function here that moves a total goes through this first, and every one of them then
+    writes with an ``F()`` expression rather than assigning a value it read earlier.
+
+    **The two are independently sufficient for the arithmetic, and that was established
+    by sabotage rather than by reasoning.** Removing the lock leaves ``F()`` doing the
+    increment in SQL; removing ``F()`` leaves the lock serialising the read-modify-write.
+    The concurrency test only goes red when **both** are removed -- and then
+    catastrophically, losing seven debits out of eight. Recorded here because the obvious
+    thing to write in this docstring, and what an earlier draft did write, is that a test
+    covers each half separately. It does not, and it cannot: with either half present the
+    behaviour is correct, so there is nothing for a test to detect.
+
+    What the lock is *not* redundant for is the read-then-decide sequence around
+    ``status``. ``apply_debit`` checks that the period is open and then debits it; without
+    the lock a concurrent ``close_period`` fits between those two steps and the debit
+    lands in a month that has just been invoiced. That is the part ``F()`` cannot cover,
+    and it has its own test.
+    """
+    return ServiceContractPeriod.objects.select_for_update().get(pk=period.pk)
+
+
+def _work_item_allowance(issue):
+    """The work item's own hour allowance, which takes precedence over the pool. Rule R6.
+
+    EXTENSION POINT -- Phase 5 owns the allowance entity and it does not exist yet, so
+    this is always ``None`` and the debit always falls through to the contract pool.
+
+    It is a named function rather than a comment because R6 is a *hierarchy*, and the
+    order is the part that is easy to get wrong later: allowance first, then the
+    contract pool, then a monetary charge, and never two of them. Phase 5 replaces the
+    body; nothing else in this module needs to change.
+    """
+    return None
+
+
+def apply_debit(service_log, actor=None):
+    """Debit one work log's hours from its competency pool. Section 5.
+
+    Returns the ``DEBIT`` ledger entry, or ``None`` when nothing was debited.
+
+    **Idempotent, and by the database rather than by a check.** The partial unique index
+    on ``(service_log, entry_type)`` is what makes a second call a no-op, which is why
+    the ledger row is inserted *before* the total moves: if the insert loses, the total
+    is untouched. A pre-flight ``exists()`` would have a window between the check and
+    the insert that two concurrent requests fit through.
+
+    Debits ``debited_hours``, never ``equivalent_hours``. R5 and the check constraint
+    ``service_log_debited_hours_follows_billing_route`` together guarantee a
+    ``NON_BILLABLE`` row carries zero there -- so acceptance criterion 4, "Garantia e
+    Cortesia não alteram o saldo", holds because of the column that is read, not because
+    of a branch that could be forgotten.
+
+    Returns ``None`` for four different reasons, and they are **not**
+    interchangeable -- the route is not a pool route, the debited hours are zero, the work
+    item has its own allowance (Phase 5), or the contract configuration is absent. The
+    caller distinguishes them through ``issue_pool_snapshot``, which reports the
+    resolution code. A caller that only checked the balance had not moved would be unable
+    to tell a non-billable log from a missing contract, and those are opposite faults.
+    """
+    if service_log.applied_billing_route != ServiceBillingType.BillingRoute.DEBIT_POOL:
+        # Not a pool route. R5 for NON_BILLABLE, and the monetary route is Phase 6.
+        return None
+
+    if service_log.debited_hours == ZERO_HOURS:
+        return None
+
+    if _work_item_allowance(service_log.issue) is not None:
+        # Rule R6, first level. Unreachable until Phase 5 -- see `_work_item_allowance`.
+        return None
+
+    try:
+        contract, _warning = resolve_contract(service_log.issue, service_log.worked_on)
+    except ServicePoolValidationError as error:
+        if error.blocks_the_work_log:
+            raise
+
+        # Configuration merely absent: no pool to debit, and no wrong pool to debit
+        # either. The work log stands with `debited_period` null, and the reason is
+        # reported by `issue_pool_snapshot` rather than being silently dropped -- "não
+        # faturável" and "não existe contrato" produce the same balance and are opposite
+        # faults, so the absence has to say which one it is.
+        return None
+
+    with transaction.atomic():
+        period = resolve_period(contract, service_log.worked_on, actor=actor)
+        locked = _lock_period(period)
+
+        if locked.status == ServicePeriodStatus.CLOSED:
+            raise ServicePoolValidationError(
+                PERIOD_IS_CLOSED,
+                {"period_id": str(locked.pk), "competence": locked.competence_label},
+            )
+
+        try:
+            with transaction.atomic():
+                entry = _write_entry(
+                    period=locked,
+                    entry_type=ServiceLedgerEntryType.DEBIT,
+                    hours=-service_log.debited_hours,
+                    service_log=service_log,
+                    actor=actor,
+                    notes=f"Apontamento {service_log.pk}",
+                )
+        except IntegrityError:
+            # Already debited. Return the existing row and leave the total alone.
+            return ServiceHourLedgerEntry.objects.filter(
+                service_log_id=service_log.pk, entry_type=ServiceLedgerEntryType.DEBIT
+            ).first()
+
+        ServiceContractPeriod.objects.filter(pk=locked.pk).update(
+            consumed_hours=F("consumed_hours") + _quantize(service_log.debited_hours)
+        )
+
+        # R4's snapshot of which pool paid. Written with `update()` so that saving the
+        # work log cannot re-run its own side effects from inside a debit.
+        ServiceLog.all_objects.filter(pk=service_log.pk).update(debited_period_id=locked.pk)
+        service_log.debited_period_id = locked.pk
+
+    return entry
+
+
+def apply_batch_debit(rows, actor=None):
+    """Debit every segment of a batch, all of it or none of it.
+
+    A batch can straddle two competencies -- 31/01 23:00 to 01/02 01:00 -- and each
+    segment debits **its own** period, because each segment carries its own
+    ``worked_on`` (R7). If any one of them is refused, the whole batch is refused: half
+    a batch debited is worse than a batch rejected, which is the same argument
+    ``create_service_log_batch`` makes for its own atomicity.
+    """
+    with transaction.atomic():
+        return [entry for entry in (apply_debit(row, actor=actor) for row in rows) if entry is not None]
+
+
+def reverse_debit(service_log, actor=None):
+    """Give back exactly the hours a work log took. Acceptance criteria 11 and 12.
+
+    Returns the ``REVERSAL`` entry, ``None`` when there was nothing to reverse.
+
+    Exact by construction: the reversal reads the amount from the ``DEBIT`` row rather
+    than recomputing it from the work log. Recomputing would give a different answer the
+    moment the work log's own hours were what changed -- which is precisely criterion
+    12, editing 2h to 3h.
+
+    **Idempotent for the same reason a debit is**, and here it is not theoretical: the
+    deletion cascade runs in a Celery task and Celery retries tasks, so without the
+    unique index covering ``REVERSAL`` a retry would credit hours that never existed.
+
+    **Refuses on a closed period, deliberately.** A closed month has been invoiced and
+    its ledger has been settled to zero; handing hours back into it would change a total
+    a client has already been billed for. The caller decides what to do about that --
+    ``ServiceLog.delete()`` lets the error propagate so the API can explain it, and the
+    deletion cascade skips that work log and leaves it intact rather than deleting a row
+    whose money it cannot unwind.
+    """
+    debit = ServiceHourLedgerEntry.objects.filter(
+        service_log_id=service_log.pk, entry_type=ServiceLedgerEntryType.DEBIT
+    ).first()
+
+    if debit is None:
+        return None
+
+    existing = ServiceHourLedgerEntry.objects.filter(
+        service_log_id=service_log.pk, entry_type=ServiceLedgerEntryType.REVERSAL
+    ).first()
+
+    if existing is not None:
+        return existing
+
+    with transaction.atomic():
+        locked = _lock_period(debit.period)
+
+        if locked.status == ServicePeriodStatus.CLOSED:
+            raise ServicePoolValidationError(
+                PERIOD_IS_CLOSED,
+                {"period_id": str(locked.pk), "competence": locked.competence_label},
+            )
+
+        returned = -debit.hours
+
+        try:
+            with transaction.atomic():
+                entry = _write_entry(
+                    period=locked,
+                    entry_type=ServiceLedgerEntryType.REVERSAL,
+                    hours=returned,
+                    service_log=service_log,
+                    actor=actor,
+                    notes=f"Estorno do apontamento {service_log.pk}",
+                )
+        except IntegrityError:
+            return ServiceHourLedgerEntry.objects.filter(
+                service_log_id=service_log.pk, entry_type=ServiceLedgerEntryType.REVERSAL
+            ).first()
+
+        ServiceContractPeriod.objects.filter(pk=locked.pk).update(
+            consumed_hours=F("consumed_hours") - _quantize(returned)
+        )
+
+    return entry
+
+
+# ---------------------------------------------------------------------------
+# FIFO parcels -- decision D6, and acceptance criterion 6
+# ---------------------------------------------------------------------------
+
+
+def period_parcels(period):
+    """The parcels of balance available in a period, oldest competency first.
+
+    A parcel is a ``GRANT`` or a ``CARRY_IN``, and its age is its ``origin_period``.
+    The month's own quota is a parcel originating in that month, which makes it the
+    newest -- so under FIFO it is consumed last.
+
+    Returned as ``[(origin_period, hours)]``, hours signed. Ordering by competency and
+    not by ``created_at``: a backdated carry-in must sort by where the hours came from,
+    not by when the row happened to be written.
+    """
+    entries = (
+        ServiceHourLedgerEntry.objects.filter(
+            period_id=period.pk,
+            entry_type__in=[ServiceLedgerEntryType.GRANT, ServiceLedgerEntryType.CARRY_IN],
+        )
+        .select_related("origin_period")
+        .order_by("origin_period__competence_year", "origin_period__competence_month", "created_at")
+    )
+
+    parcels = {}
+
+    for entry in entries:
+        origin = entry.origin_period or period
+        # Several rows can share an origin: a `GRANT` correction under decision B1 adds
+        # a second grant row for the same month.
+        parcels[origin.pk] = (origin, parcels.get(origin.pk, (origin, ZERO_HOURS))[1] + entry.hours)
+
+    return sorted(parcels.values(), key=lambda parcel: parcel[0].competence_index)
+
+
+def remaining_parcels(period):
+    """What is left of each parcel after consumption, oldest first. Decision D6.
+
+    **FIFO: consumption eats the oldest parcel first.** The brief never states this, and
+    without it acceptance criterion 6 has no determinate answer -- "the January balance
+    expires at the right moment" depends on whether January's hours were the ones spent.
+    The consequence is the reason for the choice: carried hours are spent before the
+    current month's quota, so **no hour ever expires that could have been used**. The
+    opposite order would make a client lose balance while their pool was full, and they
+    would be right to complain.
+
+    Allocation happens **here, at read time**, not at debit time. That is what lets a
+    debit be a single row against the period under one lock, instead of a row per parcel
+    touched -- decision D2, and the reason criterion 14 is achievable at all.
+
+    A negative parcel is a carried deficit. It is not something consumption can eat, so
+    it is folded into the amount to be absorbed by the positive parcels: an obligation
+    reduces the pool exactly as consumption does.
+    """
+    parcels = period_parcels(period)
+
+    outstanding = _quantize(period.consumed_hours) + sum(
+        (-hours for _origin, hours in parcels if hours < 0), ZERO_HOURS
+    )
+
+    remaining = []
+
+    for origin, hours in parcels:
+        if hours <= 0:
+            continue
+
+        if outstanding <= 0:
+            remaining.append((origin, hours))
+            continue
+
+        if outstanding >= hours:
+            outstanding -= hours
+            continue
+
+        remaining.append((origin, hours - outstanding))
+        outstanding = ZERO_HOURS
+
+    return remaining
+
+
+def _parcel_has_expired(contract, parcel_origin, closing_period):
+    """Whether a parcel is too old to be carried past ``closing_period``.
+
+    ``carryover_months`` counts **carries**, and the boundary is written out here
+    because an off-by-one deletes a client's hours. With 2, a parcel originating in
+    January is usable in February and March and expires at the close of March:
+    ``months_between(January, March) == 2 >= 2``.
+
+    ``None`` means the balance never expires, which section 3 makes the explicit
+    default.
+    """
+    if contract.carryover_months is None:
+        return False
+
+    return (closing_period.competence_index - parcel_origin.competence_index) >= contract.carryover_months
+
+
+# ---------------------------------------------------------------------------
+# Closing a period -- section 6
+# ---------------------------------------------------------------------------
+
+
+def close_period(period, settlement=None, actor=None):
+    """Settle a competency month and open the next one correctly. Section 6.
+
+    Closing does four things, in this order, and the order is load bearing:
+
+    1. a **deficit** is either carried into the next period or billed as overage
+       (acceptance criteria 8 and 9);
+    2. a **positive balance** is broken into its FIFO parcels, and any parcel past its
+       carryover validity expires (criterion 6);
+    3. what survives is trimmed to the accrual ceiling, and the trimmed hours are
+       recorded rather than dropped (criterion 15);
+    4. the rest is carried out, parcel by parcel with its origin preserved, so the next
+       close can apply validity to it again.
+
+    Every one of those four writes a ledger row, which is what makes criterion 20 --
+    "saldo nunca desaparece sem registro de auditoria" -- true here without a separate
+    audit mechanism. When this returns, the period's ledger sums to exactly zero.
+
+    ``settlement`` is only consulted when there is a deficit, and it defaults to the
+    contract's ``overage_policy``. Section 4 requires the choice to be confirmable
+    period by period, which is why the binding value is stored on the period and the
+    contract only holds a preference.
+    """
+    with transaction.atomic():
+        locked = _lock_period(period)
+
+        if locked.status == ServicePeriodStatus.CLOSED:
+            raise ServicePoolValidationError(
+                PERIOD_ALREADY_CLOSED,
+                {"period_id": str(locked.pk), "competence": locked.competence_label},
+            )
+
+        contract = locked.contract
+        balance = locked.balance_hours
+
+        if balance < 0:
+            _settle_deficit(locked, contract, balance, settlement, actor)
+        elif balance > 0:
+            _settle_surplus(locked, contract, actor)
+
+        locked.status = ServicePeriodStatus.CLOSED
+        locked.closed_at = timezone.now()
+        locked.closed_by = actor
+        locked.save(
+            update_fields=[
+                "status",
+                "closed_at",
+                "closed_by",
+                "overage_hours",
+                "overage_settlement",
+                "discarded_by_cap_hours",
+                "updated_at",
+            ]
+        )
+
+    return locked
+
+
+def _settle_deficit(period, contract, balance, settlement, actor):
+    """A negative balance, settled one of the two ways section 4 allows.
+
+    Decision B3, confirmed: billing the overage moves the deficit **out** of the pool,
+    so the next month opens with its contracted hours whole -- which is what criterion 9
+    asks for and what makes "pay for this month's excess rather than mortgage the rest
+    of the contract" a real option instead of a relabelling.
+    """
+    owed = -balance
+
+    if settlement is None:
+        settlement = (
+            ServiceOverageSettlement.BILLED
+            if contract.overage_policy == ServiceOveragePolicy.BILL_AMOUNT
+            else ServiceOverageSettlement.CARRIED
+        )
+
+    if settlement == ServiceOverageSettlement.BILLED:
+        _write_entry(
+            period=period,
+            entry_type=ServiceLedgerEntryType.OVERAGE_BILLED,
+            hours=owed,
+            actor=actor,
+            notes=f"Excedente de {owed}h faturado, competencia {period.competence_label}",
+        )
+        period.overage_hours = _quantize(owed)
+        period.overage_settlement = ServiceOverageSettlement.BILLED
+        return
+
+    following = next_period(period, actor=actor)
+
+    if following is None:
+        raise ServicePoolValidationError(
+            NO_NEXT_PERIOD_FOR_DEFICIT,
+            {"period_id": str(period.pk), "deficit_hours": str(owed)},
+        )
+
+    _write_entry(
+        period=period,
+        entry_type=ServiceLedgerEntryType.CARRY_OUT,
+        hours=owed,
+        origin_period=period,
+        actor=actor,
+        notes=f"Deficit de {owed}h transportado para {following.competence_label}",
+    )
+    _write_entry(
+        period=following,
+        entry_type=ServiceLedgerEntryType.CARRY_IN,
+        hours=-owed,
+        origin_period=period,
+        actor=actor,
+        notes=f"Deficit de {owed}h recebido de {period.competence_label}",
+    )
+    ServiceContractPeriod.objects.filter(pk=following.pk).update(
+        carried_hours=F("carried_hours") - _quantize(owed)
+    )
+    period.overage_settlement = ServiceOverageSettlement.CARRIED
+
+
+def _settle_surplus(period, contract, actor):
+    """A positive balance: expire what is stale, trim to the ceiling, carry the rest."""
+    surviving = []
+
+    for origin, hours in remaining_parcels(period):
+        if _parcel_has_expired(contract, origin, period):
+            _write_entry(
+                period=period,
+                entry_type=ServiceLedgerEntryType.EXPIRED_BY_VALIDITY,
+                hours=-hours,
+                origin_period=origin,
+                actor=actor,
+                notes=(
+                    f"{hours}h da competencia {origin.competence_label} expiraram: "
+                    f"validade de {contract.carryover_months} meses"
+                ),
+            )
+            continue
+
+        surviving.append((origin, hours))
+
+    following = next_period(period, actor=actor)
+
+    if following is None:
+        # Section 8: the contract's vigency is over, so there is nowhere to carry to.
+        # Written off explicitly, with its own entry type, because "the balance ran out
+        # of contract" is a different fact from "the balance ran out of validity" and a
+        # renewal negotiation turns on which one it was.
+        for origin, hours in surviving:
+            _write_entry(
+                period=period,
+                entry_type=ServiceLedgerEntryType.EXPIRED_BY_CONTRACT_END,
+                hours=-hours,
+                origin_period=origin,
+                actor=actor,
+                notes=f"{hours}h da competencia {origin.competence_label} expiraram no fim da vigencia",
+            )
+        return
+
+    surviving = _apply_accrual_cap(period, contract, surviving, actor)
+
+    for origin, hours in surviving:
+        if hours <= 0:
+            continue
+
+        _write_entry(
+            period=period,
+            entry_type=ServiceLedgerEntryType.CARRY_OUT,
+            hours=-hours,
+            origin_period=origin,
+            actor=actor,
+            notes=f"{hours}h da competencia {origin.competence_label} transportadas",
+        )
+        _write_entry(
+            period=following,
+            entry_type=ServiceLedgerEntryType.CARRY_IN,
+            hours=hours,
+            origin_period=origin,
+            actor=actor,
+            notes=f"{hours}h da competencia {origin.competence_label} recebidas",
+        )
+
+    carried_total = sum((hours for _origin, hours in surviving if hours > 0), ZERO_HOURS)
+
+    if carried_total:
+        ServiceContractPeriod.objects.filter(pk=following.pk).update(
+            carried_hours=F("carried_hours") + _quantize(carried_total)
+        )
+
+
+def _apply_accrual_cap(period, contract, parcels, actor):
+    """Trim carried balance to the contract's ceiling. Acceptance criterion 15.
+
+    **The excess is discarded from the NEWEST parcels first**, and the brief does not
+    settle this, so it is a decision rather than a detail. Two reasons, and they agree:
+    under FIFO the oldest parcels are the ones consumption reaches first, so keeping
+    them means the surviving balance is the balance that will actually get used; and it
+    matches what a client expects to be told, which is "you lost the hours you did not
+    use this month", not "you lost hours from last quarter". A characterisation test
+    fixes the order so that changing it has to be deliberate.
+
+    The discarded total lands on ``discarded_by_cap_hours`` as well as in the ledger,
+    because section 3 wants it *visible*: hours thrown away by the ceiling are the
+    clearest evidence that a client is paying for a pool larger than they use, which
+    section 9 treats as a churn signal.
+    """
+    cap = contract.accrual_cap_hours()
+
+    if cap is None:
+        return parcels
+
+    total = sum((hours for _origin, hours in parcels), ZERO_HOURS)
+    excess = _quantize(total) - _quantize(cap)
+
+    if excess <= 0:
+        return parcels
+
+    discarded = ZERO_HOURS
+    trimmed = list(parcels)
+
+    for index in range(len(trimmed) - 1, -1, -1):
+        if excess <= 0:
+            break
+
+        origin, hours = trimmed[index]
+        take = min(hours, excess)
+
+        _write_entry(
+            period=period,
+            entry_type=ServiceLedgerEntryType.EXPIRED_BY_CAP,
+            hours=-take,
+            origin_period=origin,
+            actor=actor,
+            notes=(
+                f"{take}h da competencia {origin.competence_label} descartadas pelo teto de acumulo "
+                f"de {_quantize(cap)}h"
+            ),
+        )
+
+        trimmed[index] = (origin, hours - take)
+        discarded += take
+        excess -= take
+
+    period.discarded_by_cap_hours = _quantize(period.discarded_by_cap_hours + discarded)
+
+    return [(origin, hours) for origin, hours in trimmed if hours > 0]
+
+
+def update_contracted_hours(period, contracted_hours, actor):
+    """Change a period's contracted hours while it is open. Decision B1.
+
+    This is how a **partial month** is priced. Neither pro-rata nor "always the full
+    month": ``contracted_hours`` is already a per-period snapshot, so making it editable
+    turns pro-rata into a datum the admin supplies when the contract says so, instead of
+    a rule the system invents from a policy column that does not exist.
+
+    Refused on a closed period, and every change lands in the configuration audit trail
+    -- both mandatory, because an editable billing quantity with no trail is a way to
+    rewrite an invoiced month quietly.
+
+    The balance moves through a ``GRANT`` row for the difference. In an append-only
+    journal a correction is a new row, never an edited one.
+    """
+    from plane.utils.service_catalog import save_with_config_activity
+
+    with transaction.atomic():
+        locked = _lock_period(period)
+
+        if locked.status == ServicePeriodStatus.CLOSED:
+            raise ServicePoolValidationError(
+                PERIOD_IS_CLOSED_FOR_CONTRACTED_HOURS,
+                {"period_id": str(locked.pk), "competence": locked.competence_label},
+            )
+
+        previous = _quantize(locked.contracted_hours)
+        target = _quantize(contracted_hours)
+        delta = target - previous
+
+        if delta == 0:
+            return locked
+
+        locked.contracted_hours = target
+        save_with_config_activity(locked, actor=actor)
+
+        _write_entry(
+            period=locked,
+            entry_type=ServiceLedgerEntryType.GRANT,
+            hours=delta,
+            origin_period=locked,
+            actor=actor,
+            notes=f"Ajuste da cota de {previous}h para {target}h",
+        )
+
+    return locked
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation -- decision D2
+# ---------------------------------------------------------------------------
+
+
+def reconcile_period(period):
+    """Assert that the ledger and the period's totals still agree. Decision D2.
+
+    Returns ``{"is_consistent", "competence", "discrepancies"}``, where each discrepancy
+    names the column, what the ledger says, and what the row says.
+
+    **Per column, not one grand total.** A single aggregate would be satisfied by two
+    errors that cancel, and it would report "something is wrong" when what an operator
+    needs is which number to trust. The columns and their ledger counterparts:
+
+    ==========================  ===============================================
+    ``contracted_hours``        sum of ``GRANT``
+    ``carried_hours``           sum of ``CARRY_IN``
+    ``consumed_hours``          negated sum of ``DEBIT`` and ``REVERSAL``
+    ``overage_hours``           sum of ``OVERAGE_BILLED``
+    ``discarded_by_cap_hours``  negated sum of ``EXPIRED_BY_CAP``
+    ==========================  ===============================================
+
+    Plus the whole-ledger invariant, which is the one that catches a movement written
+    with the wrong sign: an **open** period's entries sum to its balance, and a
+    **closed** period's sum to exactly zero.
+
+    Reading this without a lock is deliberate. It is a diagnostic, it must be cheap
+    enough to run across a workspace from a management command, and a debit landing
+    mid-scan shows up as a discrepancy that disappears on the next run -- whereas
+    locking every period to read it would block the debits it is measuring.
+    """
+    sums = {
+        row["entry_type"]: row["total"]
+        for row in ServiceHourLedgerEntry.objects.filter(period_id=period.pk)
+        .values("entry_type")
+        .annotate(total=Sum("hours"))
+    }
+
+    def total(*entry_types):
+        return sum((sums.get(entry_type, ZERO_HOURS) for entry_type in entry_types), ZERO_HOURS)
+
+    expectations = [
+        ("contracted_hours", total(ServiceLedgerEntryType.GRANT), period.contracted_hours),
+        ("carried_hours", total(ServiceLedgerEntryType.CARRY_IN), period.carried_hours),
+        (
+            "consumed_hours",
+            -total(ServiceLedgerEntryType.DEBIT, ServiceLedgerEntryType.REVERSAL),
+            period.consumed_hours,
+        ),
+        ("overage_hours", total(ServiceLedgerEntryType.OVERAGE_BILLED), period.overage_hours),
+        (
+            "discarded_by_cap_hours",
+            -total(ServiceLedgerEntryType.EXPIRED_BY_CAP),
+            period.discarded_by_cap_hours,
+        ),
+    ]
+
+    discrepancies = [
+        {"field": field, "ledger": str(_quantize(ledger)), "period": str(_quantize(stored))}
+        for field, ledger, stored in expectations
+        if _quantize(ledger) != _quantize(stored)
+    ]
+
+    ledger_total = sum(sums.values(), ZERO_HOURS)
+    expected_total = ZERO_HOURS if period.status == ServicePeriodStatus.CLOSED else period.balance_hours
+
+    if _quantize(ledger_total) != _quantize(expected_total):
+        discrepancies.append(
+            {
+                "field": "ledger_total",
+                "ledger": str(_quantize(ledger_total)),
+                "period": str(_quantize(expected_total)),
+            }
+        )
+
+    return {
+        "period_id": str(period.pk),
+        "competence": period.competence_label,
+        "is_consistent": not discrepancies,
+        "discrepancies": discrepancies,
+    }
+
+
+def repair_period(period):
+    """Rewrite a period's totals from its ledger. The repair half of reconciliation.
+
+    Used by the ``reconcile_service_periods`` management command with ``--repair``.
+
+    **The ledger wins, always.** It is append-only and every row records its own cause,
+    so it is the only one of the two that can be audited; the totals are a cache of it.
+    That is also why this direction is the only one offered -- "fix the ledger from the
+    totals" would mean inventing movements.
+
+    This exists because the explicit branch added to the deletion cascade closes
+    *today's* path to divergence, and any future ``update(deleted_at=...)`` on a work
+    log reopens the same class of bug. A cheap, tested repair is the difference between
+    that being an incident and being a command someone runs.
+    """
+    with transaction.atomic():
+        locked = _lock_period(period)
+
+        sums = {
+            row["entry_type"]: row["total"]
+            for row in ServiceHourLedgerEntry.objects.filter(period_id=locked.pk)
+            .values("entry_type")
+            .annotate(total=Sum("hours"))
+        }
+
+        def total(*entry_types):
+            return sum((sums.get(entry_type, ZERO_HOURS) for entry_type in entry_types), ZERO_HOURS)
+
+        locked.contracted_hours = _quantize(total(ServiceLedgerEntryType.GRANT))
+        locked.carried_hours = _quantize(total(ServiceLedgerEntryType.CARRY_IN))
+        locked.consumed_hours = _quantize(
+            -total(ServiceLedgerEntryType.DEBIT, ServiceLedgerEntryType.REVERSAL)
+        )
+        locked.overage_hours = _quantize(total(ServiceLedgerEntryType.OVERAGE_BILLED))
+        locked.discarded_by_cap_hours = _quantize(-total(ServiceLedgerEntryType.EXPIRED_BY_CAP))
+
+        locked.save(
+            update_fields=[
+                "contracted_hours",
+                "carried_hours",
+                "consumed_hours",
+                "overage_hours",
+                "discarded_by_cap_hours",
+                "updated_at",
+            ]
+        )
+
+    return locked
+
+
+# ---------------------------------------------------------------------------
+# Renewal and termination -- section 8
+# ---------------------------------------------------------------------------
+
+
+class BalanceDestination:
+    """Where a remaining balance goes when a contract is replaced. Section 8c."""
+
+    TRANSFER = "transfer"
+    EXPIRE = "expire"
+    ISSUE_ALLOWANCE = "issue_allowance"
+
+
+def renew_in_place(contract, *, ends_on, monthly_hours=None, actor):
+    """Extend a contract, keeping it and its history. Section 8a, criterion 16.
+
+    The accumulated balance carries because nothing interrupts it: the periods keep
+    materialising from the same contract, so the next close carries out into the next
+    month exactly as any other month does. That is the point of this path -- "mantém a
+    continuidade do histórico" is not a nicety, it is the absence of a transfer.
+
+    ``monthly_hours`` is optional and typically **lower** on a renewal, precisely
+    because there is a balance built up. Both fields are in ``TRACKED_FIELDS``, so the
+    change lands in the configuration audit trail with its old value.
+    """
+    from plane.utils.service_catalog import save_with_config_activity
+
+    with transaction.atomic():
+        contract.ends_on = ends_on
+
+        if monthly_hours is not None:
+            contract.monthly_hours = _quantize(monthly_hours)
+
+        if contract.status == ServiceContract.Status.ENDED:
+            contract.status = ServiceContract.Status.ACTIVE
+
+        save_with_config_activity(contract, actor=actor)
+
+    return contract
+
+
+def renew_expiring_balance(contract, *, actor):
+    """Extend nothing and write the leftover balance off. Section 8b.
+
+    The hours and the moment are recorded, for history and for the next negotiation --
+    section 8 requires it, and criterion 20 requires it of every path, not just the
+    convenient ones. Uses ``EXPIRED_BY_CONTRACT_END`` rather than the validity type so a
+    report can tell "we chose not to carry this" from "this aged out".
+    """
+    expired = []
+
+    with transaction.atomic():
+        for period in ServiceContractPeriod.objects.filter(
+            contract_id=contract.pk, status=ServicePeriodStatus.OPEN
+        ).order_by("competence_year", "competence_month"):
+            locked = _lock_period(period)
+
+            for origin, hours in remaining_parcels(locked):
+                expired.append(
+                    _write_entry(
+                        period=locked,
+                        entry_type=ServiceLedgerEntryType.EXPIRED_BY_CONTRACT_END,
+                        hours=-hours,
+                        origin_period=origin,
+                        actor=actor,
+                        notes=(
+                            f"{hours}h da competencia {origin.competence_label} expiradas na "
+                            f"renovacao do contrato {contract.code}"
+                        ),
+                    )
+                )
+
+            locked.status = ServicePeriodStatus.CLOSED
+            locked.closed_at = timezone.now()
+            locked.closed_by = actor
+            locked.save(update_fields=["status", "closed_at", "closed_by", "updated_at"])
+
+    return expired
+
+
+def end_and_create_successor(
+    contract,
+    *,
+    code,
+    name,
+    monthly_hours,
+    starts_on,
+    ends_on,
+    balance_destination,
+    actor,
+    target_issue=None,
+    **contract_fields,
+):
+    """Close a contract and open a new one referencing it. Section 8c, criterion 17.
+
+    The old contract becomes ``ENDED``, the new one records ``previous_contract`` so the
+    chain stays navigable, and the remaining balance goes exactly one of three ways --
+    transferred, expired, or converted into a work item allowance. Every one of them
+    writes a ledger row naming who decided and when, which is criterion 20 applied to
+    the path where hours are most likely to quietly vanish.
+
+    ``issue_allowance`` raises ``ISSUE_ALLOWANCE_NOT_AVAILABLE``. The allowance entity is
+    **Phase 5's**, and section 8c says to prepare and document the interface if that
+    phase is not built yet. The entry type ``CONVERTED_TO_ISSUE_ALLOWANCE`` and the
+    ``target_issue`` argument are both already here, so Phase 5 supplies a body rather
+    than a design. That leaves one third of criterion 17 open, and it is recorded as an
+    inherited criterion rather than ticked off.
+    """
+    from plane.utils.service_catalog import create_with_config_activity, save_with_config_activity
+
+    if balance_destination == BalanceDestination.ISSUE_ALLOWANCE:
+        raise ServicePoolValidationError(
+            ISSUE_ALLOWANCE_NOT_AVAILABLE,
+            {"target_issue_id": str(target_issue.pk) if target_issue else None},
+        )
+
+    with transaction.atomic():
+        successor = ServiceContract(
+            workspace_id=contract.workspace_id,
+            service_client_id=contract.service_client_id,
+            code=code,
+            name=name,
+            monthly_hours=_quantize(monthly_hours),
+            starts_on=starts_on,
+            ends_on=ends_on,
+            previous_contract=contract,
+            carryover_months=contract_fields.pop("carryover_months", contract.carryover_months),
+            accrual_cap_mode=contract_fields.pop("accrual_cap_mode", contract.accrual_cap_mode),
+            accrual_cap_value=contract_fields.pop("accrual_cap_value", contract.accrual_cap_value),
+            overage_policy=contract_fields.pop("overage_policy", contract.overage_policy),
+            overage_hour_rate=contract_fields.pop("overage_hour_rate", contract.overage_hour_rate),
+            **contract_fields,
+        )
+        create_with_config_activity(successor, actor=actor)
+
+        moved = _drain_open_periods(
+            contract,
+            successor=successor,
+            balance_destination=balance_destination,
+            actor=actor,
+        )
+
+        contract.status = ServiceContract.Status.ENDED
+        save_with_config_activity(contract, actor=actor)
+
+    return successor, moved
+
+
+def _drain_open_periods(contract, *, successor, balance_destination, actor):
+    """Empty every open period of a contract into its successor, or write it off."""
+    moved = []
+    target = resolve_period(successor, successor.starts_on, actor=actor) if successor else None
+
+    for period in ServiceContractPeriod.objects.filter(
+        contract_id=contract.pk, status=ServicePeriodStatus.OPEN
+    ).order_by("competence_year", "competence_month"):
+        locked = _lock_period(period)
+
+        for origin, hours in remaining_parcels(locked):
+            if balance_destination == BalanceDestination.TRANSFER:
+                moved.append(
+                    _write_entry(
+                        period=locked,
+                        entry_type=ServiceLedgerEntryType.TRANSFERRED_TO_CONTRACT,
+                        hours=-hours,
+                        origin_period=origin,
+                        actor=actor,
+                        notes=(
+                            f"{hours}h da competencia {origin.competence_label} transferidas para o "
+                            f"contrato {successor.code}"
+                        ),
+                    )
+                )
+                _write_entry(
+                    period=target,
+                    entry_type=ServiceLedgerEntryType.CARRY_IN,
+                    hours=hours,
+                    origin_period=origin,
+                    actor=actor,
+                    notes=(
+                        f"{hours}h da competencia {origin.competence_label} recebidas do contrato "
+                        f"{contract.code}"
+                    ),
+                )
+                ServiceContractPeriod.objects.filter(pk=target.pk).update(
+                    carried_hours=F("carried_hours") + _quantize(hours)
+                )
+            else:
+                moved.append(
+                    _write_entry(
+                        period=locked,
+                        entry_type=ServiceLedgerEntryType.EXPIRED_BY_CONTRACT_END,
+                        hours=-hours,
+                        origin_period=origin,
+                        actor=actor,
+                        notes=(
+                            f"{hours}h da competencia {origin.competence_label} expiradas no "
+                            f"encerramento do contrato {contract.code}"
+                        ),
+                    )
+                )
+
+        locked.status = ServicePeriodStatus.CLOSED
+        locked.closed_at = timezone.now()
+        locked.closed_by = actor
+        locked.save(update_fields=["status", "closed_at", "closed_by", "updated_at"])
+
+    return moved
+
+
+# ---------------------------------------------------------------------------
+# Reading a balance -- section 7
+# ---------------------------------------------------------------------------
+
+
+def contract_balance_statement(contract):
+    """A contract's pool, month by month, with each carried parcel's origin. Section 7.
+
+    Section 7 asks for the accumulated balance "com a competência de origem de cada
+    parcela", which is the part a scalar total cannot answer and the reason the parcels
+    are reconstructed here rather than summed.
+    """
+    periods = list(
+        ServiceContractPeriod.objects.filter(contract_id=contract.pk).order_by(
+            "competence_year", "competence_month"
+        )
+    )
+
+    return [
+        {
+            "period_id": str(period.pk),
+            "competence": period.competence_label,
+            "status": period.status,
+            "contracted_hours": str(_quantize(period.contracted_hours)),
+            "carried_hours": str(_quantize(period.carried_hours)),
+            "consumed_hours": str(_quantize(period.consumed_hours)),
+            "granted_hours": str(_quantize(period.granted_hours)),
+            "balance_hours": str(_quantize(period.balance_hours)),
+            "discarded_by_cap_hours": str(_quantize(period.discarded_by_cap_hours)),
+            "overage_hours": str(_quantize(period.overage_hours)),
+            "overage_settlement": period.overage_settlement,
+            "parcels": [
+                {"origin_competence": origin.competence_label, "hours": str(_quantize(hours))}
+                for origin, hours in remaining_parcels(period)
+            ],
+        }
+        for period in periods
+    ]
+
+
+def issue_pool_snapshot(issue, worked_on=None):
+    """The pool position a work item's panel shows. Section 7.
+
+    "Quanto do pool do mês foi consumido pelo cliente daquele chamado, incluindo o saldo
+    acumulado disponível" -- plus the resolution failure, when there is one, because a
+    panel that simply shows nothing is indistinguishable from a client with no
+    consumption.
+    """
+    worked_on = worked_on or timezone.now().date()
+
+    try:
+        contract, warning = resolve_contract(issue, worked_on)
+    except ServicePoolValidationError as error:
+        return {"error": error.code, "detail": error.detail}
+
+    period = resolve_period(contract, worked_on, materialize=False)
+
+    if period is None:
+        return {
+            "contract_id": str(contract.pk),
+            "contract_code": contract.code,
+            "warning": warning,
+            "period": None,
+        }
+
+    return {
+        "contract_id": str(contract.pk),
+        "contract_code": contract.code,
+        "warning": warning,
+        "period": {
+            "period_id": str(period.pk),
+            "competence": period.competence_label,
+            "status": period.status,
+            "contracted_hours": str(_quantize(period.contracted_hours)),
+            "carried_hours": str(_quantize(period.carried_hours)),
+            "granted_hours": str(_quantize(period.granted_hours)),
+            "consumed_hours": str(_quantize(period.consumed_hours)),
+            "balance_hours": str(_quantize(period.balance_hours)),
+        },
+    }
+
+
+def open_periods_for_workspace(workspace_id, *, contract_id=None):
+    """Open periods of a workspace, for the alert panel and the reconciliation command."""
+    queryset = ServiceContractPeriod.objects.filter(
+        workspace_id=workspace_id, status=ServicePeriodStatus.OPEN
+    ).select_related("contract", "contract__service_client")
+
+    if contract_id:
+        queryset = queryset.filter(contract_id=contract_id)
+
+    return queryset.filter(~Q(contract__status=ServiceContract.Status.ENDED))

@@ -128,6 +128,25 @@ class Project(BaseModel):
         null=True,
         blank=True,
     )
+    # Which of the client's contracts this project's work logs debit, when the client
+    # holds more than one. Nullable, and null is the common case: with a single
+    # contract there is nothing to pin, and resolution falls through to the client's
+    # default contract (section 1b of the contract phase brief).
+    #
+    # This is what makes "Marubeni - Suporte" and "Marubeni - Infra" debit separate
+    # pools without the technician choosing anything: the client already comes from the
+    # project (D19), so pinning the contract on the project too keeps the whole
+    # resolution derived rather than entered.
+    #
+    # DO_NOTHING for exactly the reasons spelled out on `service_client` above, which
+    # apply verbatim -- a contract is configuration that a billing record depends on.
+    service_contract = models.ForeignKey(
+        "db.ServiceContract",
+        on_delete=models.DO_NOTHING,
+        related_name="projects",
+        null=True,
+        blank=True,
+    )
     archive_in = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(12)])
     close_in = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(12)])
     logo_props = models.JSONField(default=dict)

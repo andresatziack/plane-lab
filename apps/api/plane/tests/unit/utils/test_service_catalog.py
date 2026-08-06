@@ -22,6 +22,7 @@ from plane.tests.factories import (
     WorkspaceFactory,
 )
 from plane.utils.service_catalog import (
+    CONFIG_VALUE_UNSET,
     DEFAULT_CANNOT_BE_DEACTIVATED,
     DEFAULT_CANNOT_BE_DELETED,
     DEFAULT_CANNOT_BE_UNSET,
@@ -236,10 +237,21 @@ class TestSerializeConfigValue:
 
         assert serialized == "non_billable"
 
-    def test_none_stays_none(self, workspace):
+    def test_an_unset_value_becomes_the_sentinel_not_null(self, workspace):
+        """Rewritten by the contract phase, which made the old assertion false.
+
+        This test used to be ``test_none_stays_none`` and asserted that ``None``
+        serialised to ``None``. That was correct only while every tracked field was
+        non-nullable. The contract has three that are not -- accrual cap, carryover
+        validity and the overage hour rate -- and they are precisely what the trail
+        exists to record, so a NULL here would violate
+        ``svc_cfg_activity_shape_matches_verb`` the first time one of them was filled
+        in. Decision D4 chose the sentinel; see ``CONFIG_VALUE_UNSET``.
+        """
         option = ServiceHourTypeFactory(workspace=workspace, name="Fora")
 
-        assert serialize_config_value(option, "multiplier", None) is None
+        assert serialize_config_value(option, "multiplier", None) == CONFIG_VALUE_UNSET
+        assert serialize_config_value(option, "multiplier", None) is not None
 
 
 class TestConfigActivityTrail:

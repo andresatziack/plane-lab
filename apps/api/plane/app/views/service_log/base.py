@@ -7,6 +7,7 @@ import json
 
 # Django imports
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.utils import timezone
 
 # Third party imports
@@ -31,6 +32,7 @@ from plane.utils.service_log import (
     validate_time_tracking_enabled,
 )
 from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours
+from plane.utils.service_pool import ServicePoolValidationError, apply_batch_debit, issue_pool_snapshot
 
 from ..base import BaseViewSet
 
@@ -330,7 +332,18 @@ class ServiceLogViewSet(BaseViewSet):
         if error_code:
             return Response({"error": error_code}, status=status.HTTP_400_BAD_REQUEST)
 
-        create_service_log_batch(rows)
+        # Persist and debit in ONE transaction. A batch that exists without its pool
+        # debit is the divergence the whole contract phase is built to prevent, and a
+        # closed period has to refuse the entry (acceptance criterion 13) -- which only
+        # works as a refusal if the rows roll back with it.
+        try:
+            with transaction.atomic():
+                create_service_log_batch(rows)
+                apply_batch_debit(rows, actor=request.user)
+        except ServicePoolValidationError as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         payload = ServiceLogSerializer(rows, many=True).data
 
@@ -350,6 +363,12 @@ class ServiceLogViewSet(BaseViewSet):
                 "batch_id": str(rows[0].batch_id),
                 "totals": self._totals(issue_id),
                 "warning": self._long_entry_warning(rows),
+                # Section 7: the work item shows the pool it just debited, so the panel
+                # never has to make a second request to refresh the balance and cannot
+                # show a stale one beside a new row. Carries the out-of-vigency and
+                # suspended warnings (D9, B4), which are advisory and never blocked the
+                # entry that just succeeded.
+                "pool": issue_pool_snapshot(issue, worked_on=serializer.validated_data["worked_on"]),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -408,7 +427,20 @@ class ServiceLogViewSet(BaseViewSet):
         if error_code:
             return Response({"error": error_code}, status=status.HTTP_400_BAD_REQUEST)
 
-        replace_service_log_batch(batch_id=batch_id, rows=rows)
+        # Acceptance criterion 12: editing 2h to 3h must leave the balance consistent
+        # with no double debit. `replace_service_log_batch` soft deletes the old rows,
+        # and `ServiceLog.delete()` reverses each one's debit on the way out, so the
+        # reversal and the new debit are one transaction. The reversal reads its amount
+        # from the DEBIT row rather than recomputing it, which is what makes the old 2h
+        # come back and not the new 3h.
+        try:
+            with transaction.atomic():
+                replace_service_log_batch(batch_id=batch_id, rows=rows)
+                apply_batch_debit(rows, actor=request.user)
+        except ServicePoolValidationError as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         payload = ServiceLogSerializer(rows, many=True).data
 
@@ -428,6 +460,7 @@ class ServiceLogViewSet(BaseViewSet):
                 "batch_id": str(batch_id),
                 "totals": self._totals(issue_id),
                 "warning": self._long_entry_warning(rows),
+                "pool": issue_pool_snapshot(issue, worked_on=serializer.validated_data["worked_on"]),
             },
             status=status.HTTP_200_OK,
         )
@@ -454,7 +487,16 @@ class ServiceLogViewSet(BaseViewSet):
             ServiceLogSerializer(existing, many=True).data, cls=DjangoJSONEncoder
         )
 
-        delete_service_log_batch(batch_id)
+        # Acceptance criterion 11: exactly the hours taken go back to the right period.
+        # The reversal rides on `ServiceLog.delete()`, so it happens per row inside the
+        # batch delete's own transaction. A work log whose period is already CLOSED
+        # refuses here rather than silently changing an invoiced total.
+        try:
+            delete_service_log_batch(batch_id)
+        except ServicePoolValidationError as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         self._record_activity(
             "service_log.activity.deleted",
@@ -465,4 +507,7 @@ class ServiceLogViewSet(BaseViewSet):
             current_instance=current_instance,
         )
 
-        return Response({"totals": self._totals(issue_id)}, status=status.HTTP_200_OK)
+        return Response(
+            {"totals": self._totals(issue_id), "pool": issue_pool_snapshot(issue)},
+            status=status.HTTP_200_OK,
+        )

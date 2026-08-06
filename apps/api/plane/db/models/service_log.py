@@ -8,7 +8,7 @@ from decimal import Decimal
 # Django imports
 from django.conf import settings
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 
 # Module imports
@@ -250,6 +250,29 @@ class ServiceLog(ProjectBaseModel):
         default=ServiceBillingType.BillingRoute.DEBIT_POOL,
     )
 
+    # The competency period this row actually debited. Step 5 of section 5 of the
+    # contract phase brief asks for it by name, and it completes R4's snapshot: it is
+    # the answer to "which pool paid for this hour", which cannot be re-derived later
+    # because the resolution depends on configuration that may since have changed --
+    # the project's pinned contract, the client's default, the contract's vigency.
+    #
+    # Null means no pool was debited, and the reason is always recoverable rather than
+    # guessed: `applied_billing_route` says whether the route even debits a pool, and a
+    # NON_BILLABLE row has `debited_hours = 0` by check constraint. That distinction
+    # matters because "não faturável" and "não existe contrato" produce the same
+    # balance and are opposite bugs.
+    #
+    # There is deliberately NO `applied_contract` column beside it. The period already
+    # navigates to its contract, and a second snapshot would be a second truth that
+    # could disagree with the first.
+    debited_period = models.ForeignKey(
+        "db.ServiceContractPeriod",
+        on_delete=models.DO_NOTHING,
+        related_name="service_logs",
+        null=True,
+        blank=True,
+    )
+
     # ------------------------------------------------------------------- batching
 
     # Groups the segments that one submission produced (R10, and section 3 of the
@@ -344,6 +367,34 @@ class ServiceLog(ProjectBaseModel):
             # Hours per technician over a period.
             models.Index(fields=["author", "worked_on"], name="service_log_author_worked_idx"),
         ]
+
+    def delete(self, using=None, soft=True, *args, **kwargs):
+        """Soft delete this work log, reversing its pool debit first.
+
+        **The reversal hangs here, on the model, rather than on the batch helpers, and
+        that placement is the whole point.** A work log is deleted through four
+        different doors -- ``delete_service_log_batch``, ``replace_service_log_batch``
+        (which is an edit), the API's batch delete, and the cascade from a deleted work
+        item -- and a reversal wired into any of them would be missing from the others.
+        Acceptance criteria 11 and 12 have to hold for all four.
+
+        Same transaction as the soft delete, so a balance is never left debited for a
+        row that is already gone. Idempotent twice over: the reversal is skipped when
+        the row is already soft deleted, and ``reverse_debit`` is itself guarded by the
+        partial unique index on the ledger.
+
+        The import is function level because ``plane.utils.service_pool`` imports these
+        models; at module scope the two would import each other at load time. Same
+        pattern as ``validate_catalog_delete``'s helpers.
+        """
+        if soft and self.deleted_at is None:
+            from plane.utils.service_pool import reverse_debit
+
+            with transaction.atomic():
+                reverse_debit(self)
+                return super().delete(using=using, soft=soft, *args, **kwargs)
+
+        return super().delete(using=using, soft=soft, *args, **kwargs)
 
     def __str__(self):
         return f"{self.issue_id} {self.worked_on} {self.logged_hours}h"

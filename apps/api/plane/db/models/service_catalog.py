@@ -29,6 +29,13 @@ class ServiceConfigEntity:
     BILLING_TYPE = "service_billing_type"
     HOLIDAY = "service_holiday"
     CLASSIFICATION_WINDOW = "service_classification_window"
+    # The contract phase. `CONTRACT` audits the terms of the agreement -- monthly
+    # hours, vigency, accrual cap, overage rate. `CONTRACT_PERIOD` audits the one
+    # field of a competency month that an admin may edit: `contracted_hours`, which
+    # decision B1 makes editable while the period is open so a partial month is a
+    # datum rather than a guess.
+    CONTRACT = "service_contract"
+    CONTRACT_PERIOD = "service_contract_period"
 
 
 class ServiceCatalogBaseModel(ChangeTrackerMixin, WorkspaceBaseModel):

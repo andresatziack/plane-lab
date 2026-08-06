@@ -14,6 +14,49 @@ from django.db.models.fields.related import OneToOneRel
 from celery import shared_task
 
 
+def _is_service_log_relation(relation):
+    """Whether this reverse relation points at ``ServiceLog``.
+
+    Compared by label rather than by importing the model, so this module keeps no import
+    of ``plane.db.models`` at load time -- ``plane.db.mixins`` imports this module, and a
+    model import here would close the cycle.
+    """
+    related_model = relation.related_model
+
+    return (
+        related_model is not None
+        and related_model._meta.app_label == "db"
+        and related_model._meta.model_name == "servicelog"
+    )
+
+
+def _soft_delete_service_logs(instance, related_name):
+    """Soft delete work logs through their own ``delete()``, so the pool is reversed.
+
+    One row at a time and through the model's ``delete()``, which is the entire point:
+    the reversal hangs there, and both the queryset ``delete()`` and the catch-all's
+    ``save()`` bypass it.
+
+    Failures are contained per row. A work log in a closed period raises, and the right
+    response is to skip that one and keep going rather than abandon the rest of the
+    cascade -- the same containment the catch-all already applies per relation.
+    """
+    from plane.utils.service_pool import ServicePoolValidationError
+
+    for related_obj in getattr(instance, related_name)(manager="objects").all():
+        if related_obj.deleted_at:
+            continue
+
+        try:
+            related_obj.delete()
+        except ServicePoolValidationError as error:
+            # An invoiced month must not be rewritten by a cascade. Left intact, and
+            # loudly, because a silently skipped work log is indistinguishable from one
+            # that was deleted correctly.
+            print(f"Skipped soft delete of service log {related_obj.pk}: {error.code}")
+            continue
+
+
 @shared_task
 def soft_delete_related_objects(app_label, model_name, instance_pk, using=None):
     """
@@ -59,6 +102,38 @@ def soft_delete_related_objects(app_label, model_name, instance_pk, using=None):
                 # For other relationships
                 related_queryset = getattr(instance, related_name).all()
                 related_queryset.update(**{relation.remote_field.name: None})
+
+        elif _is_service_log_relation(relation):
+            # EXPLICIT BRANCH FOR ServiceLog, AHEAD OF THE CATCH-ALL BELOW.
+            #
+            # The bug this fixes is real and was verified before the branch was
+            # written. The catch-all below assigns `deleted_at` and calls `.save()`
+            # directly, which never runs `SoftDeleteModel.delete()` -- and therefore
+            # never runs `ServiceLog.delete()`, where the hour pool reversal lives.
+            # `ServiceLog.issue` is CASCADE, so deleting a work item took this path and
+            # left the pool debited for hours belonging to a work item that no longer
+            # existed. The ordinary paths were already safe: `delete_service_log_batch`
+            # calls `row.delete()` per row, with a comment saying it does so precisely
+            # in anticipation of this phase's debit.
+            #
+            # SCOPED TO ServiceLog ON PURPOSE. Making the catch-all call `.delete()` on
+            # every model with a `deleted_at` column would start executing the custom
+            # `delete()` of dozens of core models, which is far too large a behaviour
+            # change to smuggle in here.
+            #
+            # THE REVERSAL IS ASYNCHRONOUS, and that is a property of where this runs,
+            # not a choice. This whole function is a Celery task, so the pool does not
+            # come back inside the transaction that deleted the work item. If the task
+            # fails, the balance stays wrong until reconciliation runs --
+            # `reconcile_period` and the `reconcile_service_periods --repair` command
+            # exist for exactly that window, which is also why the fix is not "just"
+            # this branch.
+            #
+            # A work log whose period is already CLOSED is deliberately left alone. Its
+            # month has been invoiced, and handing hours back into it would change a
+            # total the client was already billed for; refusing is the same choice the
+            # client delete guard makes. It stays in `all_objects` either way.
+            _soft_delete_service_logs(instance, related_name)
 
         else:
             # Handle CASCADE and other delete behaviors
@@ -110,6 +185,51 @@ def restore_related_objects(app_label, model_name, instance_pk, using=None):
     pass
 
 
+def _detach_hour_ledger_from_purged_service_logs(cutoff):
+    """Unlink hour ledger entries from work logs this purge is about to destroy.
+
+    WITHOUT THIS, THE WHOLE NIGHTLY PURGE STOPS. The purge hard deletes workspaces,
+    projects and work items, and `ServiceLog.issue` is CASCADE, so their work logs are
+    hard deleted with them. `ServiceHourLedgerEntry.service_log` is DO_NOTHING, which
+    means Django emits the database constraint and then does nothing about it -- so
+    Postgres refuses the delete with an IntegrityError, and because these are single
+    queryset `.delete()` calls the failure takes the entire task down, not just one row.
+    This is the same hazard the client delete guard documents
+    (`app/views/service_client/base.py`), arriving through a door nobody opens by hand.
+
+    Detaching is safe here in a way it would never be anywhere else, and the distinction
+    is worth being precise about:
+
+      * the work log is about to cease to exist, so there is nothing left to debit twice
+        and the idempotency the foreign key normally guarantees has nothing to protect;
+      * `reconcile_period` sums `hours` grouped by `entry_type`, and neither of those is
+        touched -- so every balance still reconciles, before and after;
+      * the hours themselves stay, which is what acceptance criterion 20 actually asks
+        for. It requires that balance never disappear without a record, not that the
+        record keep pointing at a row the retention policy deleted.
+
+    **`SET_NULL` on the foreign key would NOT be the same fix, and would be a bug.**
+    `soft_delete_related_objects` has a branch that nulls SET_NULL columns on every
+    ordinary soft delete -- and a work log is soft deleted on every ordinary *edit*,
+    because `replace_service_log_batch` deletes and recreates. That would clear the link
+    exactly when `reverse_debit` needs it, and the next delete would reverse a second
+    time and credit hours that never existed. The narrow, once-a-day detach is the
+    difference between the two.
+
+    Imported inside the function, like the rest of this task's model access.
+    """
+    from django.db.models import Q
+
+    from plane.db.models import ServiceHourLedgerEntry
+
+    return ServiceHourLedgerEntry.all_objects.filter(
+        Q(service_log__deleted_at__lt=cutoff)
+        | Q(service_log__issue__deleted_at__lt=cutoff)
+        | Q(service_log__project__deleted_at__lt=cutoff)
+        | Q(service_log__workspace__deleted_at__lt=cutoff)
+    ).update(service_log=None)
+
+
 @shared_task
 def hard_delete():
     from plane.db.models import (
@@ -134,6 +254,9 @@ def hard_delete():
     )
 
     days = settings.HARD_DELETE_AFTER_DAYS
+
+    _detach_hour_ledger_from_purged_service_logs(timezone.now() - timezone.timedelta(days=days))
+
     # check delete workspace
     _ = Workspace.all_objects.filter(deleted_at__lt=timezone.now() - timezone.timedelta(days=days)).delete()
 

@@ -60,6 +60,34 @@ mecanismo de lançamento de excedente da Fase 6.
   restante, e percentual de consumo
 - Histórico de créditos
 
+## Critérios herdados da Fase 4: um que só pode ser fechado aqui
+
+| Critério                                  | O que faltava                                                                                                                                                                                                     | Status                              |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| **Fase 4, critério 17**, terceiro destino do saldo remanescente: "convertê-lo em bolsa de horas de um chamado" | A entidade de bolsa de horas, que é desta fase. A Fase 4 entregou os outros dois destinos (transferir, expirar) auditados, e deixou este preparado: o tipo de lançamento `CONVERTED_TO_ISSUE_ALLOWANCE` já existe no livro-caixa, `end_and_create_successor` já aceita `balance_destination="issue_allowance"` e `target_issue`, e hoje devolve `ISSUE_ALLOWANCE_NOT_AVAILABLE` com HTTP 501 | **Aberto — fechar nesta fase**      |
+
+O que esta fase precisa fazer para fechá-lo, e **fechar significa provar**:
+
+1. dar corpo ao ramo `ISSUE_ALLOWANCE` de
+   `plane.utils.service_pool.end_and_create_successor`, creditando a bolsa do work item
+   informado e escrevendo a linha `CONVERTED_TO_ISSUE_ALLOWANCE` no período de origem, com
+   `actor` e `notes` — o critério 20 da Fase 4 exige auditoria em **todos** os caminhos, e
+   este é o caminho onde as horas mais facilmente desaparecem sem registro;
+2. um teste que atravesse o mesmo caminho do usuário: saldo remanescente num contrato que
+   encerra, convertido em bolsa, com o saldo do período de origem indo a zero e a bolsa do
+   chamado recebendo exatamente as mesmas horas;
+3. remover a asserção de indisponibilidade que hoje fixa o comportamento
+   (`test_converting_to_a_work_item_allowance_is_not_available_yet` e
+   `test_converting_to_a_work_item_allowance_returns_not_implemented`), e marcar o critério
+   17 da Fase 4 como fechado apontando para o teste novo.
+
+Além disso, a Fase 4 deixou o **ponto de extensão da R6** pronto e vazio:
+`plane.utils.service_pool._work_item_allowance(issue)` devolve `None` hoje, e é a primeira
+coisa que `apply_debit` consulta. É uma função nomeada em vez de um comentário justamente
+porque a R6 é uma **hierarquia** — bolsa primeiro, depois o pool do contrato, depois valor
+em R$, e nunca dois. Esta fase substitui o corpo; nada mais no motor de débito precisa
+mudar.
+
 ## Critérios de aceite
 
 1. Admin credita 40h em um chamado e o saldo aparece no work item
