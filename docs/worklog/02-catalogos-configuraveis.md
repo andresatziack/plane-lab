@@ -79,17 +79,38 @@ janelas de classificação. Estruture a navegação prevendo essas seções.
 
 ## Critérios de aceite
 
+Status registrado após a implementação. **Cinco dos sete dependem da existência de
+apontamentos** e por isso só são verificáveis na Fase 3 — inteira ou parcialmente.
+A lista completa, com os pontos de alteração exatos, está em
+`03-worklog-core.md`, seção "Critérios herdados da Fase 2". Sem esse registro eles
+nunca seriam verificados: a Fase 2 não consegue e a Fase 3 não saberia que existem.
+
 1. Admin cria um Tipo de Hora "Sábado" com multiplicador 1.5 e ele passa a
    aparecer no formulário de apontamento
+   — **parcial.** O CRUD e a API estão prontos e testados; **a metade do formulário
+   é verificável na Fase 3**
 2. Admin reordena as opções e a ordem se reflete no dropdown do formulário
+   — **parcial.** Reordenação por arraste e `ordering` na API prontos; **o dropdown
+   é verificável na Fase 3**
 3. Ao inativar "Fora do expediente", ele desaparece de novos apontamentos mas
    os apontamentos antigos continuam exibindo o nome corretamente
+   — **parcial.** `?only_active=true` pronto; **a preservação do nome histórico é
+   verificável na Fase 3**, e depende dos FKs do apontamento serem `DO_NOTHING`
 4. Tentar excluir um Tipo de Hora em uso retorna erro explicativo
+   — **verificável na Fase 3.** Hoje a exclusão só é recusada para a opção padrão;
+   "em uso" não é avaliável sem apontamentos
 5. Alterar o multiplicador de 1.5 para 1.8 não altera nenhum valor ou débito de
    apontamento já registrado
+   — **verificável na Fase 3.** Depende do snapshot da R4. A Fase 2 entrega o aviso
+   na UI e a trilha de auditoria da alteração
 6. Cada catálogo tem exatamente uma opção padrão a qualquer momento
+   — **atendido.** Constraint parcial no banco mais recusa de despadronizar,
+   inativar ou excluir a opção padrão
 7. Chamado de um cliente de contrato pré-seleciona Tipo de Atendimento
    "Contrato"; trocar para "Avulso" no apontamento é permitido
+   — **parcial.** A FK `default_billing_type` no Cliente e o resolvedor
+   `resolve_default_billing_type` estão prontos e testados nos dois níveis de
+   precedência; **a pré-seleção no formulário é verificável na Fase 3**
 
 ## Entregar
 

@@ -84,6 +84,33 @@ Cada Tipo de Hora recebe também um campo `prioridade` (inteiro). O motor avalia
 as janelas em ordem de prioridade e o **primeiro match vence**. Tipo de Hora sem
 nenhuma janela nunca é sugerido — apenas selecionável manualmente.
 
+> **O que a Fase 2 já deixou pronto para esta seção.** `ServiceHourType` existe em
+> `plane/db/models/service_catalog.py` e a relação reversa `windows` está livre.
+>
+> Três avisos concretos ao adicionar `priority`:
+>
+> 1. **Não reaproveitar `sequence`.** Aquele campo é ordem de **exibição** — é o que o
+>    admin arrasta no painel — e está documentado no modelo como tal. Fundir os dois
+>    faria um arraste cosmético reclassificar hora e, portanto, alterar fatura. São
+>    dois campos.
+> 2. **Acrescentar `priority` a `TRACKED_FIELDS`**, que hoje é
+>    `["multiplier", "is_active"]`. A prioridade decide qual tipo o motor escolhe, então
+>    mudá-la altera o faturamento futuro com o mesmo peso do multiplicador, e a trilha
+>    `ServiceConfigActivity` precisa registrar a alteração. Nada mais é necessário: a
+>    gravação é automática pelo `save_with_config_activity`.
+> 3. **A guarda de exclusão fica em um só lugar.** `validate_catalog_delete`
+>    (`plane/utils/service_catalog.py`) já tem o ponto de extensão documentado; a
+>    checagem "tem janelas" entra ali, ao lado da que a Fase 3 vai acrescentar. E a FK
+>    da Janela para o Tipo de Hora tem de ser `DO_NOTHING`, pelo mesmo motivo explicado
+>    em `03-worklog-core.md`: com `CASCADE` o soft delete de um tipo de hora apagaria
+>    silenciosamente as janelas via `soft_delete_related_objects`.
+>
+> O painel de administração também já está estruturado para receber as duas seções
+> novas: `WORKLOG_SETTINGS_SECTIONS` em
+> `apps/web/core/components/service-catalog/worklog-settings-tabs.tsx` é um array — o
+> calendário de feriados e as janelas são uma entrada cada, mais uma rota, sem mexer na
+> sidebar.
+
 Seed inicial, coerente com as regras de negócio acima:
 
 | Tipo de Hora        | Mult. | Prio. | Janelas                                             |

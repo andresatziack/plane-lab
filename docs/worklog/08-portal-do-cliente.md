@@ -250,8 +250,25 @@ contratos são código seu.
     workspace
 15. Técnico abre chamado no project do Cliente registrando o solicitante, e aquele
     usuário passa a ver o chamado no portal
-16. Nenhum endpoint novo (apontamento, contrato, período, bolsa, preço) vaza dados
-    de Cliente fora do escopo do usuário
+16. Nenhum endpoint novo (apontamento, contrato, período, bolsa, preço, **catálogos
+    de Tipo de Hora e Tipo de Atendimento**, **trilha de auditoria de configuração**)
+    vaza dados de Cliente fora do escopo do usuário
+
+    Sobre os três últimos, já implementados na Fase 2 e já cobertos por teste
+    negativo em `plane/tests/contract/app/test_service_catalog_app.py` — reverificar
+    aqui, não reimplementar:
+    - `GET /api/workspaces/<slug>/service-hour-types/` e
+      `.../service-billing-types/` são ADMIN + MEMBER, **GUEST recebe 403**. O
+      motivo não é organizacional: o payload do Tipo de Hora carrega `multiplier`, e
+      a R11 mantém o multiplicador longe do cliente. O portal lê o **rótulo** do Tipo
+      de Hora pelo serializer dedicado do apontamento, nunca por estes endpoints.
+    - `GET /api/workspaces/<slug>/service-config-activities/` é **ADMIN de workspace
+      apenas** — nem MEMBER. É o histórico de multiplicadores e, a partir da Fase 6,
+      de preços: inteligência comercial. Não existe endpoint de escrita para ele.
+
+    Ao criar o serializer do apontamento para o portal, conferir contra a tabela da
+    R11 campo por campo. A restrição é de serializer, não de UI: esconder na
+    interface e mandar no payload é vazamento.
 17. Marcel vê os chamados da Marubeni abertos por um **técnico** e por um **colega
     dele**, não apenas os que ele mesmo criou (`guest_view_all_features = True`)
 18. Marcel fecha e reabre um chamado que foi aberto por um técnico

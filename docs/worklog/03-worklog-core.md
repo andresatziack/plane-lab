@@ -194,6 +194,74 @@ verificáveis. Os pontos de alteração são:
 
 Ao fechar os dois, marcar os critérios 10 e 11 da Fase 1 como atendidos.
 
+## Critérios herdados da Fase 2: cinco que só podem ser fechados aqui
+
+A Fase 2 foi implementada, mas **cinco dos seus sete critérios de aceite dependem da
+existência de apontamentos**. Eles estão marcados na `02-catalogos-configuraveis.md`
+como parciais ou como "verificável na Fase 3", e são responsabilidade desta fase.
+
+| Critério da Fase 2                                                       | O que falta                                                                                     |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| 1 — novo Tipo de Hora "passa a aparecer no formulário de apontamento"    | o formulário. O CRUD e a API já existem e são testados                                          |
+| 2 — "a ordem se reflete no dropdown do formulário"                       | o dropdown. A reordenação por arraste e o `ordering` da API já existem                           |
+| 3 — "apontamentos antigos continuam exibindo o nome corretamente"        | os FKs `DO_NOTHING` no apontamento, e o serializer resolvendo o nome mesmo com a opção inativa   |
+| 4 — "excluir um Tipo de Hora **em uso** retorna erro explicativo"        | a contagem de apontamentos vinculados em `validate_catalog_delete`                                |
+| 5 — "alterar o multiplicador não altera apontamento já registrado"       | o snapshot da R4 no apontamento                                                                  |
+
+Pontos de alteração exatos:
+
+1. **Critérios 1, 2 e 3 (metade de UI)** — o formulário de apontamento consome
+   `GET /api/workspaces/<slug>/service-hour-types/?only_active=true` e
+   `.../service-billing-types/?only_active=true`, já ordenados por `sequence`. No
+   front, a store `serviceCatalog` (`core/store/workspace/service-catalog.store.ts`)
+   expõe `activeHourTypes`, `activeBillingTypes` e `resolveDefaultBillingTypeId`.
+
+2. **Critério 3 (metade de modelo) — restrição obrigatória, não preferência.** Os FKs
+   do apontamento para `ServiceHourType` e `ServiceBillingType` têm de ser
+   `on_delete=DO_NOTHING`, **nunca `SET_NULL` nem `CASCADE`**. Dois motivos:
+   - com `SET_NULL` o apontamento histórico perde o rótulo e o critério 3 fica
+     impossível;
+   - com `CASCADE` ou `PROTECT`, o soft delete de uma opção de catálogo cai no
+     catch-all de `soft_delete_related_objects`
+     (`plane/bgtasks/deletion_task.py:47`) e **soft-deleta os apontamentos**. É
+     caminho de perda de dados disparado por um admin arrumando o catálogo. Mesmo
+     motivo pelo qual `Project.service_client` e `ServiceClient.default_billing_type`
+     são `DO_NOTHING`.
+
+3. **Critério 4** — acrescentar a checagem em `validate_catalog_delete`
+   (`plane/utils/service_catalog.py`), que já existe e já tem o ponto de extensão
+   documentado com esta finalidade. Recusar com um código explicativo, no padrão
+   `UPPER_SNAKE` dos demais, e traduzir no front em
+   `delete-catalog-option-modal.tsx`. Não espalhar a regra pela view.
+
+4. **Critério 5** — o apontamento persiste `multiplicador_aplicado` no momento da
+   criação (R4). Snapshotar também a **rota de faturamento**: a R4 cita apenas o
+   multiplicador, mas a rota decide para onde o tempo foi, e dois Tipos de Atendimento
+   podem compartilhar a mesma rota — sem o snapshot, um relatório histórico não
+   consegue separá-los depois de uma edição de catálogo. As escalas dos campos estão
+   fechadas na **seção 4b do contexto mestre** —
+   `multiplicador_aplicado` com `DecimalField(max_digits=4, decimal_places=2)` e as
+   grandezas de hora com 4 casas.
+
+Ao fechar os cinco, marcar os critérios correspondentes da Fase 2 como atendidos.
+
+### Auditoria de configuração: o que a Fase 2 deixou pronto
+
+Existe `ServiceConfigActivity` (`plane/db/models/service_config_activity.py`), trilha
+append-only de alterações em configuração que afeta dinheiro, com
+`GET /api/workspaces/<slug>/service-config-activities/` restrito a ADMIN de workspace.
+
+Duas coisas a considerar aqui:
+
+- A trilha registra **apenas alterações de campos rastreados** (`TRACKED_FIELDS`), não
+  criação nem exclusão — `ChangeTrackerMixin` estruturalmente não emite evento de
+  criação, e criação/exclusão já estão respondidas por `created_by`, `created_at` e
+  `deleted_at` da própria entidade. Se a Fase 3 precisar de eventos de criação ou
+  exclusão, isso exige uma coluna `verb` nova (nullable, sem backfill).
+- Auditoria **do apontamento** (R8) é outra coisa e não deve usar este modelo: a R8
+  pede trilha por work item, e o padrão para isso é `IssueActivity` mais
+  `issue_activity.delay(...)`, como manda a seção 6 do contexto mestre.
+
 ## Entregar
 
 Modelo de dados e assinaturas da camada de domínio primeiro. Depois:
