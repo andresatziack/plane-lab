@@ -830,13 +830,14 @@ class TestAuditTrail:
         assert deleted is not None
         assert "2.0000" in deleted.old_value
 
-    def test_no_override_activity_is_recorded_when_nothing_diverged(
+    def test_no_override_activity_is_recorded_when_the_choice_matches_the_suggestion(
         self, session_client, issue, commercial_hours, contract_billing
     ):
-        """No engine exists, so there is never a suggestion to diverge from.
+        """R10 records an override only when it *diverges* from the suggestion.
 
-        Pins today's behaviour so the calendar and windows phase can see that wiring
-        suggestions is all it has to add.
+        This project has no classification windows, so nothing is suggested and there is
+        nothing to diverge from. The override trail with the engine configured is tested
+        in `test_service_calendar_app.py`.
         """
         session_client.post(
             _urls(issue)["list"], _payload(commercial_hours, contract_billing), format="json"

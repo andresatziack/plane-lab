@@ -18,8 +18,7 @@ context requires.
 # Python imports
 import uuid
 import zoneinfo
-from dataclasses import dataclass, replace
-from datetime import date, time
+from dataclasses import replace
 
 # Django imports
 from django.db import transaction
@@ -29,6 +28,11 @@ from django.utils import timezone as django_timezone
 
 # Module imports
 from plane.db.models import ServiceBillingType, ServiceLog, ServiceLogEntryMode, ServiceLogSource
+
+# `Segment` lives with the engine that produces it, and is re-exported here so the
+# callers and tests written against `service_log.Segment` keep working. The dependency
+# runs one way: this module imports the engine, never the reverse.
+from plane.utils.service_calendar import Segment, classify
 from plane.utils.service_log_time import (
     BLOCK_MINUTES,
     ZERO_HOURS,
@@ -111,31 +115,6 @@ def compute_hour_quantities(*, raw_duration_minutes, multiplier, billing_route):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class Segment:
-    """One stretch of time with a single classification.
-
-    Shaped to match the ``Segmento`` tuple in section 3 of the calendar and windows
-    phase brief -- ``(data, hora_inicio, hora_fim, duracao_minutos, tipo_de_hora,
-    motivo)`` -- so that phase can return these without a translation layer.
-
-    ``worked_on`` is the segment's *own* date, derived from its real position on the
-    timeline rather than copied from the start of the entry. Required by R7: a log
-    from 31/01 23:00 to 01/02 01:00 straddles two billing competencies, and using
-    the start date for both would misbill the month boundary.
-
-    ``suggested_hour_type`` is what the engine proposed, or ``None`` when nothing was
-    proposed -- which today is always, because no engine exists yet.
-    """
-
-    worked_on: date
-    start_time: time | None
-    end_time: time | None
-    raw_duration_minutes: int
-    suggested_hour_type: object | None = None
-    reason: str = ""
-
-
 def build_segments(
     *,
     worked_on,
@@ -148,53 +127,52 @@ def build_segments(
 ):
     """Split an entry into classified segments. Rule R10.
 
-    **THIS IS THE EXTENSION POINT FOR THE CALENDAR AND WINDOWS PHASE (2b), and the
-    only one this phase needs.** Right now it returns exactly one unclassified
-    segment, with no suggestion and no reason, because the holiday calendar, the
-    classification windows, the ``ServiceHourType.priority`` column and the engine
-    that resolves them do not exist yet -- that whole phase has not been built, and
-    this phase was implemented ahead of it.
+    A thin adapter over ``plane.utils.service_calendar.classify``, the engine the
+    calendar and windows phase delivered. This function survives rather than being
+    inlined because it owns one decision the engine should not: in duration mode the
+    times are **discarded** instead of passed on. R9 is explicit that a duration entry
+    does not establish when the work happened, and letting the times through would let
+    the engine split an entry that D13 forbids splitting.
 
-    What that means in practice today: nothing is ever auto-classified, so the
-    technician picks the hour type in both entry modes. That is not a degraded mode
-    for duration entries on a weekday -- it is exactly what R10 and acceptance
-    criterion 10 of this phase specify. It *is* a gap for holidays, Sundays,
-    Saturdays and for intervals crossing a window boundary, which is why acceptance
-    criteria 8 and 9 of this phase cannot be closed until 2b lands.
+    Everything else belongs to the engine: resolving windows by priority, giving each
+    segment its own date (R7), emitting a segment per change of classification rather
+    than per midnight, and filling in the reason.
 
-    What 2b has to do here, and what it must not change:
+    Rounding stays here, in ``build_batch_rows``, applied per segment together with the
+    sub-15-minute guardrail. The engine returns raw minutes and does no arithmetic --
+    that split is deliberate and should not drift.
 
-    * Replace the body so it walks the timeline from ``start_time`` to ``end_time``,
-      resolving the active window by ``priority`` at each instant, and emits a new
-      ``Segment`` at every change of classification -- not at every midnight.
-      Section 4 of that brief has the twelve reference cases.
-    * Give each segment its own ``worked_on``, per R7 and section 5 of that brief.
-    * In duration mode (``start_time`` is None) never emit more than one segment:
-      D13 and R10 both forbid splitting an entry whose timing is unknown. Classify
-      by date alone -- holiday, Sunday and Saturday are whole-day windows -- and
-      leave ``suggested_hour_type`` as ``None`` on a weekday.
-    * Fill ``reason`` with the human explanation section 7 of that brief requires,
-      e.g. "Feriado: Natal" or "Fora do expediente: 18:00-08:00".
-    * Leave the R2 rounding alone. It is applied per segment by
-      ``build_batch_rows`` below, together with the sub-15-minute guardrail, and it
-      belongs to this phase. 2b classifies; it does not do arithmetic.
-    * Pin the timezone explicitly rather than inheriting the active one.
-      ``TimezoneMixin`` activates the *requesting user's* timezone per request, and
-      a classification that depends on who opened the screen would make an invoice
-      depend on it too. Section 5b of that brief owns this decision;
-      ``workspace_id`` and ``service_client`` are already in the signature so it can
-      be made without changing any caller.
+    ``workspace_id`` is required in practice: without it there is no configuration to
+    resolve against. It remains keyword-optional so that adopting the engine did not
+    change the signature any caller was written against.
     """
-    return [
-        Segment(
-            worked_on=worked_on,
-            start_time=start_time if entry_mode == ServiceLogEntryMode.INTERVAL else None,
-            end_time=end_time if entry_mode == ServiceLogEntryMode.INTERVAL else None,
-            raw_duration_minutes=raw_duration_minutes,
-            suggested_hour_type=None,
-            reason="",
-        )
-    ]
+    is_interval = entry_mode == ServiceLogEntryMode.INTERVAL
+
+    if workspace_id is None:
+        # No workspace, no windows to resolve against. Returns one unclassified segment
+        # rather than failing, for the same reason the engine itself is total: a missing
+        # configuration must never stop work that was already performed from being
+        # recorded.
+        return [
+            Segment(
+                worked_on=worked_on,
+                start_time=start_time if is_interval else None,
+                end_time=end_time if is_interval else None,
+                raw_duration_minutes=raw_duration_minutes,
+                suggested_hour_type=None,
+                reason="",
+            )
+        ]
+
+    return classify(
+        workspace_id=workspace_id,
+        worked_on=worked_on,
+        raw_duration_minutes=raw_duration_minutes,
+        start_time=start_time if is_interval else None,
+        end_time=end_time if is_interval else None,
+        service_client=service_client,
+    )
+
 
 
 def apply_minimum_block_guardrail(segments):

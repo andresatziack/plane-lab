@@ -25,6 +25,7 @@ DEFAULT_CANNOT_BE_DEACTIVATED = "DEFAULT_CANNOT_BE_DEACTIVATED"
 DEFAULT_CANNOT_BE_DELETED = "DEFAULT_CANNOT_BE_DELETED"
 HOUR_TYPE_IN_USE_BY_SERVICE_LOGS = "HOUR_TYPE_IN_USE_BY_SERVICE_LOGS"
 BILLING_TYPE_IN_USE_BY_SERVICE_LOGS = "BILLING_TYPE_IN_USE_BY_SERVICE_LOGS"
+HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS = "HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS"
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +108,7 @@ def validate_catalog_delete(instance):
 
     EXTENSION POINT, and the only place these checks should be added:
       * the work log phase adds "in use by work logs" -- DONE, see below;
-      * the calendar and windows phase adds "has classification windows";
+      * the calendar and windows phase adds "has classification windows" -- DONE;
       * the pricing phase adds "referenced by a client price override".
     All three are reasons to refuse a delete on an hour type, and keeping them in
     one function is why the guard was not inlined into the viewset.
@@ -115,7 +116,36 @@ def validate_catalog_delete(instance):
     if instance.is_default:
         return DEFAULT_CANNOT_BE_DELETED
 
-    return _in_use_by_service_logs(instance)
+    in_use = _in_use_by_service_logs(instance)
+
+    if in_use:
+        return in_use
+
+    return _in_use_by_classification_windows(instance)
+
+
+def _in_use_by_classification_windows(instance):
+    """Refuse deleting an hour type that still has classification windows.
+
+    Deleting it would tear a hole in the week's coverage without any single window being
+    invalid -- the same failure the coverage ratchet exists to prevent, arriving through
+    a different door. The admin has to remove or move the windows first, which forces the
+    replacement coverage to be thought about.
+
+    Only hour types have windows; billing types are not classified, so this returns
+    ``None`` for them.
+
+    Imported inside the function for the same reason as the work log check: keeping the
+    dependency out of module scope stops these sibling utility modules from importing each
+    other at load time.
+    """
+    from plane.db.models import ServiceHourType
+    from plane.utils.service_calendar import hour_type_has_windows
+
+    if not isinstance(instance, ServiceHourType):
+        return None
+
+    return HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS if hour_type_has_windows(instance) else None
 
 
 def _in_use_by_service_logs(instance):

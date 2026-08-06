@@ -196,63 +196,128 @@ class TestComputeHourQuantities:
 
 
 class TestBuildSegments:
-    """The seam the calendar and windows phase fills in.
+    """The adapter between the work log phase and the classification engine.
 
-    These tests pin today's behaviour so that phase can see exactly what it changes.
+    This class was originally written against the *absent* engine and asserted that
+    nothing was ever suggested. The calendar and windows phase delivered the engine, so
+    the assertions moved to what this function is actually responsible for now:
+
+    * discarding the times in duration mode, so the engine cannot split an entry whose
+      timing is unknown (R9 and D13);
+    * passing the workspace through, so classification happens at all;
+    * degrading to one unclassified segment rather than failing when there is no
+      workspace to resolve against.
+
+    The classification itself -- the twelve reference cases, the boundaries, the
+    priorities -- is tested against the engine in `test_service_calendar_engine.py`,
+    where it belongs.
     """
 
-    def test_duration_mode_produces_one_unclassified_segment(self):
+    def test_duration_mode_produces_one_segment(self, workspace):
         segments = build_segments(
             worked_on=date(2026, 1, 6),
             raw_duration_minutes=180,
             entry_mode=ServiceLog.EntryMode.DURATION,
+            workspace_id=workspace.id,
         )
         assert len(segments) == 1
         assert segments[0].raw_duration_minutes == 180
-        assert segments[0].suggested_hour_type is None
         assert segments[0].start_time is None
         assert segments[0].end_time is None
 
-    def test_interval_mode_keeps_the_times_on_the_segment(self):
-        segments = build_segments(
-            worked_on=date(2026, 1, 5),
-            raw_duration_minutes=180,
-            entry_mode=ServiceLog.EntryMode.INTERVAL,
-            start_time=time(17, 0),
-            end_time=time(20, 0),
-        )
-        assert len(segments) == 1
-        assert segments[0].start_time == time(17, 0)
-        assert segments[0].end_time == time(20, 0)
+    def test_duration_mode_discards_times_even_if_passed(self, workspace):
+        """R9: duration mode does not know when the work happened, by definition.
 
-    def test_duration_mode_discards_times_even_if_passed(self):
-        """R9: duration mode does not know when the work happened, by definition."""
+        This is the adapter's own rule, and the reason it was not inlined into the
+        engine. Letting the times through would allow a split that D13 forbids.
+        """
         segments = build_segments(
             worked_on=date(2026, 1, 5),
             raw_duration_minutes=60,
             entry_mode=ServiceLog.EntryMode.DURATION,
             start_time=time(17, 0),
             end_time=time(18, 0),
+            workspace_id=workspace.id,
         )
+        assert len(segments) == 1
         assert segments[0].start_time is None
         assert segments[0].end_time is None
 
-    def test_no_engine_yet_so_nothing_is_ever_suggested(self):
-        """Acceptance criteria 8 and 9 depend on 2b and cannot pass yet.
+    def test_interval_mode_passes_the_times_to_the_engine(self, workspace):
+        segments = build_segments(
+            worked_on=date(2026, 1, 5),
+            raw_duration_minutes=180,
+            entry_mode=ServiceLog.EntryMode.INTERVAL,
+            start_time=time(17, 0),
+            end_time=time(20, 0),
+            workspace_id=workspace.id,
+        )
+        assert segments[0].start_time == time(17, 0)
+        assert segments[-1].end_time == time(20, 0)
 
-        Criterion 10 -- duration mode leaves the choice to the technician -- does
-        pass, because that is what an absent engine produces.
+    def test_an_unconfigured_workspace_yields_one_unclassified_segment(self, workspace):
+        """The workspace fixture has hour types but no windows.
+
+        Which is a real state -- the coverage ratchet allows it -- and must produce a
+        usable entry rather than an error.
+
+        The reason is asserted, not just the null suggestion. Without it this test would
+        pass whether or not an engine existed at all, which is precisely the failure mode
+        that made the previous version of this class worthless.
         """
-        for entry_mode in (ServiceLog.EntryMode.DURATION, ServiceLog.EntryMode.INTERVAL):
-            segments = build_segments(
-                worked_on=date(2026, 1, 6),
-                raw_duration_minutes=60,
-                entry_mode=entry_mode,
-                start_time=time(9, 0),
-                end_time=time(10, 0),
-            )
-            assert all(segment.suggested_hour_type is None for segment in segments)
-            assert all(segment.reason == "" for segment in segments)
+        from plane.utils.service_calendar import UNCLASSIFIED_REASON
+
+        segments = build_segments(
+            worked_on=date(2026, 1, 6),
+            raw_duration_minutes=60,
+            entry_mode=ServiceLog.EntryMode.INTERVAL,
+            start_time=time(9, 0),
+            end_time=time(10, 0),
+            workspace_id=workspace.id,
+        )
+        assert len(segments) == 1
+        assert segments[0].suggested_hour_type is None
+        assert segments[0].reason == UNCLASSIFIED_REASON
+
+    def test_no_workspace_degrades_instead_of_failing(self):
+        """Called without a workspace, which no view does, but which must not raise."""
+        segments = build_segments(
+            worked_on=date(2026, 1, 6),
+            raw_duration_minutes=60,
+            entry_mode=ServiceLog.EntryMode.DURATION,
+        )
+        assert len(segments) == 1
+        assert segments[0].suggested_hour_type is None
+        assert segments[0].reason == ""
+
+    def test_a_configured_workspace_does_classify(self, workspace):
+        """The other half of the rewrite: with windows present, suggestions appear.
+
+        The old version of this class asserted that a suggestion was never produced. That
+        was true of an absent engine and is now false, which is the whole point.
+        """
+        from plane.db.models import ServiceBillingType as BillingType
+        from plane.db.models import ServiceClassificationWindow, ServiceHourType
+        from plane.utils.service_catalog_seed import seed_service_catalogs
+
+        seed_service_catalogs(
+            ServiceHourType, BillingType, workspace.id, window_model=ServiceClassificationWindow
+        )
+
+        # 2026-01-05 is a Monday; 10:00 to 11:00 is business hours.
+        segments = build_segments(
+            worked_on=date(2026, 1, 5),
+            raw_duration_minutes=60,
+            entry_mode=ServiceLog.EntryMode.INTERVAL,
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+            workspace_id=workspace.id,
+        )
+
+        assert segments[0].suggested_hour_type is not None
+        assert segments[0].suggested_hour_type.name == "Horário comercial"
+        assert segments[0].reason
+
 
 
 class TestApplyMinimumBlockGuardrail:
