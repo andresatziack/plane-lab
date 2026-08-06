@@ -372,3 +372,114 @@ class TestConfigActivityTrail:
         option.delete()
 
         assert ServiceConfigActivity.objects.filter(entity_identifier=option_pk).count() == 1
+
+
+
+class TestRecordConfigCreationAndDeletion:
+    """The `created` and `deleted` halves of the trail.
+
+    Added by the calendar phase. For a holiday or a classification window, creating and
+    removing the row ARE the financial events -- registering a holiday on 15/03 moves every
+    work log that day from 1.0 to 2.0 -- so recording only field edits would record exactly
+    what matters least in those two tables.
+    """
+
+    def test_creation_writes_exactly_one_row(self, workspace, create_user):
+        from plane.db.models import ServiceConfigVerb
+        from plane.utils.service_catalog import record_config_creation
+
+        hour_type = ServiceHourTypeFactory(workspace=workspace, name="Plantão", multiplier=Decimal("2.50"))
+
+        record_config_creation(hour_type, actor=create_user)
+
+        rows = ServiceConfigActivity.objects.filter(entity_identifier=hour_type.pk)
+        assert rows.count() == 1, "one row per creation, not one per field"
+
+        row = rows.first()
+        assert row.verb == ServiceConfigVerb.CREATED
+        assert row.field_name is None
+        assert row.old_value is None
+        assert "Plantão" in row.new_value
+        assert row.actor_id == create_user.id
+
+    def test_deletion_writes_exactly_one_row_with_the_summary_in_old_value(
+        self, workspace, create_user
+    ):
+        from plane.db.models import ServiceConfigVerb
+        from plane.utils.service_catalog import record_config_deletion
+
+        hour_type = ServiceHourTypeFactory(workspace=workspace, name="Plantão", multiplier=Decimal("2.50"))
+
+        record_config_deletion(hour_type, actor=create_user)
+
+        row = ServiceConfigActivity.objects.get(entity_identifier=hour_type.pk)
+        assert row.verb == ServiceConfigVerb.DELETED
+        assert row.field_name is None
+        assert "Plantão" in row.old_value
+        assert row.new_value is None
+
+    def test_the_summary_carries_what_changes_the_calculation(self, workspace, create_user):
+        """Not just the name: a reader has to see the multiplier that was introduced."""
+        from plane.utils.service_catalog import record_config_creation
+
+        hour_type = ServiceHourTypeFactory(
+            workspace=workspace, name="Plantão", multiplier=Decimal("2.50")
+        )
+
+        record_config_creation(hour_type, actor=create_user)
+
+        row = ServiceConfigActivity.objects.get(entity_identifier=hour_type.pk)
+        assert "2.50" in row.new_value
+
+    @pytest.mark.parametrize("recorder", ["record_config_creation", "record_config_deletion"])
+    def test_an_actor_is_required(self, workspace, recorder):
+        """An audit row with no author is not an audit row."""
+        import plane.utils.service_catalog as service_catalog
+
+        hour_type = ServiceHourTypeFactory(workspace=workspace, name="Plantão")
+
+        with pytest.raises(ValueError):
+            getattr(service_catalog, recorder)(hour_type, actor=None)
+
+    def test_create_with_config_activity_saves_and_records_together(self, workspace, create_user):
+        from plane.db.models import ServiceHourType
+        from plane.utils.service_catalog import create_with_config_activity
+
+        hour_type = ServiceHourType(workspace=workspace, name="Plantão", multiplier=Decimal("2.50"))
+        create_with_config_activity(hour_type, actor=create_user)
+
+        assert ServiceHourType.objects.filter(pk=hour_type.pk).exists()
+        assert ServiceConfigActivity.objects.filter(entity_identifier=hour_type.pk).count() == 1
+
+    def test_delete_with_config_activity_records_before_deleting(self, workspace, create_user):
+        """Order matters: the summary reads the instance, so it has to still be readable."""
+        from plane.db.models import ServiceHourType
+        from plane.utils.service_catalog import delete_with_config_activity
+
+        hour_type = ServiceHourTypeFactory(
+            workspace=workspace, name="Plantão", multiplier=Decimal("2.50")
+        )
+        # Not the catalogue default, which cannot be deleted.
+        ServiceHourType.objects.filter(pk=hour_type.pk).update(is_default=False)
+        hour_type.refresh_from_db()
+
+        delete_with_config_activity(hour_type, actor=create_user)
+
+        assert not ServiceHourType.objects.filter(pk=hour_type.pk).exists()
+        assert ServiceHourType.all_objects.filter(pk=hour_type.pk).exists()
+
+        row = ServiceConfigActivity.objects.get(entity_identifier=hour_type.pk)
+        assert "Plantão" in row.old_value
+
+    def test_the_audit_row_survives_the_entity_being_soft_deleted(self, workspace, create_user):
+        """entity_identifier is a bare UUID precisely so the trail is not walked on delete."""
+        from plane.db.models import ServiceHourType
+        from plane.utils.service_catalog import delete_with_config_activity
+
+        hour_type = ServiceHourTypeFactory(workspace=workspace, name="Plantão")
+        ServiceHourType.objects.filter(pk=hour_type.pk).update(is_default=False)
+        hour_type.refresh_from_db()
+
+        delete_with_config_activity(hour_type, actor=create_user)
+
+        assert ServiceConfigActivity.objects.filter(entity_identifier=hour_type.pk).exists()

@@ -67,7 +67,22 @@ export interface IServiceBillingType extends IServiceCatalogOption {
 }
 
 /** The kinds of entity the configuration audit trail can describe. */
-export type TServiceConfigEntity = "service_hour_type" | "service_billing_type";
+export type TServiceConfigEntity =
+  | "service_hour_type"
+  | "service_billing_type"
+  | "service_holiday"
+  | "service_classification_window";
+
+/**
+ * What happened to the configuration row.
+ *
+ * For the catalogues, the financial event is `updated` -- a multiplier changing. For
+ * holidays and classification windows the relationship inverts: `created` and `deleted`
+ * are the financial events, because registering a holiday moves every work log that day
+ * onto a different multiplier. A consumer that renders only `updated` would hide exactly
+ * the entries that matter most in those two tables.
+ */
+export type TServiceConfigVerb = "created" | "updated" | "deleted";
 
 /** The actor of an audit entry, expanded so the reader does not need a second request. */
 export interface IServiceConfigActivityActor {
@@ -91,9 +106,18 @@ export interface IServiceConfigActivity {
   readonly workspace_id: string;
   readonly entity_name: TServiceConfigEntity;
   readonly entity_identifier: string;
-  readonly field_name: string;
-  /** Null only when the field genuinely had no value before. */
+  readonly verb: TServiceConfigVerb;
+  /** Null when `verb` is `created` or `deleted`: those describe the whole row. */
+  readonly field_name: string | null;
+  /**
+   * For `updated`, the value before the change. For `deleted`, a human-readable summary
+   * of the row that was removed. Null for `created`.
+   */
   readonly old_value: string | null;
+  /**
+   * For `updated`, the value after the change. For `created`, a human-readable summary of
+   * the row that appeared. Null for `deleted`.
+   */
   readonly new_value: string | null;
   readonly actor: string | null;
   readonly actor_detail: IServiceConfigActivityActor | null;

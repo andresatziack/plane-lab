@@ -102,12 +102,11 @@ class ServiceHoliday(ChangeTrackerMixin, WorkspaceBaseModel):
     # same way a multiplier is. `name` is not tracked: renaming "Natal" to "Natal
     # (feriado nacional)" is not a financial event.
     #
-    # NOTE, and a question for whoever needs it: `ChangeTrackerMixin` structurally
-    # emits nothing on creation or deletion, so ADDING or REMOVING a holiday is not in
-    # the trail -- only edits to an existing one are. Adding a holiday is arguably the
-    # most significant calendar event there is. Covering it needs a nullable `verb`
-    # column on ServiceConfigActivity, which is a decision that has been deliberately
-    # deferred rather than taken here.
+    # Creation and deletion are audited too, through the `created` and `deleted` verbs
+    # on ServiceConfigActivity rather than through this mixin -- which structurally
+    # cannot emit them. For this entity those are the *important* events: registering a
+    # holiday on 15/03 doubles that day's invoice. See `config_summary` below and the
+    # class docstring on ServiceConfigActivity.
     TRACKED_FIELDS = ["date", "is_recurring", "is_active"]
     CONFIG_ENTITY_NAME = ServiceConfigEntity.HOLIDAY
 
@@ -165,6 +164,20 @@ class ServiceHoliday(ChangeTrackerMixin, WorkspaceBaseModel):
     def __str__(self):
         recurring = " (anual)" if self.is_recurring else ""
         return f"{self.name} {self.date:%d/%m/%Y}{recurring}"
+
+    def config_summary(self):
+        """One line for a creation or deletion audit entry.
+
+        ``is_recurring`` is in here and is not decoration. Without it the trail cannot
+        distinguish "added Christmas 2027", which moves one day's invoice, from "added
+        Christmas every year", which moves a day in every future invoice. Those are
+        different acts and the reader has to be able to tell them apart.
+
+        The scope is included for the same kind of reason: it is what a later phase will
+        filter by, so a trail written without it could not be reinterpreted later.
+        """
+        recurrence = "anual" if self.is_recurring else "data específica"
+        return f"{self.name} — {self.date:%d/%m/%Y} ({recurrence}, {self.scope})"
 
     def matches(self, target):
         """Whether this holiday falls on ``target``, honouring annual recurrence.
@@ -292,6 +305,25 @@ class ServiceClassificationWindow(ChangeTrackerMixin, WorkspaceBaseModel):
         """
         scope = DAY_SCOPE_SHORT_LABELS.get(self.day_scope, self.day_scope)
         return f"{scope} {self.start_clock}–{self.end_clock}"
+
+    def config_summary(self):
+        """One line for a creation or deletion audit entry.
+
+        Names the hour type as well as the range, because a window without its hour type
+        says nothing about price. Read through ``all_objects`` so a window whose hour type
+        was soft deleted can still describe itself -- an audit entry that cannot render is
+        worse than none.
+        """
+        hour_type_name = "?"
+
+        if self.hour_type_id:
+            from .service_catalog import ServiceHourType
+
+            hour_type = ServiceHourType.all_objects.filter(pk=self.hour_type_id).first()
+            if hour_type:
+                hour_type_name = hour_type.name
+
+        return f"{hour_type_name} — {self}"
 
     @property
     def start_clock(self):

@@ -164,6 +164,13 @@ class ServiceConfigActivitySerializer(BaseSerializer):
             "workspace_id",
             "entity_name",
             "entity_identifier",
+            # `verb` distinguishes an edit from the creation or removal of the whole row.
+            # For a holiday or a classification window, creation and deletion ARE the
+            # financial events, so a consumer that ignored this field would miss the
+            # entries that matter most in those two tables.
+            "verb",
+            # Null when verb is created or deleted: those concern the whole row, not one
+            # field. The summary is in new_value or old_value respectively.
             "field_name",
             "old_value",
             "new_value",

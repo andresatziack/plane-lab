@@ -75,7 +75,7 @@ from .service_calendar import (
     ServiceHolidayScope,
 )
 from .service_client import ServiceClient
-from .service_config_activity import ServiceConfigActivity
+from .service_config_activity import ServiceConfigActivity, ServiceConfigVerb
 from .service_log import ServiceLog, ServiceLogEntryMode, ServiceLogSource
 from .session import Session
 from .social_connection import SocialLoginConnection

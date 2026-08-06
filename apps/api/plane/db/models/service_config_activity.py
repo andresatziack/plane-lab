@@ -4,9 +4,23 @@
 
 # Django imports
 from django.db import models
+from django.db.models import Q
 
 # Module imports
 from .workspace import WorkspaceBaseModel
+
+
+class ServiceConfigVerb(models.TextChoices):
+    """What happened to the configuration row.
+
+    Declared at module level, not nested, because the check constraint in ``Meta``
+    references these values and a class nested in the model is not yet in scope while
+    ``Meta`` is being evaluated. Reachable as ``ServiceConfigActivity.Verb``.
+    """
+
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    DELETED = "deleted", "Deleted"
 
 
 class ServiceConfigActivity(WorkspaceBaseModel):
@@ -22,6 +36,30 @@ class ServiceConfigActivity(WorkspaceBaseModel):
     hour rate) and the pricing phase (client base hour rate, absolute overrides)
     have the identical need, and restricting this model now would only cause a
     second audit table to appear later.
+
+    **Three verbs, and creation and deletion are not optional extras.** When this table
+    was introduced it recorded only field edits, on the reasoning that creation and
+    deletion were already answered by ``created_by`` and ``deleted_at`` on the entity
+    itself. The calendar phase overturned that, because for its two entities the
+    relationship inverts completely:
+
+    * For a catalogue option, the financial event is EDITING the multiplier. The option
+      existing is not itself a price.
+    * For a holiday or a classification window, CREATING and DELETING **are** the
+      financial events. Registering a holiday on 15/03 moves every work log that day from
+      1.0 to 2.0 and doubles the invoice. Recording only edits would record precisely
+      what matters least in those two tables.
+
+    And the entity's own columns are not a substitute in practice. Someone reconstructing
+    a disputed invoice has to read ONE place; if the holiday's creation exists only on the
+    holiday row, and its deletion only in ``all_objects``, the audit endpoint does not
+    show it and the endpoint stops serving its purpose.
+
+    EXTENSION POINT -- the contract and pricing phases must use **all three verbs**.
+    "When was this 30h/month contract created, and by whom?" and "when was this hour rate
+    registered?" are first-order questions there, exactly as they are here. Each audited
+    model supplies its own one-line description through ``config_summary()``; see
+    ``plane.utils.service_catalog`` for the helpers that write the rows.
 
     Not a reuse of ``IssueActivity``: that model is a ``ProjectBaseModel`` keyed to
     a work item, and these events belong to workspace level configuration. What is
@@ -55,20 +93,40 @@ class ServiceConfigActivity(WorkspaceBaseModel):
     #    bare UUID has no reverse relation to walk.
     entity_identifier = models.UUIDField()
 
-    field_name = models.CharField(max_length=255)
+    Verb = ServiceConfigVerb
+
+    # What happened. NOT nullable, and defaulted to `updated`.
+    #
+    # `updated` as the default is not a guess for existing rows: before this column
+    # existed, every row in this table came from ChangeTrackerMixin, which only fires on
+    # a change to an already-saved instance. So "updated" is the correct value for all of
+    # them, and the back-fill in migration 0127 is a statement of fact rather than an
+    # assumption. A nullable audit column would have been worse than useless -- it would
+    # force every consumer to branch on null, and the null would encode "probably an
+    # edit", which is the opposite of what an audit trail is for.
+    verb = models.CharField(
+        max_length=20,
+        choices=ServiceConfigVerb.choices,
+        default=ServiceConfigVerb.UPDATED,
+    )
+
+    # Nullable, because creation and deletion do not concern a single field.
+    #
+    # See the check constraint in Meta for the three shapes this table accepts.
+    field_name = models.CharField(max_length=255, null=True, blank=True)
 
     # Values are text because they cross Decimal, bool and enum. Serialisation is
     # centralised in plane.utils.service_catalog so that every phase writes them
     # the same way and the history stays comparable: Decimal quantised to the
     # field's scale ("1.50", never "1.5"), booleans lowercase, enums as stored.
     #
-    # old_value is nullable for the genuine case of a field that was NULL and
-    # gained a value -- the pricing phase's optional override going from unset to
-    # 350.00. It does not mean "creation": this table records changes to tracked
-    # fields only. Creation and deletion are already answered by created_by /
-    # created_at / deleted_at on the entity itself, and ChangeTrackerMixin
-    # structurally cannot emit a creation event, since a new instance is born
-    # holding its final values.
+    # For `updated`, the two sides of one field's change. For `created`, new_value holds
+    # a human-readable summary of the row that appeared and old_value is null. For
+    # `deleted`, the reverse.
+    #
+    # Both stay nullable at the database level because two of the three verbs legitimately
+    # leave one of them empty; which one is enforced by the check constraint below rather
+    # than by the column.
     old_value = models.TextField(null=True, blank=True)
     new_value = models.TextField(null=True, blank=True)
 
@@ -90,6 +148,45 @@ class ServiceConfigActivity(WorkspaceBaseModel):
         verbose_name_plural = "Service Config Activities"
         db_table = "service_config_activities"
         ordering = ("-created_at",)
+        constraints = [
+            # The three shapes this table accepts, in DDL. An audit trail that can hold an
+            # incoherent row -- a creation carrying a field name, an update with no old
+            # value -- cannot be read with confidence, and confidence is the only thing it
+            # produces.
+            #
+            # KNOWN CONSEQUENCE, and the reason it is written here rather than discovered
+            # later: requiring old_value and new_value on `updated` is safe for every
+            # field tracked today, because all of them are non-nullable model fields and
+            # therefore always serialise to a string. A future phase that tracks a
+            # NULLABLE field -- the pricing phase's optional absolute override is the
+            # obvious candidate -- would serialise its "unset" side to None and violate
+            # this constraint at write time. That phase must either exclude the field from
+            # TRACKED_FIELDS, serialise unset to a sentinel, or relax this constraint
+            # deliberately. It is a visible trade, not an oversight.
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        verb=ServiceConfigVerb.UPDATED,
+                        field_name__isnull=False,
+                        old_value__isnull=False,
+                        new_value__isnull=False,
+                    )
+                    | Q(
+                        verb=ServiceConfigVerb.CREATED,
+                        field_name__isnull=True,
+                        old_value__isnull=True,
+                        new_value__isnull=False,
+                    )
+                    | Q(
+                        verb=ServiceConfigVerb.DELETED,
+                        field_name__isnull=True,
+                        old_value__isnull=False,
+                        new_value__isnull=True,
+                    )
+                ),
+                name="svc_cfg_activity_shape_matches_verb",
+            ),
+        ]
         indexes = [
             # Drill-down: "every change to this specific option, newest first".
             models.Index(
@@ -107,4 +204,6 @@ class ServiceConfigActivity(WorkspaceBaseModel):
         ]
 
     def __str__(self):
-        return f"{self.entity_name} {self.field_name} <{self.entity_identifier}>"
+        # field_name is null for created and deleted, so it cannot be assumed here.
+        subject = self.field_name or self.entity_name
+        return f"{self.entity_name} {self.verb} {subject} <{self.entity_identifier}>"

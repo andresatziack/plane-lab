@@ -117,6 +117,15 @@ class ServiceCatalogBaseModel(ChangeTrackerMixin, WorkspaceBaseModel):
     def __str__(self):
         return f"{self.name} <{self.workspace.name}>"
 
+    def config_summary(self):
+        """One human-readable line describing this row, for a creation or deletion entry.
+
+        Subclasses extend it with whatever changes the calculation. Kept deliberately
+        short: it lands in a single audit column that someone reads under pressure while
+        reconstructing an invoice, not in a debugger.
+        """
+        return f"{self.name}"
+
     def save(self, *args, **kwargs):
         if self._state.adding:
             largest_sequence = (
@@ -202,6 +211,10 @@ class ServiceHourType(ServiceCatalogBaseModel):
     # a holiday.
     priority = models.IntegerField(default=DEFAULT_PRIORITY)
 
+    def config_summary(self):
+        """Includes the multiplier and the priority: both decide what an hour costs."""
+        return f"{self.name} (multiplicador {self.multiplier}, prioridade {self.priority})"
+
     class Meta(ServiceCatalogBaseModel.Meta):
         verbose_name = "Service Hour Type"
         verbose_name_plural = "Service Hour Types"
@@ -244,6 +257,10 @@ class ServiceBillingType(ServiceCatalogBaseModel):
         choices=BillingRoute.choices,
         default=BillingRoute.DEBIT_POOL,
     )
+
+    def config_summary(self):
+        """Includes the route, which decides whether the client is charged at all."""
+        return f"{self.name} (rota {self.billing_route})"
 
     class Meta(ServiceCatalogBaseModel.Meta):
         verbose_name = "Service Billing Type"
