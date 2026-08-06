@@ -37,6 +37,8 @@ from plane.app.views.base import BaseAPIView, BaseViewSet
 from plane.db.models import (
     Issue,
     IssueActivity,
+    ServiceBillingType,
+    ServiceHourType,
     Workspace,
     WorkspaceMember,
     WorkspaceTheme,
@@ -44,6 +46,8 @@ from plane.db.models import (
 )
 from plane.app.permissions import ROLE, allow_permission
 from plane.utils.constants import RESTRICTED_WORKSPACE_SLUGS
+from plane.utils.exception_logger import log_exception
+from plane.utils.service_catalog_seed import seed_service_catalogs
 from plane.license.utils.instance_value import get_configuration_value
 from plane.bgtasks.workspace_seed_task import workspace_seed
 from plane.bgtasks.event_tracking_task import track_event
@@ -129,6 +133,24 @@ class WorkSpaceViewSet(BaseViewSet):
                     role=20,
                     company_role=request.data.get("company_role", ""),
                 )
+
+                # Work log catalogues, seeded synchronously and on purpose.
+                #
+                # Not hung off workspace_seed below: that task generates demo content,
+                # runs on Celery and swallows every exception
+                # (bgtasks/workspace_seed_task.py), and a catalogue that decides how
+                # hours are priced and invoiced must not be born from something that
+                # can fail in silence.
+                #
+                # A failure here is logged and does not fail workspace creation:
+                # refusing to create a workspace because a catalogue could not be
+                # seeded would be disproportionate for an installation that does not
+                # use work logs at all. The gap is visible (the admin panel shows an
+                # empty catalogue) and closable with `manage.py seed_service_catalogs`.
+                try:
+                    seed_service_catalogs(ServiceHourType, ServiceBillingType, serializer.data["id"])
+                except Exception as seed_error:
+                    log_exception(seed_error)
 
                 # Get total members and role
                 total_members = WorkspaceMember.objects.filter(workspace_id=serializer.data["id"]).count()

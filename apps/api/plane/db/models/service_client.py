@@ -43,18 +43,6 @@ class ServiceClient(WorkspaceBaseModel):
     owns projects, it does not belong to one -- and is excluded from serializers.
     """
 
-    class BillingMode(models.TextChoices):
-        """Default billing route for work logged against this client's projects.
-
-        Phase 2 introduces a configurable Service Type catalog whose billing
-        route supersedes this field. At that point this becomes the fallback used
-        to seed a nullable ``default_service_type`` FK via data migration. Keep
-        the values stable until then.
-        """
-
-        CONTRACT = "contract", "Contract"
-        AD_HOC = "ad_hoc", "Ad hoc"
-
     name = models.CharField(max_length=255, verbose_name="Legal Name")
     trade_name = models.CharField(max_length=255, blank=True, verbose_name="Trade Name")
 
@@ -70,10 +58,29 @@ class ServiceClient(WorkspaceBaseModel):
 
     is_active = models.BooleanField(default=True)
 
-    default_billing_mode = models.CharField(
-        max_length=20,
-        choices=BillingMode.choices,
-        default=BillingMode.CONTRACT,
+    # The billing type pre-selected for work logged against this client's
+    # projects. Replaces the ``default_billing_mode`` enum this model carried in
+    # the previous phase: that enum and the billing type catalogue would have been
+    # two sources of truth for one decision, and the FK also expresses defaults
+    # the enum could not, such as a client whose standard route is Cortesia.
+    #
+    # Resolution order is catalogue default -> this field -> the choice made on
+    # the individual work log. See plane.utils.service_catalog and DECISOES.md, D7.
+    #
+    # DO_NOTHING, matching Project.service_client and for the same reason: every
+    # other option routes through `soft_delete_related_objects`, whose catch-all
+    # branch would soft delete this client the moment an admin soft deleted the
+    # billing type it points at. SET_NULL would instead silently unset the default
+    # on every client. DO_NOTHING is skipped by that task, and because Django still
+    # emits the database constraint, a hard delete of a referenced billing type
+    # raises IntegrityError. The viewset guard refuses the delete first, using
+    # all_objects so that a soft deleted client still counts as a reference.
+    default_billing_type = models.ForeignKey(
+        "db.ServiceBillingType",
+        on_delete=models.DO_NOTHING,
+        related_name="service_clients",
+        null=True,
+        blank=True,
     )
 
     # Corporate parent, e.g. a holding company that owns this client. Records the

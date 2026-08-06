@@ -11,9 +11,10 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 
 from plane.bgtasks.deletion_task import soft_delete_related_objects
-from plane.db.models import Issue, Project, ServiceClient
+from plane.db.models import Issue, Project, ServiceBillingType, ServiceClient
 from plane.tests.factories import (
     ProjectFactory,
+    ServiceBillingTypeFactory,
     ServiceClientFactory,
     UserFactory,
     WorkspaceFactory,
@@ -105,10 +106,33 @@ class TestServiceClientModel:
         with pytest.raises(ValidationError):
             client.full_clean()
 
-    def test_default_billing_mode_is_contract(self):
+    def test_the_default_billing_type_starts_unset(self):
+        """Replaces the ``default_billing_mode`` enum this model carried before the
+        billing type catalogue existed.
+
+        Unset means "use the catalogue default", which is what
+        ``resolve_default_billing_type`` does. There is no per-client default until an
+        admin chooses one, so the enum's implicit "contract" default is gone: keeping
+        both the enum and the catalogue would have been two sources of truth for one
+        decision.
+        """
         workspace = WorkspaceFactory()
         client = ServiceClient.objects.create(workspace=workspace, name="Default mode")
-        assert client.default_billing_mode == ServiceClient.BillingMode.CONTRACT
+
+        assert client.default_billing_type_id is None
+        assert not hasattr(client, "default_billing_mode")
+
+    def test_the_default_billing_type_can_point_at_a_catalogue_option(self):
+        workspace = WorkspaceFactory()
+        ad_hoc = ServiceBillingTypeFactory(
+            workspace=workspace, name="Avulso", billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT
+        )
+
+        client = ServiceClient.objects.create(workspace=workspace, name="Terlogs", default_billing_type=ad_hoc)
+        client.refresh_from_db()
+
+        assert client.default_billing_type_id == ad_hoc.id
+        assert list(ad_hoc.service_clients.all()) == [client]
 
 
 @pytest.mark.unit
@@ -124,20 +148,35 @@ class TestServiceClientParent:
         assert child.parent_id == parent.id
         assert list(parent.children.all()) == [child]
 
-    def test_parent_does_not_affect_billing_mode(self):
+    def test_parent_does_not_affect_the_default_billing_type(self):
         workspace = WorkspaceFactory()
-        parent = ServiceClientFactory(
-            workspace=workspace, name="Holding", default_billing_mode=ServiceClient.BillingMode.AD_HOC
+        contract = ServiceBillingTypeFactory(
+            workspace=workspace, name="Contrato", billing_route=ServiceBillingType.BillingRoute.DEBIT_POOL
         )
+        ad_hoc = ServiceBillingTypeFactory(
+            workspace=workspace, name="Avulso", billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT
+        )
+        parent = ServiceClientFactory(workspace=workspace, name="Holding", default_billing_type=ad_hoc)
         child = ServiceClientFactory(
-            workspace=workspace,
-            name="Subsidiary",
-            parent=parent,
-            default_billing_mode=ServiceClient.BillingMode.CONTRACT,
+            workspace=workspace, name="Subsidiary", parent=parent, default_billing_type=contract
         )
-        # The child keeps its own billing mode; nothing is inherited.
-        assert child.default_billing_mode == ServiceClient.BillingMode.CONTRACT
-        assert parent.default_billing_mode == ServiceClient.BillingMode.AD_HOC
+
+        # The child keeps its own default; nothing is inherited. D18: the parent field
+        # records a shareholding relationship and carries no behaviour.
+        assert child.default_billing_type_id == contract.id
+        assert parent.default_billing_type_id == ad_hoc.id
+
+    def test_the_parent_default_is_not_inherited_when_the_child_has_none(self):
+        workspace = WorkspaceFactory()
+        ad_hoc = ServiceBillingTypeFactory(
+            workspace=workspace, name="Avulso", billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT
+        )
+        parent = ServiceClientFactory(workspace=workspace, name="Holding", default_billing_type=ad_hoc)
+        child = ServiceClientFactory(workspace=workspace, name="Subsidiary", parent=parent)
+
+        child.refresh_from_db()
+
+        assert child.default_billing_type_id is None
 
     def test_parent_does_not_affect_project_links(self):
         workspace = WorkspaceFactory()

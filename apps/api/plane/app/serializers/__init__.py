@@ -45,6 +45,11 @@ from .project import (
     ProjectMemberRoleSerializer,
     ProjectMemberPreferenceSerializer,
 )
+from .service_catalog import (
+    ServiceBillingTypeSerializer,
+    ServiceConfigActivitySerializer,
+    ServiceHourTypeSerializer,
+)
 from .service_client import (
     ServiceClientSerializer,
     ServiceClientLiteSerializer,
