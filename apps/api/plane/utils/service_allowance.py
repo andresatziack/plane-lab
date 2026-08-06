@@ -37,7 +37,7 @@ from decimal import Decimal
 
 # Django imports
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q, Sum
+from django.db.models import F, Sum
 from django.utils import timezone
 
 # Module imports

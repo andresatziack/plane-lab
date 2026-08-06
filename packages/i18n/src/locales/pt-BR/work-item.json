@@ -528,6 +528,50 @@
         "billing_type_not_found": "Esse Tipo de Atendimento não está mais disponível. Escolha outro.",
         "delegation_unavailable": "Apontar em nome de outra pessoa ainda não está disponível."
       }
+    },
+    "service_allowance": {
+      "title": "Bolsa de horas do chamado",
+      "title_hint": "Horas vendidas para este chamado, isoladas do contrato de suporte do cliente. Os apontamentos aqui consomem esta bolsa, nunca o pool mensal.",
+      "add": "Creditar horas",
+      "top_up": "Creditar mais horas",
+      "closed": "Encerrada",
+      "credited": "Creditado",
+      "consumed": "Consumido",
+      "balance": "Restante",
+      "hours": "{hours}h",
+      "consumed_pct": "{pct}% consumido",
+      "inherited": "Herdada do chamado pai. Estas horas são do projeto do pai, não deste item.",
+      "form": {
+        "title": "Creditar horas neste chamado",
+        "description": "Cria uma bolsa para este chamado. Os apontamentos nele passam a consumir estas horas em vez do pool mensal de suporte do cliente.",
+        "title_top_up": "Creditar mais horas",
+        "description_top_up": "Soma à bolsa existente. Os créditos anteriores são preservados, e o saldo é a soma de todos eles.",
+        "hours": "Horas",
+        "hours_placeholder": "40",
+        "hours_hint": "Horas em decimal. Aceita 40, 40.5 ou 40,5.",
+        "hours_invalid": "Informe um número de horas maior que zero.",
+        "reference": "Referência comercial",
+        "reference_placeholder": "Proposta 2026-014",
+        "notes": "Observações",
+        "submit": "Creditar horas"
+      },
+      "alerts": {
+        "negative_balance": "A bolsa estourou. Os apontamentos foram registrados e o excedente não toca o contrato de suporte do cliente; resolva creditando mais horas ou faturando o excedente.",
+        "high_consumption": "A bolsa está quase esgotada. Negocie um aditivo de escopo antes que ela fique negativa."
+      },
+      "errors": {
+        "closed": "Esta bolsa está encerrada. Uma bolsa encerrada não aceita mais horas nem novos apontamentos."
+      },
+      "toasts": {
+        "credited": {
+          "title": "Horas creditadas",
+          "message": "O saldo da bolsa foi atualizado."
+        },
+        "not_credited": {
+          "title": "Horas não creditadas",
+          "message": "Algo deu errado. Tente novamente."
+        }
+      }
     }
   }
 }
