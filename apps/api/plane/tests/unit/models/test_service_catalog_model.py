@@ -278,15 +278,34 @@ class TestCatalogOrdering:
 
         assert names == ["A", "C", "B"]
 
-    def test_sequence_does_not_double_as_priority(self):
-        """Guard for the calendar and windows phase.
+    def test_sequence_and_priority_are_two_independent_fields(self):
+        """`sequence` is display order; `priority` is what the engine resolves by.
 
-        `sequence` is display order and nothing else. If a later phase reuses it as
-        the classification priority, dragging a row in the admin panel would silently
-        reclassify hours and change invoices.
+        This test was written in the catalogue phase as "priority must not exist yet",
+        guarding against a later phase overloading `sequence`. The calendar phase added
+        `priority` as its own column, so the assertion moved to the invariant the
+        docstring was always about: the two exist separately and do not move together.
+
+        It still matters. If they were ever merged, dragging a row in the admin panel to
+        tidy the list would silently reclassify hours and change an invoice.
         """
-        assert not hasattr(ServiceHourType, "priority")
-        assert "priority" not in [field.name for field in ServiceHourType._meta.get_fields()]
+        field_names = [field.name for field in ServiceHourType._meta.get_fields()]
+
+        assert "sequence" in field_names
+        assert "priority" in field_names
+
+    def test_reordering_does_not_change_priority(self):
+        """The behavioural half of the guard above."""
+        workspace = WorkspaceFactory()
+        hour_type = ServiceHourType.objects.create(workspace=workspace, name="A", priority=20)
+
+        # What a drag in the admin panel does.
+        hour_type.sequence = 12345
+        hour_type.save()
+        hour_type.refresh_from_db()
+
+        assert hour_type.sequence == 12345
+        assert hour_type.priority == 20
 
 
 @pytest.mark.django_db

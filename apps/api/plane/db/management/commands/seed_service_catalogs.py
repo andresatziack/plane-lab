@@ -6,7 +6,12 @@
 from django.core.management.base import BaseCommand, CommandError
 
 # Module imports
-from plane.db.models import ServiceBillingType, ServiceHourType, Workspace
+from plane.db.models import (
+    ServiceBillingType,
+    ServiceClassificationWindow,
+    ServiceHourType,
+    Workspace,
+)
 from plane.utils.service_catalog_seed import seed_service_catalogs
 
 
@@ -45,15 +50,23 @@ class Command(BaseCommand):
 
         total_hour_types = 0
         total_billing_types = 0
+        total_windows = 0
 
         for workspace in workspaces:
-            created = seed_service_catalogs(ServiceHourType, ServiceBillingType, workspace.id)
+            created = seed_service_catalogs(
+                ServiceHourType,
+                ServiceBillingType,
+                workspace.id,
+                window_model=ServiceClassificationWindow,
+            )
             total_hour_types += created["hour_types_created"]
             total_billing_types += created["billing_types_created"]
+            total_windows += created.get("windows_created", 0)
 
             self.stdout.write(
                 f"{workspace.slug}: +{created['hour_types_created']} hour type(s), "
-                f"+{created['billing_types_created']} billing type(s)"
+                f"+{created['billing_types_created']} billing type(s), "
+                f"+{created.get('windows_created', 0)} window(s)"
             )
 
         self.stdout.write(
