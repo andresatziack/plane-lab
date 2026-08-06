@@ -492,10 +492,6 @@
         "inactive": "Inactive",
         "project_count": "{count} project(s)",
         "parent_of": "Parent: {name}",
-        "billing_mode": {
-          "contract": "Contract",
-          "ad_hoc": "Ad hoc"
-        },
         "empty": {
           "title": "No clients yet",
           "description": "Create a client to start attributing projects and work to a company."
@@ -511,14 +507,15 @@
           "trade_name_placeholder": "Name the company is known by",
           "tax_id": "CNPJ",
           "tax_id_invalid": "Enter a valid CNPJ",
-          "default_billing_mode": "Default billing mode",
-          "default_billing_mode_hint": "Default route for work logged on this client's projects. Individual entries can use another route.",
           "parent": "Parent company",
           "parent_hint": "Records a shareholding relationship only. It does not affect billing or visibility.",
           "contact_name": "Contact name",
           "contact_email": "Contact email",
           "contact_phone": "Contact phone",
-          "notes": "Notes"
+          "notes": "Notes",
+          "default_billing_type": "Default billing type",
+          "default_billing_type_hint": "Pre-selected for work logged on this client's projects. A technician can pick another one on an individual entry.",
+          "default_billing_type_inherit": "Use the catalogue default"
         },
         "delete_modal": {
           "title": "Delete client",
@@ -531,6 +528,81 @@
           "deleted": "Client deleted successfully.",
           "save_failed": "The client could not be saved. Please try again.",
           "delete_failed": "The client could not be deleted. Please try again."
+        },
+        "billing_type_inherited": "{name} (catalogue default)"
+      },
+      "worklog": {
+        "title": "Work log",
+        "description": "Catalogues that turn the billing rules into configuration: when work happened and what it costs relative to business hours, and where the logged time goes.",
+        "inactive": "Inactive",
+        "default_badge": "Default",
+        "mark_default": "Set as default",
+        "hour_types": {
+          "title": "Hour types",
+          "description": "When the work happened, and the multiplier that applies to it. One hour outside business hours costs the client more than one hour inside them.",
+          "add": "Add hour type",
+          "create_title": "Add hour type",
+          "edit_title": "Edit hour type",
+          "multiplier": "Multiplier",
+          "multiplier_badge": "x{value}",
+          "multiplier_hint": "Applied to the logged hours to produce the equivalent hours. Values below 1 are allowed, for instance travel time at half rate.",
+          "multiplier_required": "Multiplier is required",
+          "multiplier_invalid": "Enter a number with up to two decimal places",
+          "multiplier_too_small": "Multiplier must be at least 0.01. Use a non-billable billing type to avoid charging.",
+          "color": "Colour",
+          "edit_warning": "Changing the multiplier only affects work logged from now on. Entries already recorded keep the multiplier they were recorded with.",
+          "empty": {
+            "title": "No hour types yet",
+            "description": "Create an hour type so work logs can be classified and priced."
+          }
+        },
+        "billing_types": {
+          "title": "Billing types",
+          "description": "Where the logged time goes: a contracted hour pool, an invoice, or nowhere. This is what a technician picks when the work falls outside the usual route.",
+          "add": "Add billing type",
+          "create_title": "Add billing type",
+          "edit_title": "Edit billing type",
+          "billing_route": "Billing route",
+          "edit_warning": "Changing the billing route only affects work logged from now on. Consider creating a new billing type instead, so past and future entries stay easy to tell apart in reports.",
+          "empty": {
+            "title": "No billing types yet",
+            "description": "Create a billing type so work logs know where the time goes."
+          }
+        },
+        "billing_routes": {
+          "debit_pool": "Debit hour pool",
+          "debit_pool_hint": "Draws from the client's contracted hours",
+          "bill_amount": "Bill amount",
+          "bill_amount_hint": "Produces an amount to invoice",
+          "non_billable": "Non billable",
+          "non_billable_hint": "Neither debits nor invoices"
+        },
+        "form": {
+          "name": "Name",
+          "name_placeholder": "Name shown in the work log form",
+          "name_required": "Name is required",
+          "name_too_long": "Name must be 255 characters or fewer",
+          "description": "Description",
+          "description_placeholder": "When should this option be used?"
+        },
+        "delete_modal": {
+          "title": "Delete option",
+          "content": "Are you sure you want to delete {name}? This action cannot be undone."
+        },
+        "errors": {
+          "name_already_exists": "An option with this name already exists in this catalogue.",
+          "default_cannot_be_unset": "Pick another option as the default first. A catalogue always has exactly one.",
+          "default_cannot_be_deactivated": "The default option cannot be deactivated. Make another option the default first.",
+          "default_cannot_be_deleted": "The default option cannot be deleted. Make another option the default first."
+        },
+        "toasts": {
+          "created": "Option created successfully.",
+          "updated": "Option updated successfully.",
+          "deleted": "Option deleted successfully.",
+          "default_changed": "Default updated successfully.",
+          "save_failed": "The option could not be saved. Please try again.",
+          "delete_failed": "The option could not be deleted. Please try again.",
+          "reorder_failed": "The order could not be saved. Please try again."
         }
       }
     },

@@ -492,10 +492,6 @@
         "inactive": "Inativo",
         "project_count": "{count} project(s)",
         "parent_of": "Matriz: {name}",
-        "billing_mode": {
-          "contract": "Contrato",
-          "ad_hoc": "Avulso"
-        },
         "empty": {
           "title": "Nenhum cliente ainda",
           "description": "Crie um cliente para começar a vincular projects e atendimentos a uma empresa."
@@ -511,14 +507,15 @@
           "trade_name_placeholder": "Nome pelo qual a empresa é conhecida",
           "tax_id": "CNPJ",
           "tax_id_invalid": "Informe um CNPJ válido",
-          "default_billing_mode": "Modalidade padrão de faturamento",
-          "default_billing_mode_hint": "Rota padrão dos apontamentos dos projects deste cliente. Um apontamento individual pode usar outra rota.",
           "parent": "Cliente pai",
           "parent_hint": "Registra apenas a relação societária. Não afeta faturamento nem visibilidade.",
           "contact_name": "Nome do contato",
           "contact_email": "E-mail do contato",
           "contact_phone": "Telefone do contato",
-          "notes": "Observações"
+          "notes": "Observações",
+          "default_billing_type": "Tipo de atendimento padrão",
+          "default_billing_type_hint": "Pré-selecionado nos apontamentos dos projects deste cliente. O técnico pode escolher outro em um apontamento individual.",
+          "default_billing_type_inherit": "Usar o padrão do catálogo"
         },
         "delete_modal": {
           "title": "Excluir cliente",
@@ -531,6 +528,81 @@
           "deleted": "Cliente excluído com sucesso.",
           "save_failed": "Não foi possível salvar o cliente. Tente novamente.",
           "delete_failed": "Não foi possível excluir o cliente. Tente novamente."
+        },
+        "billing_type_inherited": "{name} (padrão do catálogo)"
+      },
+      "worklog": {
+        "title": "Apontamento",
+        "description": "Catálogos que transformam as regras de faturamento em configuração: quando o trabalho ocorreu e quanto isso custa em relação ao horário comercial, e para onde vai o tempo apontado.",
+        "inactive": "Inativo",
+        "default_badge": "Padrão",
+        "mark_default": "Definir como padrão",
+        "hour_types": {
+          "title": "Tipos de hora",
+          "description": "Quando o trabalho ocorreu, e o multiplicador que se aplica a ele. Uma hora fora do expediente custa mais ao cliente do que uma hora dentro dele.",
+          "add": "Adicionar tipo de hora",
+          "create_title": "Adicionar tipo de hora",
+          "edit_title": "Editar tipo de hora",
+          "multiplier": "Multiplicador",
+          "multiplier_badge": "x{value}",
+          "multiplier_hint": "Aplicado sobre as horas apontadas para gerar as horas equivalentes. Valores abaixo de 1 são permitidos, por exemplo hora de deslocamento cobrada a 50%.",
+          "multiplier_required": "O multiplicador é obrigatório",
+          "multiplier_invalid": "Informe um número com até duas casas decimais",
+          "multiplier_too_small": "O multiplicador mínimo é 0,01. Para não cobrar, use um tipo de atendimento não faturável.",
+          "color": "Cor",
+          "edit_warning": "Alterar o multiplicador afeta apenas os apontamentos feitos de agora em diante. Os já registrados mantêm o multiplicador com que foram registrados.",
+          "empty": {
+            "title": "Nenhum tipo de hora ainda",
+            "description": "Crie um tipo de hora para que os apontamentos possam ser classificados e precificados."
+          }
+        },
+        "billing_types": {
+          "title": "Tipos de atendimento",
+          "description": "Para onde vai o tempo apontado: o pool de horas contratado, uma fatura, ou nenhum dos dois. É o que o técnico escolhe quando o atendimento sai da rota habitual.",
+          "add": "Adicionar tipo de atendimento",
+          "create_title": "Adicionar tipo de atendimento",
+          "edit_title": "Editar tipo de atendimento",
+          "billing_route": "Rota de faturamento",
+          "edit_warning": "Alterar a rota de faturamento afeta apenas os apontamentos feitos de agora em diante. Considere criar um tipo novo em vez de mudar este, para que passado e futuro continuem distinguíveis nos relatórios.",
+          "empty": {
+            "title": "Nenhum tipo de atendimento ainda",
+            "description": "Crie um tipo de atendimento para que os apontamentos saibam para onde vai o tempo."
+          }
+        },
+        "billing_routes": {
+          "debit_pool": "Debita pool de horas",
+          "debit_pool_hint": "Consome as horas contratadas do cliente",
+          "bill_amount": "Fatura em R$",
+          "bill_amount_hint": "Gera valor a faturar",
+          "non_billable": "Não faturável",
+          "non_billable_hint": "Não debita nem fatura"
+        },
+        "form": {
+          "name": "Nome",
+          "name_placeholder": "Nome exibido no formulário de apontamento",
+          "name_required": "O nome é obrigatório",
+          "name_too_long": "O nome deve ter no máximo 255 caracteres",
+          "description": "Descrição",
+          "description_placeholder": "Quando esta opção deve ser usada?"
+        },
+        "delete_modal": {
+          "title": "Excluir opção",
+          "content": "Tem certeza de que deseja excluir {name}? Esta ação não pode ser desfeita."
+        },
+        "errors": {
+          "name_already_exists": "Já existe uma opção com este nome neste catálogo.",
+          "default_cannot_be_unset": "Escolha outra opção como padrão primeiro. Um catálogo sempre tem exatamente uma.",
+          "default_cannot_be_deactivated": "A opção padrão não pode ser inativada. Defina outra opção como padrão primeiro.",
+          "default_cannot_be_deleted": "A opção padrão não pode ser excluída. Defina outra opção como padrão primeiro."
+        },
+        "toasts": {
+          "created": "Opção criada com sucesso.",
+          "updated": "Opção atualizada com sucesso.",
+          "deleted": "Opção excluída com sucesso.",
+          "default_changed": "Padrão atualizado com sucesso.",
+          "save_failed": "Não foi possível salvar a opção. Tente novamente.",
+          "delete_failed": "Não foi possível excluir a opção. Tente novamente.",
+          "reorder_failed": "Não foi possível salvar a ordem. Tente novamente."
         }
       }
     },
