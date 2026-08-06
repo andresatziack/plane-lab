@@ -523,3 +523,173 @@ Isso é a intenção, não o risco: linha que a viole é bug a corrigir, não co
 Para a falha ser acionável, a migração 0129 roda um `RunPython` **antes** dos `AddConstraint`
 que conta as linhas violadoras e levanta erro **nomeando os IDs**. Validado à mão: com uma
 linha corrompida de propósito, a migração para e diz qual.
+
+
+---
+
+# As cláusulas contratuais: a dívida de processo, paga
+
+As Fases 4 e 5 responderam oito ambiguidades com defaults razoáveis e testes de
+caracterização, e registraram no handoff que isso deixaria de ser aceitável na
+Fase 6 — a fase do R$, onde várias delas mudam o valor de uma fatura.
+
+As respostas abaixo vêm dos **contratos reais com os clientes**. Elas substituem
+os defaults. Onde um default assumido divergia da cláusula, está dito
+explicitamente o que muda no código e onde.
+
+## D31 — Sem pro-rata. Vigência começa no dia 1º, e apontamento anterior debita o primeiro período
+
+A vigência de um contrato começa **no primeiro dia do mês seguinte** ao
+fechamento. Não existe pro-rata: o primeiro mês vale as horas mensais cheias.
+
+O chamado pode ser aberto antes disso, e o apontamento com **data anterior ao
+início da vigência é aceito e debita o pool** — porque, no horizonte do contrato,
+30h/mês por 12 meses são 360h, e antecipar algumas horas não altera esse total.
+
+**Consequência que exige mudança de código.** Hoje `resolve_contract`
+(`plane/utils/service_pool.py:192`) devolve o contrato mesmo para data fora da
+vigência — nada é excluído por isso, só um aviso é emitido, conforme D9. O
+apontamento então chega em `resolve_period`, que materializa o período **do mês
+da data** com `contracted_hours` copiado de `monthly_hours`.
+
+Para um contrato que começa em março, apontar em fevereiro criaria um 13º período
+com 30h de cota própria: o ano passaria a valer **390h em vez de 360h**. Trinta
+horas de presente, exatamente o oposto da justificativa da cláusula.
+
+A regra, portanto, é: **apontamento com data anterior ao início da vigência
+debita o primeiro período do contrato, e nenhum período é materializado fora da
+vigência.** O ponto único de mudança é a resolução de competência, não o motor de
+débito.
+
+Note que isto vale só para o passado da vigência. Data posterior ao fim é outra
+cláusula — ver D33.
+
+## D32 — Não existe teto de déficit
+
+O saldo de um período pode ficar negativo sem limite. Nada bloqueia por
+excesso de déficit; o controle é o **alerta**, que já re-dispara a cada 5h de
+piora.
+
+Confirma o default assumido pela Fase 4. Nenhuma mudança.
+
+## D33 — Pool não resolvível fatura avulso, com o motivo registrado
+
+Três situações distintas têm a mesma resposta comercial, e por isso passam a ter
+**um mecanismo único**:
+
+| Situação | Antes | Agora |
+|---|---|---|
+| Cliente **sem contrato** nenhum | não bloqueia (D27), destino do dinheiro indefinido | **fatura avulso** |
+| Contrato **suspenso** | apenas um código de alerta distinto (decisão B4) | continua aceitando apontamento, **com alerta**, e o tempo **vira avulso** |
+| Contrato **vencido** e não renovado | permitido e sinalizado (D9), destino indefinido | **fatura avulso** |
+
+A exceção única é o contrato com **vigência futura**, que debita o primeiro
+período (D31). Ou seja: contrato que ainda vai começar debita; contrato que
+parou de valer, por qualquer motivo, fatura em R$.
+
+**O motivo tem de ser registrado, não só o resultado.** Um relatório precisa
+distinguir "avulso porque o cliente é avulso" de "avulso porque o contrato venceu
+e ninguém renovou" — a segunda é uma pendência comercial com prazo, a primeira é
+o modelo de negócio do cliente. Sem o motivo persistido, as duas viram a mesma
+linha no consolidado.
+
+**Tensão de desenho para a Fase 6 resolver.** A rota de faturamento é snapshot no
+apontamento (`applied_billing_route`), derivada do Tipo de Atendimento escolhido.
+Nestes três casos o tipo escolhido é "Contrato" (`DEBIT_POOL`) mas o resultado
+aplicado é avulso. Os dois precisam ser recuperáveis: o que foi **escolhido** e o
+que foi **aplicado**, mais o motivo do desvio. Sobrescrever o snapshot em silêncio
+perderia a informação de que houve um desvio.
+
+## D34 — O saldo acumulado é preservado. Nada é descartado
+
+Não há descarte de saldo acumulado, nem por teto nem por idade. O saldo é
+**preservado até que a situação comercial ou contratual seja resolvida**, e o
+controle é alerta, não trava.
+
+**Isto não exige mudança de código.** Os dois mecanismos da Fase 4 já são
+opcionais e nascem desligados:
+
+- `ServiceContract.accrual_cap_mode = NONE` — nada é descartado por teto, e a
+  constraint `service_contract_accrual_cap_is_coherent` já garante que sem modo
+  não há valor;
+- `carryover_months = NULL` — nada expira por idade.
+
+A capacidade permanece no código (`discarded_by_cap_hours`, `EXPIRED_BY_CAP`,
+`EXPIRED_BY_VALIDITY`) e o critério 15 da Fase 4 continua válido, porque testa o
+comportamento **quando configurado**. A decisão é de política de cadastro, não de
+implementação. D25 (ordem de descarte) fica sem efeito prático, e permanece
+registrada para o caso de algum contrato futuro configurar teto.
+
+**O que essa escolha custa, e é deliberado:** sem teto e sem validade, o saldo
+acumula indefinidamente. Um cliente de 30h/mês que consome 10h junta 240h em um
+ano — obrigação sua de atender, concentrável em um único mês. É por isso que o
+alerta de saldo acumulado alto deixa de ser conveniência e passa a ser o único
+controle existente sobre esse risco. Confirmar que ele existe, e criá-lo se não
+existir, é requisito.
+
+## D35 — Bolsa encerrada tem 30 dias de carência, contados do fechamento do chamado
+
+O saldo positivo de uma bolsa é perdido, e **nunca** vai para o pool do contrato
+(§3 do briefing da Fase 5, D30). Mas a baixa não é imediata: a bolsa entra em
+**carência de 30 dias a partir do fechamento do work item**, com o saldo ainda
+utilizável, e só depois é baixada.
+
+O gatilho é o fechamento do chamado porque, na prática, o técnico só fecha quando
+o cliente já validou a entrega. Amarrar a carência à vigência do contrato seria
+errado: a bolsa é do work item, e um projeto vendido à parte termina sem relação
+com o ciclo do suporte.
+
+**Duas consequências que precisam de decisão de implementação:**
+
+1. **Reabrir o chamado cancela a contagem.** Um work item pode ser fechado e
+   reaberto — inclusive pelo próprio cliente, a partir da Fase 8. Enquanto estiver
+   aberto, não há carência corrente.
+2. **A baixa exige tarefa periódica.** É a primeira coisa deste conjunto de fases
+   que não é disparada por requisição: alguém tem de varrer bolsas cujo chamado
+   fechou há mais de 30 dias e ainda estão abertas. `django_celery_beat` já está
+   em `INSTALLED_APPS`, então há infraestrutura.
+
+**Isto não é escopo da Fase 6.** A Fase 6 é a fase do R$; adicionar uma tarefa
+periódica de expiração de bolsa ali é invasão de escopo. Fica registrado como
+dívida nomeada, a ser feita em fase própria ou junto da Fase 9.
+
+## D36 — Excedente de bolsa é uma origem de receita própria
+
+O consolidado mensal da §5 da Fase 6 pedia três origens separadas. Passam a ser
+**quatro**:
+
+1. apontamentos avulsos
+2. apontamentos fora de escopo de clientes com contrato
+3. **excedente de contrato** faturado
+4. **excedente de bolsa** faturado
+
+O excedente de bolsa não se mistura com o de contrato porque respondem a
+perguntas comerciais diferentes: excedente de contrato é suporte consumido acima
+do contratado; excedente de bolsa é projeto entregue acima do orçado. Fundi-los
+esconderia justamente o indicador de qualidade da sua estimativa de projeto.
+
+Note que `ServiceIssueAllowance.overage_hours` já guarda essas horas na mesma
+forma que o período, e que elas **já são equivalentes** — o multiplicador já foi
+aplicado. Vale aqui a mesma advertência do critério 8: aplicá-lo de novo cobra em
+dobro.
+
+## Sobre a herança de bolsa: nada novo
+
+As duas perguntas sobre bolsa em sub-tarefa já estavam respondidas pela **D28**,
+implementada na Fase 5:
+
+- sub-tarefa **sem** bolsa própria consome a bolsa do ancestral mais próximo, e
+  não o pool do contrato — confirmado como cláusula;
+- sub-tarefa **com** bolsa própria consome a dela. Não é decisão nova: o ancestral
+  mais próximo é ela mesma, então o filho vence por construção da regra.
+
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde |
+|---|---|---|
+| D31 | **Sim** | resolução de competência: não materializar período fora da vigência; data anterior debita o primeiro período |
+| D32 | Não | confirma o default |
+| D33 | **Sim** | fallback para avulso nos três casos, com motivo persistido e distinção entre rota escolhida e aplicada — Fase 6 |
+| D34 | Não, é cadastro | `accrual_cap_mode = NONE`, `carryover_months = NULL`. Requisito: garantir que o alerta de saldo acumulado alto exista |
+| D35 | **Sim, fora da Fase 6** | carência de 30 dias e tarefa periódica de baixa — dívida nomeada |
+| D36 | **Sim** | quarta origem no consolidado — Fase 6 |
