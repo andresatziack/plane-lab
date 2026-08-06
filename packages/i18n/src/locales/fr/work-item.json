@@ -426,6 +426,108 @@
   "work_item": {
     "service_client": {
       "tooltip": "Defined by the project. To change it, move this work item to a project of the intended client."
+    },
+    "service_log": {
+      "title": "Work log",
+      "add": "Add work log",
+      "edit": "Edit work log",
+      "empty": "No time logged yet",
+      "empty_description": "Log the time spent on this work item so it can be billed to the client.",
+      "disabled": "Time tracking is off for this project",
+      "disabled_description": "A project admin can switch it on in the project settings.",
+      "segment_count": "{count} entries in one submission",
+      "totals": {
+        "logged": "Hours logged",
+        "logged_hint": "Chronological time, including entries that are not charged.",
+        "equivalent": "Equivalent hours",
+        "equivalent_hint": "After the hour type multiplier. This is the figure the client sees.",
+        "debited": "Billable hours",
+        "debited_hint": "Excludes entries whose billing type does not charge, such as warranty or courtesy."
+      },
+      "form": {
+        "entry_mode": "How do you want to enter the time?",
+        "mode_duration": "Duration",
+        "mode_interval": "Start and end",
+        "duration": "Time spent",
+        "duration_placeholder": "1h 15min",
+        "duration_hint": "Accepts 1h, 30min, 1h15m, 1,5h or 90min.",
+        "duration_required": "Enter the time spent",
+        "duration_invalid": "That is not a time we can read. Try 1h 15min, 1,5h or 90min.",
+        "start_time": "Start",
+        "end_time": "End",
+        "interval_required": "Enter both a start and an end time",
+        "interval_same": "The start and end times cannot be the same",
+        "worked_on": "Date of service",
+        "worked_on_hint": "The day the work happened, which is the month it is billed to.",
+        "worked_on_required": "Choose the date of service",
+        "worked_on_future": "The date of service cannot be in the future",
+        "description": "What was done",
+        "description_placeholder": "Describe the work. The client reads this.",
+        "description_required": "Describe what was done",
+        "hour_type": "Hour type",
+        "hour_type_required": "Choose an hour type",
+        "billing_type": "Billing type",
+        "billing_type_required": "Choose a billing type",
+        "submit": "Save work log",
+        "submitting": "Saving",
+        "update": "Update work log",
+        "cancel": "Cancel"
+      },
+      "preview": {
+        "rounded": "Rounded to {value} — this project bills in 15 minute blocks.",
+        "converted": "= {duration} ({hours})",
+        "client_sees": "the client sees {value}",
+        "segments_title": "This will create {count} entries",
+        "total": "Total: {value}"
+      },
+      "warnings": {
+        "over_24_hours": "That is more than 24 hours in one entry.",
+        "over_24_hours_confirm": "Long entries are allowed — confirm this is not a typo.",
+        "confirm": "Yes, save it"
+      },
+      "badges": {
+        "not_billable": "Not charged",
+        "overridden": "Hour type changed manually"
+      },
+      "delete": {
+        "title": "Delete work log",
+        "description": "This removes the logged time from the work item and from the client's total. This cannot be undone.",
+        "description_batch": "This entry was split into {count} parts, and all of them will be removed. This cannot be undone.",
+        "confirm": "Delete"
+      },
+      "toasts": {
+        "created": {
+          "title": "Work log added",
+          "message": "{value} logged on this work item."
+        },
+        "not_created": {
+          "title": "Work log not added",
+          "message": "Something went wrong. Please try again."
+        },
+        "updated": {
+          "title": "Work log updated",
+          "message": "The totals have been recalculated."
+        },
+        "not_updated": {
+          "title": "Work log not updated",
+          "message": "Something went wrong. Please try again."
+        },
+        "removed": {
+          "title": "Work log deleted",
+          "message": "The totals have been recalculated."
+        },
+        "not_removed": {
+          "title": "Work log not deleted",
+          "message": "Something went wrong. Please try again."
+        }
+      },
+      "errors": {
+        "only_author": "Only the person who logged this time can change it.",
+        "time_tracking_disabled": "Time tracking is off for this project.",
+        "hour_type_not_found": "That hour type is no longer available. Choose another.",
+        "billing_type_not_found": "That billing type is no longer available. Choose another.",
+        "delegation_unavailable": "Logging time on someone else's behalf is not available yet."
+      }
     }
   }
 }

@@ -426,6 +426,108 @@
   "work_item": {
     "service_client": {
       "tooltip": "Definido pelo project. Para alterar, mova este chamado para um project do cliente desejado."
+    },
+    "service_log": {
+      "title": "Apontamento",
+      "add": "Adicionar apontamento",
+      "edit": "Editar apontamento",
+      "empty": "Nenhuma hora apontada",
+      "empty_description": "Aponte o tempo gasto neste chamado para que ele possa ser faturado ao cliente.",
+      "disabled": "O apontamento de horas está desligado neste project",
+      "disabled_description": "Um admin do project pode ligar nas configurações do project.",
+      "segment_count": "{count} apontamentos em um lançamento",
+      "totals": {
+        "logged": "Horas apontadas",
+        "logged_hint": "Tempo cronológico, incluindo o que não é cobrado.",
+        "equivalent": "Horas equivalentes",
+        "equivalent_hint": "Depois do multiplicador do Tipo de Hora. É o número que o cliente vê.",
+        "debited": "Horas faturáveis",
+        "debited_hint": "Exclui apontamentos cujo Tipo de Atendimento não cobra, como Garantia ou Cortesia."
+      },
+      "form": {
+        "entry_mode": "Como você quer informar o tempo?",
+        "mode_duration": "Duração",
+        "mode_interval": "Início e fim",
+        "duration": "Tempo gasto",
+        "duration_placeholder": "1h 15min",
+        "duration_hint": "Aceita 1h, 30min, 1h15m, 1,5h ou 90min.",
+        "duration_required": "Informe o tempo gasto",
+        "duration_invalid": "Não conseguimos ler esse tempo. Tente 1h 15min, 1,5h ou 90min.",
+        "start_time": "Início",
+        "end_time": "Fim",
+        "interval_required": "Informe a hora de início e a de fim",
+        "interval_same": "A hora de início e a de fim não podem ser iguais",
+        "worked_on": "Data do atendimento",
+        "worked_on_hint": "O dia em que o trabalho aconteceu, que é o mês em que ele é debitado.",
+        "worked_on_required": "Escolha a data do atendimento",
+        "worked_on_future": "A data do atendimento não pode ser futura",
+        "description": "O que foi feito",
+        "description_placeholder": "Descreva o atendimento. O cliente lê isto.",
+        "description_required": "Descreva o que foi feito",
+        "hour_type": "Tipo de Hora",
+        "hour_type_required": "Escolha o Tipo de Hora",
+        "billing_type": "Tipo de Atendimento",
+        "billing_type_required": "Escolha o Tipo de Atendimento",
+        "submit": "Salvar apontamento",
+        "submitting": "Salvando",
+        "update": "Atualizar apontamento",
+        "cancel": "Cancelar"
+      },
+      "preview": {
+        "rounded": "Arredondado para {value} — este projeto aponta em blocos de 15 minutos.",
+        "converted": "= {duration} ({hours})",
+        "client_sees": "o cliente vê {value}",
+        "segments_title": "Serão criados {count} apontamentos",
+        "total": "Total: {value}"
+      },
+      "warnings": {
+        "over_24_hours": "Isso é mais de 24 horas em um único apontamento.",
+        "over_24_hours_confirm": "Apontamentos longos são permitidos — confirme que não é erro de digitação.",
+        "confirm": "Sim, salvar"
+      },
+      "badges": {
+        "not_billable": "Não cobrado",
+        "overridden": "Tipo de Hora alterado manualmente"
+      },
+      "delete": {
+        "title": "Excluir apontamento",
+        "description": "Isso remove o tempo apontado do chamado e do total do cliente. Não é possível desfazer.",
+        "description_batch": "Este lançamento foi dividido em {count} partes, e todas serão removidas. Não é possível desfazer.",
+        "confirm": "Excluir"
+      },
+      "toasts": {
+        "created": {
+          "title": "Apontamento adicionado",
+          "message": "{value} apontadas neste chamado."
+        },
+        "not_created": {
+          "title": "Apontamento não adicionado",
+          "message": "Algo deu errado. Tente novamente."
+        },
+        "updated": {
+          "title": "Apontamento atualizado",
+          "message": "Os totais foram recalculados."
+        },
+        "not_updated": {
+          "title": "Apontamento não atualizado",
+          "message": "Algo deu errado. Tente novamente."
+        },
+        "removed": {
+          "title": "Apontamento excluído",
+          "message": "Os totais foram recalculados."
+        },
+        "not_removed": {
+          "title": "Apontamento não excluído",
+          "message": "Algo deu errado. Tente novamente."
+        }
+      },
+      "errors": {
+        "only_author": "Só quem apontou este tempo pode alterá-lo.",
+        "time_tracking_disabled": "O apontamento de horas está desligado neste project.",
+        "hour_type_not_found": "Esse Tipo de Hora não está mais disponível. Escolha outro.",
+        "billing_type_not_found": "Esse Tipo de Atendimento não está mais disponível. Escolha outro.",
+        "delegation_unavailable": "Apontar em nome de outra pessoa ainda não está disponível."
+      }
     }
   }
 }
