@@ -206,51 +206,175 @@ período, para não virar ruído.
 
 ## Critérios de aceite
 
-1. Contrato de 30h/mês com vigência de 12 meses gera períodos de competência
-   corretos
-2. Apontamento de `2h` com multiplicador 1.0 reduz o saldo do mês de 30h para
-   28h
-3. Apontamento de `2h` com multiplicador 2.0 reduz o saldo em 4h, não 2h
-4. Apontamento de rota `NON_BILLABLE` (Garantia ou Cortesia) não altera o saldo
-5. Cliente consome 22h de 30h em janeiro: fevereiro abre com 38h concedidas
-6. Com validade de saldo definida em 2 meses, o saldo de janeiro não utilizado
-   expira no momento correto e não infla os meses seguintes
-7. Cliente com 2h de saldo recebe apontamento de 5h: o apontamento é salvo, o
-   saldo fica em −3h, e o alerta aparece
-8. Fechando o período com déficit e escolhendo transportar, o mês seguinte abre
-   com 27h em vez de 30h
-9. Fechando o período com déficit e escolhendo faturar o excedente, o mês
-   seguinte abre com 30h íntegras e o lançamento de excedente de 3h é registrado
-10. Apontamento com data de atendimento no mês anterior debita o período do mês
-    anterior, não o corrente
-11. Excluir um apontamento devolve exatamente as horas ao período correto
-12. Editar o tempo de um apontamento de `2h` para `3h` deixa o saldo consistente,
-    sem débito duplicado
-13. Período fechado rejeita novo apontamento com mensagem clara
-14. Dois apontamentos salvos simultaneamente no mesmo período não corrompem o
-    saldo
-15. Com teto de acúmulo de 2× e contrato de 30h/mês, o saldo transportado nunca
-    passa de 60h, e o excesso descartado fica registrado
-16. Renovar o contrato mantendo-o (caminho a) transporta o saldo acumulado para o
-    novo período
-17. Encerrar e criar novo contrato (caminho c) permite transferir o saldo,
-    expirá-lo, ou convertê-lo em bolsa de horas de um chamado — com auditoria em
-    todos os casos
-18. Cliente com consumo de 90% do pool no dia 10 aparece no painel de alto
-    consumo
-19. Cliente sem nenhum apontamento no mês aparece no painel de baixo consumo
-20. Saldo nunca desaparece sem registro de auditoria em nenhum dos fluxos de
-    renovação, expiração ou teto
-21. Cenário de referência: chamado no project `Marubeni` debita o contrato de
-    10h/mês da Marubeni; chamado no project `Terlogs` debita o de 30h/mês da
-    Terlogs. Os dois pools são independentes e a relação societária entre as
-    empresas não os mistura
-22. Cliente com dois contratos ativos e dois projects debita cada project no
-    contrato fixado nele
-23. Cliente com dois contratos ativos e nenhum fixado no project debita o contrato
-    padrão
-24. Resolução de contrato ambígua ou vazia falha com mensagem explícita, sem
-    escolher contrato arbitrariamente
+Abreviações dos arquivos de teste:
+
+| Sigla | Arquivo                                                             |
+| ----- | ------------------------------------------------------------------- |
+| `U`   | `plane/tests/unit/utils/test_service_pool.py`                        |
+| `UA`  | `plane/tests/unit/utils/test_service_pool_alerts.py`                 |
+| `UC`  | `plane/tests/unit/utils/test_service_pool_concurrency.py`            |
+| `UM`  | `plane/tests/unit/models/test_service_contract_model.py`             |
+| `UD`  | `plane/tests/unit/bg_tasks/test_service_pool_deletion_cascade.py`    |
+| `C`   | `plane/tests/contract/app/test_service_contract_app.py`              |
+
+1. ✅ Contrato de 30h/mês com vigência de 12 meses gera períodos de competência
+   corretos — `U::test_a_twelve_month_contract_generates_twelve_periods` afirma os
+   **limites reais** de janeiro e dezembro além da contagem: doze períodos podem ser doze
+   pelos motivos errados. Também `C::test_an_admin_creates_a_contract_and_its_periods`, e
+   `U::test_a_partial_first_month_is_clipped_to_the_vigency` para o mês parcial
+2. ✅ Apontamento de `2h` com multiplicador 1.0 reduz o saldo do mês de 30h para
+   28h — `U::test_two_hours_at_one_times_leaves_twenty_eight` e, ponta a ponta pelo
+   endpoint, `C::test_a_two_hour_log_leaves_twenty_eight`
+3. ✅ Apontamento de `2h` com multiplicador 2.0 reduz o saldo em 4h, não 2h —
+   `U::test_two_hours_at_two_times_takes_four_not_two`, `C::test_a_double_multiplier_takes_four_hours`
+4. ✅ Apontamento de rota `NON_BILLABLE` (Garantia ou Cortesia) não altera o saldo —
+   `U::test_a_non_billable_route_does_not_move_the_balance_and_says_why`. A ausência é
+   afirmada por **três** vias (rota gravada, `debited_hours` zero, nenhuma linha `DEBIT`) e
+   com controle positivo na mesma fixture. Vale **por construção**: o débito lê
+   `debited_hours`, e a constraint `service_log_debited_hours_follows_billing_route`
+   garante zero nessa coluna
+5. ✅ Cliente consome 22h de 30h em janeiro: fevereiro abre com 38h concedidas —
+   `U::test_twenty_two_of_thirty_leaves_february_with_thirty_eight`
+6. ✅ Com validade de saldo definida em 2 meses, o saldo de janeiro não utilizado
+   expira no momento correto e não infla os meses seguintes —
+   `U::test_a_parcel_expires_after_its_carryover_validity`. O teste **consome 4h em
+   fevereiro**, de propósito: sem consumo o FIFO não é exercido e o critério viraria uma
+   conferência de aritmética de datas. Percorre os três fechamentos e afirma que a parcela
+   sobrevive aos dois primeiros. A ordem FIFO que o torna determinado é
+   `U::test_consumption_eats_the_oldest_parcel_first` (D6)
+7. ✅ Cliente com 2h de saldo recebe apontamento de 5h: o apontamento é salvo, o
+   saldo fica em −3h, e o alerta aparece —
+   `U::test_a_negative_balance_is_allowed_and_never_blocks` (o apontamento **existe** e o
+   saldo é −3h) e `UA::test_a_negative_balance_raises_its_own_alert`
+8. ✅ Fechando o período com déficit e escolhendo transportar, o mês seguinte abre
+   com 27h em vez de 30h — `U::test_carrying_a_deficit_opens_the_next_month_short`,
+   `C::test_closing_with_a_carried_deficit`
+9. ✅ Fechando o período com déficit e escolhendo faturar o excedente, o mês
+   seguinte abre com 30h íntegras e o lançamento de excedente de 3h é registrado —
+   `U::test_billing_the_overage_keeps_the_next_month_whole`, `C::test_closing_by_billing_the_overage`
+10. ✅ Apontamento com data de atendimento no mês anterior debita o período do mês
+    anterior, não o corrente — `U::test_a_backdated_log_debits_the_backdated_month`, que
+    afirma **os dois** meses: "março mexeu" é metade da alegação
+11. ✅ Excluir um apontamento devolve exatamente as horas ao período correto —
+    `U::test_deleting_a_log_returns_exactly_its_hours`, `C::test_deleting_a_log_returns_its_hours`
+12. ✅ Editar o tempo de um apontamento de `2h` para `3h` deixa o saldo consistente,
+    sem débito duplicado — `C::test_editing_a_log_from_two_to_three_hours_leaves_no_double_debit`
+    pelo endpoint de edição de batch, que é onde o débito duplicado realmente aconteceria.
+    `U::test_the_reversal_returns_the_debited_amount_not_a_recomputed_one` prova o
+    mecanismo: o estorno lê a linha `DEBIT` em vez de recalcular
+13. ✅ Período fechado rejeita novo apontamento com mensagem clara —
+    `C::test_a_closed_period_rejects_a_new_log_and_rolls_the_rows_back`, que afirma também
+    que **as linhas voltam atrás**: uma recusa que deixasse o apontamento gravado sem pool
+    seria pior que nenhuma recusa. Controle positivo:
+    `C::test_a_log_in_an_open_month_still_works_after_another_is_closed`
+14. ✅ Dois apontamentos salvos simultaneamente no mesmo período não corrompem o
+    saldo — `UC::test_concurrent_debits_do_not_corrupt_the_balance`, com oito threads reais
+    sob `django_db(transaction=True)`. Ver a nota sobre **o que a sabotagem revelou** na
+    seção de verificação abaixo: o teste só fica vermelho quando o lock **e** o `F()` são
+    removidos, e então perde sete débitos de oito.
+    `UC::test_a_debit_racing_a_close_cannot_land_in_the_closed_month` cobre o que só o lock
+    protege, e `UC::test_concurrent_materialisation_of_one_competency_creates_one_period` a
+    materialização concorrente
+15. ✅ Com teto de acúmulo de 2× e contrato de 30h/mês, o saldo transportado nunca
+    passa de 60h, e o excesso descartado fica registrado —
+    `U::test_the_accrual_cap_limits_the_carry_and_records_the_discard`. A **ordem** do
+    descarte é uma ambiguidade que o briefing não fecha e está fixada por
+    `U::test_the_cap_discards_the_newest_parcels_first`
+16. ✅ Renovar o contrato mantendo-o (caminho a) transporta o saldo acumulado para o
+    novo período — `U::test_renewing_in_place_carries_the_accumulated_balance`,
+    `C::test_renewing_in_place_extends_the_vigency`
+17. ⚠️ **Parcialmente atendido — o terceiro destino é fechado na Fase 5.** Transferir e
+    expirar estão implementados e auditados
+    (`U::test_a_successor_can_receive_the_transferred_balance`,
+    `U::test_a_successor_can_expire_the_balance_with_an_audit_row`,
+    `C::test_creating_a_successor_transfers_the_balance`). **Converter em bolsa de horas de
+    um chamado depende da entidade da Fase 5**, que não existe: a interface, o tipo de
+    lançamento `CONVERTED_TO_ISSUE_ALLOWANCE` e o argumento `target_issue` já estão
+    prontos, e a chamada devolve `ISSUE_ALLOWANCE_NOT_AVAILABLE` com HTTP 501 — um código
+    explícito, não um no-op silencioso
+    (`U::test_converting_to_a_work_item_allowance_is_not_available_yet`,
+    `C::test_converting_to_a_work_item_allowance_returns_not_implemented`). Registrado como
+    critério herdado em `05-bolsa-por-workitem.md`
+18. ✅ Cliente com consumo de 90% do pool no dia 10 aparece no painel de alto
+    consumo — `UA::test_ninety_percent_on_the_tenth_raises_the_high_consumption_alert` e
+    `C::test_high_consumption_before_midmonth_appears`, com `reference_date` explícito para
+    que o teste não passe ou falhe segundo o dia em que roda. Controle negativo com motivo:
+    `UA::test_the_same_consumption_late_in_the_month_does_not_raise_it_but_raises_another`
+19. ✅ Cliente sem nenhum apontamento no mês aparece no painel de baixo consumo —
+    `UA::test_a_month_with_no_work_logs_raises_the_churn_alert`,
+    `C::test_a_contract_with_no_logs_appears_in_low_consumption`
+20. ✅ Saldo nunca desaparece sem registro de auditoria em nenhum dos fluxos de
+    renovação, expiração ou teto — atendido **por construção**, não por diligência: não
+    existe caminho que reduza saldo sem inserir linha no livro-caixa, porque a redução *é*
+    a linha. O invariante que o prova é
+    `U::test_a_closed_period_ledger_sums_to_exactly_zero` (um período fechado soma zero:
+    tudo saiu, foi faturado ou foi baixado, e cada um desses é uma linha). Cada caminho de
+    renovação afirma `actor` e `notes` nas linhas que gera
+21. ✅ Cenário de referência Marubeni / Terlogs —
+    `U::test_two_clients_have_independent_pools`, que monta a relação societária
+    (`ServiceClient.parent`) de propósito e afirma que o pool da matriz **não** se move
+    (D18: o campo não carrega comportamento)
+22. ✅ Cliente com dois contratos ativos e dois projects debita cada project no
+    contrato fixado nele — `U::test_a_project_pinned_contract_wins`
+23. ✅ Cliente com dois contratos ativos e nenhum fixado no project debita o contrato
+    padrão — `U::test_the_default_contract_is_used_when_the_project_pins_none`
+24. ⚠️ **Atendido para o caso ambíguo; deliberadamente NÃO atendido ao pé da letra para o
+    caso vazio.** Ambiguidade falha explicitamente e nomeia os candidatos
+    (`U::test_an_ambiguous_resolution_fails_explicitly`), e um pin para o contrato de outro
+    cliente falha com código próprio
+    (`U::test_a_pin_to_another_clients_contract_is_refused`). **Mas uma resolução _vazia_
+    não custa ao técnico o apontamento dele.** A justificativa do próprio critério —
+    "debitar o pool errado é pior que bloquear o apontamento" — só vale quando existe um
+    pool errado a debitar, e a §4, a D4 e a D9 dizem três vezes que trabalho já executado
+    nunca é descartado por pendência comercial. A resolução continua falhando **alto**: o
+    apontamento fica com `debited_period` nulo e o painel do chamado informa o código.
+    Ver `U::test_an_absent_contract_does_not_cost_the_technician_their_work_log` e
+    `U::test_an_ambiguous_resolution_still_blocks_the_work_log`. **Isto é regra de negócio,
+    não escolha de implementação, e está sinalizado para confirmação.**
+
+## Critérios que a Fase 4 deixa herdados
+
+| Critério                             | O que falta                                                                             | Onde fecha            |
+| ------------------------------------ | --------------------------------------------------------------------------------------- | --------------------- |
+| 17, terceiro destino do saldo        | A entidade de bolsa de horas por work item. Interface, tipo de lançamento e argumento `target_issue` prontos; hoje devolve `ISSUE_ALLOWANCE_NOT_AVAILABLE` | **Fase 5**, seção 3   |
+
+Nenhum critério de fase anterior pôde ser fechado aqui. O **critério 10 da Fase 1**
+(mover um chamado com apontamentos entre clientes) permanece em aberto pelo mesmo motivo
+registrado na Fase 3: não existe caminho de *move* de work item no backend. A Fase 4 não o
+cria, então a detecção continua escrita e testada em `service_client_change_alert` sem
+consumidor.
+
+## Verificação por sabotagem
+
+Os cinco pontos onde o dinheiro vaza, quebrados de propósito, com o resultado real:
+
+| Sabotagem                                        | Ficou vermelho?                                                            |
+| ------------------------------------------------ | -------------------------------------------------------------------------- |
+| remover `select_for_update`                      | **Não sozinho** — ver a nota abaixo                                        |
+| remover o `F()` do `consumed_hours`              | **Não sozinho** — ver a nota abaixo                                        |
+| remover **os dois** ao mesmo tempo               | Sim: 8h viraram 1h, sete débitos de oito perdidos                          |
+| remover a unique parcial do `DEBIT`              | Sim, 2 testes (débito duplicado)                                           |
+| inverter o FIFO                                  | Sim, 3 testes (critérios 6 e 15)                                           |
+| quebrar o snapshot de `contracted_hours`         | Sim, 3 testes                                                              |
+| remover o estorno                                | Sim, 7 testes (critérios 11 e 12)                                          |
+
+**O que a sabotagem do critério 14 revelou, e é a notícia mais importante desta seção.**
+O plano previa que o lock e o `F()` fossem "duas metades de uma garantia" e que um teste
+sabotasse cada metade independentemente. **Isso é falso, e uma versão anterior do docstring
+de `_lock_period` afirmava exatamente isso.** As duas são *independentemente suficientes*
+para a aritmética: sem o lock, o `F()` faz o incremento no SQL; sem o `F()`, o lock
+serializa o ler-somar-gravar. Nenhum teste pode distinguir as duas, porque com qualquer uma
+presente o comportamento está correto. O teste original passava com cada uma removida — era
+um falso-verde do tipo que as convenções descrevem, e só a sabotagem o encontrou. Duas
+correções foram feitas: o docstring passou a dizer a verdade, e
+`UC::test_a_debit_racing_a_close_cannot_land_in_the_closed_month` foi acrescentado para
+cobrir o que **só** o lock protege — a sequência ler-`status`-depois-debitar, na qual um
+`close_period` concorrente cabe no meio.
+
+A mesma sabotagem revelou dois testes mais fracos do que se anunciavam, ambos corrigidos:
+o do snapshot afirmava só a **coluna** `contracted_hours` e passava com `granted_hours`
+lendo o contrato ao vivo; e o da validade de acúmulo percorria um pool intocado, sem
+exercer o FIFO que o critério 6 depende.
 
 ## Entregar
 

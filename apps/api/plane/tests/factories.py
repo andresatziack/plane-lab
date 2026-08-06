@@ -17,6 +17,7 @@ from plane.db.models import (
     ProjectMember,
     ServiceBillingType,
     ServiceClient,
+    ServiceContract,
     ServiceHourType,
     ServiceLog,
     State,
@@ -254,3 +255,43 @@ class ServiceLogFactory(factory.django.DjangoModelFactory):
     segment_index = 0
     created_at = factory.LazyFunction(timezone.now)
     updated_at = factory.LazyFunction(timezone.now)
+
+
+
+class ServiceContractFactory(factory.django.DjangoModelFactory):
+    """Factory for creating ServiceContract instances.
+
+    Deliberately does **not** materialise the contract's competency periods, even
+    though the API's create endpoint does. A test that wants periods calls
+    ``materialize_contract_periods`` or ``resolve_period`` explicitly, so that what the
+    pool contains is always something the test asked for and can name -- the fixture
+    convention this repository settled on after the calendar phase's false greens.
+
+    ``is_default`` is False by default. The partial unique index allows at most one
+    default per *client* (not per workspace, unlike the catalogues), so leaving it False
+    keeps a test free to build several contracts for one client without tripping it.
+    Criterion 23's test sets it explicitly, which is the point.
+    """
+
+    class Meta:
+        model = ServiceContract
+        django_get_or_create = ("code", "service_client")
+
+    id = factory.LazyFunction(uuid4)
+    code = factory.Sequence(lambda n: f"CT-{n}")
+    name = factory.Sequence(lambda n: f"Contrato {n}")
+    monthly_hours = Decimal("30.0000")
+    starts_on = factory.LazyFunction(lambda: timezone.now().date().replace(month=1, day=1))
+    ends_on = factory.LazyFunction(lambda: timezone.now().date().replace(month=12, day=31))
+    carryover_months = None
+    accrual_cap_mode = ServiceContract.AccrualCapMode.NONE
+    accrual_cap_value = None
+    high_consumption_threshold_pct = Decimal("80.00")
+    low_consumption_threshold_pct = Decimal("30.00")
+    overage_policy = ServiceContract.OveragePolicy.CARRY_DEFICIT
+    overage_hour_rate = None
+    status = ServiceContract.Status.ACTIVE
+    is_default = False
+    notes = ""
+    service_client = factory.SubFactory(ServiceClientFactory)
+    workspace = factory.SelfAttribute("service_client.workspace")

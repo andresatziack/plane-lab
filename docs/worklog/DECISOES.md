@@ -21,6 +21,12 @@
 | D16 | **Não existe jornada por técnico.** As janelas de classificação do workspace são a única fonte da verdade                                                                                 | Fase 2b, requisito negativo explícito     |
 | D17 | **Arredondar por segmento**, com guardrail para lançamentos abaixo de 15 min                                                                                                              | Fase 2b, seção 6                          |
 
+| D23 | **Livro-caixa de horas append-only.** O período carrega o saldo, o livro-caixa carrega o histórico, e os dois na mesma transação | Fase 4, `service_hour_ledger_entries` |
+| D24 | **Consumo FIFO**, parcela mais antiga primeiro, para que nenhuma hora expire podendo ter sido usada | Fase 4, seção 3 |
+| D25 | **O teto de acúmulo descarta as parcelas mais NOVAS**, preservando as mais antigas | Fase 4, seção 3 |
+| D26 | **Mês parcial é dado, não regra:** `contracted_hours` editável enquanto o período está aberto, com auditoria | Fase 4, seção 2 |
+| D27 | **Resolução vazia de contrato não bloqueia o apontamento**; ambiguidade bloqueia | Fase 4, seções 1b e 5 |
+
 Nenhuma decisão bloqueia a implementação. Os prompts estão prontos para uso.
 
 ---
@@ -299,3 +305,106 @@ As Fases 4 e 6 devem usar os três verbos. O ponto de extensão está no docstri
 `ServiceConfigActivity`, junto com o aviso de que a constraint que exige `old_value` e
 `new_value` em `updated` cobra um preço de quem rastrear um campo **nullable** — o preço
 sobrescrito opcional da Fase 6 é o caso concreto.
+
+
+## D23 a D27 — decididas na Fase 4, porque só ali se tornaram inevitáveis
+
+### D23 — O livro-caixa de horas, e por que ele não é a "segunda tabela de auditoria"
+
+Quatro exigências do briefing da Fase 4 eram a mesma exigência: rastrear a competência de
+origem de cada parcela para expirar a certa (critério 6), estorno idempotente (11 e 12),
+"saldo nunca desaparece sem registro de auditoria" (20) e concorrência sem corromper saldo
+(14). Sem um journal, cada uma precisa de mecanismo próprio.
+
+Com ele, o critério 20 passa a valer **por construção**: não existe caminho que reduza
+saldo sem inserir linha, porque a redução *é* a linha. O invariante que prova isso é
+verificável: **um período fechado soma exatamente zero** no livro-caixa — tudo saiu, foi
+faturado ou foi baixado, e cada um desses é uma linha.
+
+A §6 do contexto mestre proíbe uma segunda tabela de auditoria de configuração, e esta não
+é uma. A divisão é explícita: `ServiceConfigActivity` registra **configuração** (contrato
+criado, horas mensais alteradas); o livro-caixa é **movimento contábil**. Apagar uma linha
+lá perderia a *explicação* de um número; apagar uma linha aqui **mudaria** o número.
+
+Consequência de projeto (D2 do design aprovado): o período carrega os totais e é a linha que
+se tranca; o livro-caixa carrega os movimentos; os dois são escritos na mesma transação,
+sempre. `reconcile_period` afirma que os dois batem, **coluna por coluna** — um agregado
+único seria satisfeito por dois erros que se cancelam, e diria "algo está errado" quando o
+operador precisa saber *qual número* confiar.
+
+### D24 — Consumo FIFO, parcela mais antiga primeiro
+
+Regra que o briefing não enuncia e sem a qual o critério 6 é indeterminado: "o saldo de
+janeiro não utilizado expira no momento correto" depende de as horas de janeiro terem sido
+ou não as gastas.
+
+A cota do mês é uma parcela com origem no próprio mês, e o consumo come sempre da mais
+antiga. Consequência, que é o motivo da escolha: o transportado é consumido antes, e **hora
+nenhuma expira podendo ter sido usada**. A ordem inversa faria o cliente perder saldo com o
+pool cheio, e ele reclamaria com razão.
+
+A alocação acontece na **leitura**, não no débito. É isso que permite ao débito ser uma
+única linha contra o período sob um único lock, em vez de uma linha por parcela tocada.
+
+### D25 — O teto de acúmulo descarta as parcelas mais NOVAS
+
+Ambiguidade que o briefing não fecha: com 75h querendo transportar e teto de 60h, *quais*
+15h são descartadas?
+
+Descartam-se as mais **novas**, preservando as mais antigas. Dois motivos, e eles
+concordam: sob FIFO as mais antigas são as que o consumo alcança primeiro, então preservá-las
+faz do saldo sobrevivente o saldo que de fato será usado; e é o que o cliente espera ouvir
+— "você perdeu as horas que não usou este mês", não "você perdeu horas do trimestre
+passado".
+
+Fixado por teste de caracterização, para que mudar a ordem tenha de ser deliberado.
+
+### D26 — Mês parcial é dado que o admin informa, não regra que o sistema inventa
+
+Nem pro-rata nem "sempre integral". `contracted_hours` já era snapshot por período (R4), e
+passou a ser **editável enquanto o período está `OPEN`**, com default `monthly_hours`.
+
+Assim o pro-rata deixa de ser regra inventada e passa a ser o que o contrato disser, sem
+campo de política e sem chute. Obrigatório, e implementado: a edição vai para a trilha de
+auditoria e é **recusada** em período `CLOSED`.
+
+Efeito colateral no livro-caixa, registrado porque foi o único ponto em que o conjunto
+fechado de tipos de lançamento teve de ceder: corrigir 30h para 15h precisa mover o saldo, e
+num journal append-only uma correção é uma linha nova. Essa linha é um `GRANT` de −15, então
+`GRANT` passou a ser o único tipo aditivo que aceita valor negativo. A alternativa era um
+décimo segundo tipo significando "ajuste de cota", que transformaria
+`sum(GRANT) == contracted_hours` — o invariante que a reconciliação de fato verifica — numa
+soma de dois termos, sem ganho.
+
+### D27 — Resolução vazia de contrato não bloqueia o apontamento; ambiguidade bloqueia
+
+**A única decisão da Fase 4 que se afasta da letra de um critério de aceite, e está
+sinalizada para confirmação porque é cláusula contratual, não escolha de implementação.**
+
+O critério 24 diz que uma resolução "ambígua **ou vazia** falha com mensagem explícita". A
+tensão é com a §4, a D4 e a D9, que dizem três vezes, de três ângulos, que trabalho já
+executado nunca é descartado por pendência comercial — e "o comercial ainda não cadastrou o
+contrato" é exatamente uma pendência comercial. Cumprir o critério 24 ao pé da letra fazia o
+apontamento ser **recusado**, e apontamento recusado é apontamento perdido.
+
+A reconciliação está na justificativa do próprio critério 24: *"debitar o pool errado é pior
+que bloquear o apontamento"*. Esse raciocínio só morde quando existe um pool errado a
+debitar — o caso **ambíguo**. Sem cliente e sem contrato não há pool errado; não há pool.
+
+Decidido:
+
+- **ambiguidade, e pin para o contrato de outro cliente** → bloqueia, com código explícito
+  e nomeando os candidatos. É o caso para o qual o critério 24 foi escrito;
+- **resolução vazia** (`NO_SERVICE_CLIENT_FOR_PROJECT`, `NO_CONTRACT_FOR_CLIENT`) → falha
+  **alto, sem bloquear**: o apontamento fica gravado com `debited_period` nulo, e o painel
+  do chamado informa o código. A ausência diz o motivo, porque "não faturável" e "não existe
+  contrato" produzem o mesmo saldo e são bugs opostos.
+
+A D21 já resolveu a questão idêntica para o motor de classificação e o tornou total, com o
+argumento de que uma configuração ruim não pode parar **todo** o apontamento do workspace. O
+mesmo argumento vale aqui sem alteração.
+
+Efeito prático que confirma a escolha: com o bloqueio, 39 testes das Fases 2b e 3 passavam a
+falhar — todos eles apontamentos de rota `DEBIT_POOL` em workspaces sem contrato, que é
+precisamente o estado de qualquer instalação antes de o comercial cadastrar o primeiro
+contrato.

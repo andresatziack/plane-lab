@@ -27,6 +27,33 @@ HOUR_TYPE_IN_USE_BY_SERVICE_LOGS = "HOUR_TYPE_IN_USE_BY_SERVICE_LOGS"
 BILLING_TYPE_IN_USE_BY_SERVICE_LOGS = "BILLING_TYPE_IN_USE_BY_SERVICE_LOGS"
 HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS = "HOUR_TYPE_IN_USE_BY_CLASSIFICATION_WINDOWS"
 
+#: How an unset nullable field is rendered in the audit trail. Decision D4.
+#:
+#: ``svc_cfg_activity_shape_matches_verb`` requires ``old_value`` and ``new_value`` to
+#: be non-null on an ``updated`` row, and until the contract phase every tracked field
+#: was non-nullable, so the question never arose. The contract has three that are
+#: exactly what the trail exists to record -- accrual cap, carryover validity and the
+#: overage hour rate -- and a transition from NULL to 60.00 would have violated the
+#: constraint at the database level.
+#:
+#: Of the three exits the constraint's own comment names, this is the sentinel. The two
+#: refused:
+#:
+#: * **dropping the fields from TRACKED_FIELDS** -- the docstring of
+#:   ``ServiceConfigActivity`` names "accrual cap, overage hour rate" as this table's
+#:   reason to exist, so excluding them would answer the constraint by deleting the
+#:   requirement;
+#: * **relaxing the constraint** -- that weakens a DDL guarantee over *every* row,
+#:   including the catalogues', to solve a problem belonging to three columns.
+#:
+#: ``"UNSET"`` and not ``""``, which is ambiguous with a legitimately empty string, nor
+#: ``"None"``, which is a Python repr leaking into data. It follows the UPPER_SNAKE of
+#: the error codes and cannot collide with anything ``serialize_config_value``
+#: produces: quantised decimals, ISO dates, lowercase booleans and lowercase enum
+#: values. That non-collision depends on no tracked field being free text, which is a
+#: premise a comment cannot enforce -- so there is a test that fails if one ever is.
+CONFIG_VALUE_UNSET = "UNSET"
+
 
 # ---------------------------------------------------------------------------
 # Default resolution
@@ -221,10 +248,18 @@ def serialize_config_value(instance, field_name, value):
       that a string comparison between two entries is meaningful;
     * booleans lowercase, rather than Python's "True"/"False";
     * everything else by its stored value, which for a TextChoices field is the
-      database value ("debit_pool") and not the human label.
+      database value ("debit_pool") and not the human label;
+    * an unset nullable field as ``CONFIG_VALUE_UNSET``, never as SQL NULL.
+
+    That last rule is decision D4, and it is why this function no longer returns
+    ``None``. A null would violate ``svc_cfg_activity_shape_matches_verb`` on an
+    ``updated`` row, so the first contract to have its accrual cap filled in would have
+    crashed on a database constraint. Handled here, once, in the shared helper, so that
+    the pricing phase's optional absolute override inherits the answer instead of
+    rediscovering the problem.
     """
     if value is None:
-        return None
+        return CONFIG_VALUE_UNSET
 
     field = instance._meta.get_field(field_name)
 
