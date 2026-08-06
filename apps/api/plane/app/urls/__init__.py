@@ -19,6 +19,7 @@ from .service_calendar import urlpatterns as service_calendar_urls
 from .service_catalog import urlpatterns as service_catalog_urls
 from .service_client import urlpatterns as service_client_urls
 from .service_contract import urlpatterns as service_contract_urls
+from .service_issue_allowance import urlpatterns as service_issue_allowance_urls
 from .service_log import urlpatterns as service_log_urls
 from .state import urlpatterns as state_urls
 from .user import urlpatterns as user_urls
@@ -45,6 +46,7 @@ urlpatterns = [
     *service_catalog_urls,
     *service_client_urls,
     *service_contract_urls,
+    *service_issue_allowance_urls,
     *service_log_urls,
     *state_urls,
     *user_urls,

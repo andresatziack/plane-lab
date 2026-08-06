@@ -66,6 +66,10 @@ from .service_contract import (
     ServiceContractSuccessorSerializer,
     ServiceHourLedgerEntrySerializer,
 )
+from .service_issue_allowance import (
+    ServiceIssueAllowanceCreditSerializer,
+    ServiceIssueAllowanceSerializer,
+)
 from .service_log import (
     ServiceLogClientSerializer,
     ServiceLogSerializer,

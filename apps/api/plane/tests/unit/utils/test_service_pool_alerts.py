@@ -19,6 +19,7 @@ import pytest
 
 # Module imports
 from plane.db.models import (
+    ServiceBillingType,
     ServiceContract,
     ServiceContractAlertDismissal,
     ServiceContractPeriod,
@@ -27,8 +28,10 @@ from plane.db.models import (
 )
 from plane.tests.factories import (
     ProjectFactory,
+    ServiceBillingTypeFactory,
     ServiceClientFactory,
     ServiceContractFactory,
+    ServiceHourTypeFactory,
     UserFactory,
 )
 from plane.utils.service_pool import close_period, resolve_period
@@ -175,6 +178,78 @@ class TestLowConsumption:
         entry = next(a for a in alerts if a["code"] == NO_SERVICE_LOGS_IN_MONTH)
         assert entry["severity"] == "low_consumption"
         assert entry["competence"] == "2026-01"
+        assert entry["allowance_hours_in_period"] == "0.0000", (
+            "no allowance work either, so the alert really does mean what it says"
+        )
+
+    def test_the_churn_alert_still_fires_for_a_client_served_only_through_allowances(
+        self, pool, actor
+    ):
+        """**Characterisation test, and an accepted limitation with its wording mitigated.**
+
+        Work paid by a work item allowance has ``debited_period`` null, so it does not count
+        toward this alert. The alert therefore fires for a client who is being actively
+        served -- and that is the *correct* reading, because this alert is about consumption
+        **of the contract**, and a client whose work all goes to project allowances genuinely
+        is not consuming the support they pay for. That is a real renewal signal.
+
+        What would be wrong is the sentence a reader takes from it. "Cliente sem
+        atendimento" about a client with 40h of project work gets somebody to make an
+        embarrassing phone call. So the alert carries the allowance hours, and the frontend
+        renders "sem apontamentos no contrato (Nh em bolsas de projeto)".
+
+        Fixed here so that a future phase changing the logic -- Phase 9 owns the dashboards
+        -- does it deliberately rather than by accident.
+        """
+        from plane.tests.factories import IssueFactory
+        from plane.utils.service_allowance import credit_allowance
+        from plane.utils.service_log import build_batch_rows, create_service_log_batch
+        from plane.utils.service_pool import apply_debit
+
+        issue = IssueFactory(project=pool["project"])
+        credit_allowance(issue, Decimal("40.0000"), actor=actor)
+
+        workspace = pool["client"].workspace
+        hour_type = ServiceHourTypeFactory(workspace=workspace, multiplier=Decimal("1.00"))
+        pool_route = ServiceBillingTypeFactory(
+            workspace=workspace, billing_route=ServiceBillingType.BillingRoute.DEBIT_POOL
+        )
+
+        rows = build_batch_rows(
+            issue=issue,
+            author=actor,
+            description="Projeto",
+            billing_type=pool_route,
+            hour_type=hour_type,
+            segments=[
+                type(
+                    "Seg",
+                    (),
+                    {
+                        "worked_on": date(2026, 1, 12),
+                        "start_time": None,
+                        "end_time": None,
+                        "raw_duration_minutes": 8 * 60,
+                        "suggested_hour_type": None,
+                        "reason": "",
+                    },
+                )()
+            ],
+        )
+        create_service_log_batch(rows)
+        for row in rows:
+            apply_debit(row, actor=actor)
+
+        assert rows[0].debited_allowance_id is not None, "the allowance paid, not the contract"
+
+        alerts = evaluate_period(pool["period"], reference_date=date(2026, 1, 20))
+
+        assert NO_SERVICE_LOGS_IN_MONTH in codes(alerts), "the contract really saw no work"
+
+        entry = next(a for a in alerts if a["code"] == NO_SERVICE_LOGS_IN_MONTH)
+        assert entry["allowance_hours_in_period"] == "8.0000", (
+            "and the alert says so, so nobody calls this client to ask why they went quiet"
+        )
 
     def test_low_consumption_near_the_month_end_raises_the_alert(self, pool):
         """Section 9. 6h of 30h is 20%, under the 30% threshold, on the 28th."""
@@ -422,3 +497,118 @@ class TestPanel:
         )
 
         assert str(service_client.pk) not in contracts_without_default(service_client.workspace_id)
+
+
+
+# ---------------------------------------------------------------------------
+# Work item allowances -- section 3 of the allowance phase
+# ---------------------------------------------------------------------------
+
+
+class TestAllowanceAlerts:
+    """"A bolsa fica com saldo negativo e o alerta aparece" -- the second half of that
+    sentence, which is the half a test can be written for."""
+
+    def test_a_negative_allowance_raises_the_alert(self, db, actor):
+        from plane.tests.factories import ServiceIssueAllowanceFactory
+        from plane.utils.service_pool_alerts import ALLOWANCE_NEGATIVE_BALANCE, evaluate_allowance
+
+        allowance = ServiceIssueAllowanceFactory(
+            credited_hours=Decimal("10.0000"), consumed_hours=Decimal("25.0000")
+        )
+
+        alerts = evaluate_allowance(allowance)
+
+        assert codes(alerts) == {ALLOWANCE_NEGATIVE_BALANCE}
+        entry = alerts[0]
+        assert entry["severity"] == "high_consumption"
+        assert entry["balance_hours"] == "-15.0000"
+
+    def test_high_consumption_raises_while_the_balance_is_still_positive(self, db):
+        """The warning that arrives while there is still time to negotiate an aditivo de
+        escopo, rather than after the hours are gone."""
+        from plane.tests.factories import ServiceIssueAllowanceFactory
+        from plane.utils.service_pool_alerts import ALLOWANCE_HIGH_CONSUMPTION, evaluate_allowance
+
+        allowance = ServiceIssueAllowanceFactory(
+            credited_hours=Decimal("40.0000"), consumed_hours=Decimal("34.0000")
+        )
+
+        alerts = evaluate_allowance(allowance)
+
+        assert codes(alerts) == {ALLOWANCE_HIGH_CONSUMPTION}
+        assert alerts[0]["consumed_pct"] == "85.00"
+        assert alerts[0]["threshold_pct"] == "80.00"
+
+    def test_a_healthy_allowance_raises_nothing(self, db):
+        """The positive control the two above need. Without it, an ``evaluate_allowance``
+        that returned everything unconditionally would satisfy both of them."""
+        from plane.tests.factories import ServiceIssueAllowanceFactory
+        from plane.utils.service_pool_alerts import evaluate_allowance
+
+        allowance = ServiceIssueAllowanceFactory(
+            credited_hours=Decimal("40.0000"), consumed_hours=Decimal("10.0000")
+        )
+
+        assert evaluate_allowance(allowance) == []
+
+    def test_a_negative_allowance_does_not_also_report_high_consumption(self, db):
+        """One fact, one alert. Reporting both would let a panel counting alerts double
+        the same overrun."""
+        from plane.tests.factories import ServiceIssueAllowanceFactory
+        from plane.utils.service_pool_alerts import ALLOWANCE_HIGH_CONSUMPTION, evaluate_allowance
+
+        allowance = ServiceIssueAllowanceFactory(
+            credited_hours=Decimal("10.0000"), consumed_hours=Decimal("25.0000")
+        )
+
+        assert ALLOWANCE_HIGH_CONSUMPTION not in codes(evaluate_allowance(allowance))
+
+    def test_an_empty_allowance_raises_nothing_rather_than_dividing_by_zero(self, db):
+        """Zero of zero has no percentage. An allowance created and not yet credited is a
+        real state -- the API creates and credits in one transaction, but a conversion from
+        a contract could land here."""
+        from plane.tests.factories import ServiceIssueAllowanceFactory
+        from plane.utils.service_pool_alerts import evaluate_allowance
+
+        allowance = ServiceIssueAllowanceFactory()
+
+        assert evaluate_allowance(allowance) == []
+
+    def test_the_workspace_panel_lists_only_the_overrun_allowances(self, db, actor):
+        """And it names the work item, because "an allowance is overrun" is not actionable
+        without knowing which project."""
+        from plane.tests.factories import IssueFactory, ServiceIssueAllowanceFactory
+        from plane.utils.service_pool_alerts import workspace_allowance_alerts
+
+        overrun = ServiceIssueAllowanceFactory(
+            credited_hours=Decimal("10.0000"), consumed_hours=Decimal("25.0000")
+        )
+        healthy = ServiceIssueAllowanceFactory(
+            issue=IssueFactory(project=overrun.project),
+            credited_hours=Decimal("40.0000"),
+            consumed_hours=Decimal("1.0000"),
+        )
+
+        entries = workspace_allowance_alerts(overrun.workspace_id)
+
+        assert [entry["allowance_id"] for entry in entries] == [str(overrun.pk)]
+        assert entries[0]["issue_name"] == overrun.issue.name
+        assert str(healthy.pk) not in [entry["allowance_id"] for entry in entries]
+
+    def test_a_closed_allowance_is_not_alerted_on(self, db, actor):
+        """It has been settled: the deficit was billed or the surplus written off, so there
+        is nothing left for anyone to act on."""
+        from plane.tests.factories import ServiceIssueAllowanceFactory
+        from plane.utils.service_allowance import close_allowance
+        from plane.utils.service_pool_alerts import workspace_allowance_alerts
+
+        allowance = ServiceIssueAllowanceFactory(
+            credited_hours=Decimal("10.0000"), consumed_hours=Decimal("25.0000")
+        )
+
+        assert len(workspace_allowance_alerts(allowance.workspace_id)) == 1, "positive control"
+
+        close_allowance(allowance, actor=actor)
+
+        assert workspace_allowance_alerts(allowance.workspace_id) == []

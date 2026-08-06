@@ -19,6 +19,7 @@ from plane.db.models import (
     ServiceClient,
     ServiceContract,
     ServiceHourType,
+    ServiceIssueAllowance,
     ServiceLog,
     State,
 )
@@ -295,3 +296,35 @@ class ServiceContractFactory(factory.django.DjangoModelFactory):
     notes = ""
     service_client = factory.SubFactory(ServiceClientFactory)
     workspace = factory.SelfAttribute("service_client.workspace")
+
+
+
+class ServiceIssueAllowanceFactory(factory.django.DjangoModelFactory):
+    """Factory for creating ServiceIssueAllowance instances.
+
+    ``credited_hours`` defaults to **zero**, and that is deliberate rather than
+    unhelpful: crediting hours has to write a ``CREDIT`` ledger row in the same
+    transaction, so an allowance built with hours already in it would be a row whose
+    totals disagree with its ledger -- exactly the divergence ``reconcile_allowance``
+    exists to detect. A test that wants a funded allowance calls
+    ``plane.utils.service_allowance.credit_allowance``, which is also the only path
+    production has.
+
+    Consequence worth stating, because it is the point: an allowance from this factory is
+    still enough to make rule R6 select it. That is what lets a test assert "the contract
+    pool was not touched" on a work item whose allowance holds zero -- the balance goes
+    straight to negative, which is the state section 3 requires not to block.
+    """
+
+    class Meta:
+        model = ServiceIssueAllowance
+
+    id = factory.LazyFunction(uuid4)
+    issue = factory.SubFactory(IssueFactory)
+    project = factory.SelfAttribute("issue.project")
+    workspace = factory.SelfAttribute("issue.workspace")
+    reference = factory.Sequence(lambda n: f"Proposta 2026-{n:03d}")
+    notes = ""
+    credited_hours = Decimal("0.0000")
+    consumed_hours = Decimal("0.0000")
+    status = ServiceIssueAllowance.Status.OPEN

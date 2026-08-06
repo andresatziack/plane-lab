@@ -28,7 +28,6 @@ is resolved by the partial unique index, with a retry that reads the winner's ro
 # Python imports
 import calendar
 from datetime import date
-from decimal import Decimal
 
 # Django imports
 from django.db import IntegrityError, transaction
@@ -47,7 +46,14 @@ from plane.db.models import (
     ServiceOverageSettlement,
     ServicePeriodStatus,
 )
-from plane.utils.service_log_time import HOUR_SCALE, ZERO_HOURS
+from plane.utils.service_log_time import ZERO_HOURS
+
+# Imported under the module-private name the ~40 call sites below already use. The
+# implementation moved to `service_log_time` when Phase 5's allowance domain needed the
+# same quantiser: two copies of the money rounding would be two answers to what a client
+# owes. Aliased rather than renamed here so the move is one line of diff in a file where
+# every line moves a balance.
+from plane.utils.service_log_time import quantize_hours as _quantize
 
 # ---------------------------------------------------------------------------
 # Error and warning codes
@@ -86,9 +92,11 @@ NO_NEXT_PERIOD_FOR_DEFICIT = "NO_NEXT_PERIOD_FOR_DEFICIT"
 #: Editing the contracted hours of a closed period. Decision B1.
 PERIOD_IS_CLOSED_FOR_CONTRACTED_HOURS = "PERIOD_IS_CLOSED_FOR_CONTRACTED_HOURS"
 
-#: Converting a remaining balance into a work item allowance, which is Phase 5's
-#: mechanism. The interface exists and is documented; the mechanism does not.
-ISSUE_ALLOWANCE_NOT_AVAILABLE = "ISSUE_ALLOWANCE_NOT_AVAILABLE"
+#: Converting a remaining balance into a work item allowance without saying into which
+#: work item. Phase 4 held this whole destination open with
+#: ``ISSUE_ALLOWANCE_NOT_AVAILABLE`` and an HTTP 501 because the allowance entity did not
+#: exist; Phase 5 supplied it, so the only remaining failure is a missing target.
+ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE = "ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE"
 
 #: Warning, never a blocker. D9 and section 1: an entry outside contractual vigency is
 #: recorded, flagged in the form and on the work item, and marked in reports. "Nunca
@@ -152,16 +160,6 @@ class ServicePoolValidationError(ValueError):
         compared at each call site so there is one answer, in one place.
         """
         return self.code not in NON_BLOCKING_RESOLUTION_FAILURES
-
-
-def _quantize(value):
-    """Every hour figure this module writes, at the one scale section 4b fixes.
-
-    Applied at the boundary rather than trusted from the caller: a value that arrives a
-    digit wide would be silently truncated by the column, and the balance would stop
-    reconciling for a reason nobody could see.
-    """
-    return Decimal(value).quantize(HOUR_SCALE)
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +345,7 @@ def resolve_period(contract, worked_on, *, materialize=True, actor=None):
                 ends_on=ends_on,
                 contracted_hours=_quantize(contract.monthly_hours),
             )
-            _write_entry(
+            write_ledger_entry(
                 period=period,
                 entry_type=ServiceLedgerEntryType.GRANT,
                 hours=period.contracted_hours,
@@ -426,17 +424,44 @@ def annotate_period_balance(queryset):
 # ---------------------------------------------------------------------------
 
 
-def _write_entry(*, period, entry_type, hours, origin_period=None, service_log=None, actor=None, notes=""):
-    """Insert one ledger row. The only place rows are created.
+def write_ledger_entry(
+    *,
+    period=None,
+    allowance=None,
+    entry_type,
+    hours,
+    origin_period=None,
+    service_log=None,
+    actor=None,
+    notes="",
+):
+    """Insert one ledger row. **The only place rows are created.**
 
-    Not a public function on purpose: a caller that could write an arbitrary entry could
-    move a balance without moving the period's totals, and the two are supposed to be
-    impossible to separate.
+    Exactly one of ``period`` and ``allowance`` is given, matching the
+    ``service_ledger_entry_has_exactly_one_target`` constraint in DDL. A period entry
+    derives its ``contract`` from the period; an allowance entry has no contract, which
+    is the isolation rule R6 describes expressed as a null column.
+
+    Named without a leading underscore only so that
+    ``plane.utils.service_allowance`` can use it -- **not** because it is part of any
+    API. A caller outside the domain layer that could write an arbitrary entry could
+    move a balance without moving the owning row's totals, and those two are supposed to
+    be impossible to separate. It stays the single writer precisely so that "no balance
+    moves without a row" (D23) keeps holding for the allowance as well as for the pool.
     """
+    if (period is None) == (allowance is None):
+        # Defence against a caller, not against data: the DDL constraint is what
+        # actually guarantees this. Raised here so the traceback points at the mistake
+        # rather than at a Postgres constraint name.
+        raise ValueError("A ledger entry targets exactly one of a period or an allowance")
+
+    owner = period if period is not None else allowance
+
     return ServiceHourLedgerEntry.objects.create(
-        workspace_id=period.workspace_id,
-        contract_id=period.contract_id,
+        workspace_id=owner.workspace_id,
+        contract_id=period.contract_id if period is not None else None,
         period=period,
+        allowance=allowance,
         origin_period=origin_period,
         hours=_quantize(hours),
         entry_type=entry_type,
@@ -472,17 +497,25 @@ def _lock_period(period):
 
 
 def _work_item_allowance(issue):
-    """The work item's own hour allowance, which takes precedence over the pool. Rule R6.
+    """The hour allowance that takes precedence over the pool. Rule R6, first level.
 
-    EXTENSION POINT -- Phase 5 owns the allowance entity and it does not exist yet, so
-    this is always ``None`` and the debit always falls through to the contract pool.
+    Kept as a named function here, rather than inlining the call, because R6 is a
+    *hierarchy* and the order is the part that is easy to get wrong later: allowance
+    first, then the contract pool, then a monetary charge, and **never two of them**.
+    This is the seam that keeps the order visible in ``apply_debit``.
 
-    It is a named function rather than a comment because R6 is a *hierarchy*, and the
-    order is the part that is easy to get wrong later: allowance first, then the
-    contract pool, then a monetary charge, and never two of them. Phase 5 replaces the
-    body; nothing else in this module needs to change.
+    Delegates to ``plane.utils.service_allowance.resolve_work_item_allowance``, which
+    resolves through the work item tree -- nearest ancestor with an allowance wins -- and
+    which returns an allowance **regardless of its status**. Filtering to open ones here
+    would let a closed allowance fall through to the contract pool, and that fallback is
+    what section 3 of the Phase 5 brief forbids outright.
+
+    The import is function level to keep the two domain modules from importing each other
+    at load time. Same pattern as ``update_contracted_hours`` and ``ServiceLog.delete``.
     """
-    return None
+    from plane.utils.service_allowance import resolve_work_item_allowance
+
+    return resolve_work_item_allowance(issue)
 
 
 def apply_debit(service_log, actor=None):
@@ -516,9 +549,17 @@ def apply_debit(service_log, actor=None):
     if service_log.debited_hours == ZERO_HOURS:
         return None
 
-    if _work_item_allowance(service_log.issue) is not None:
-        # Rule R6, first level. Unreachable until Phase 5 -- see `_work_item_allowance`.
-        return None
+    allowance = _work_item_allowance(service_log.issue)
+
+    if allowance is not None:
+        # Rule R6, first level. The work item -- or an ancestor of it -- has an allowance,
+        # so the allowance pays and the contract pool is **not** consulted at all. This
+        # `return` is what makes acceptance criterion 7 true in the code; the unique index
+        # on `(service_log, entry_type)` is what makes it true even if this line were
+        # wrong.
+        from plane.utils.service_allowance import debit_allowance
+
+        return debit_allowance(service_log, allowance, actor=actor)
 
     try:
         contract, _warning = resolve_contract(service_log.issue, service_log.worked_on)
@@ -545,7 +586,7 @@ def apply_debit(service_log, actor=None):
 
         try:
             with transaction.atomic():
-                entry = _write_entry(
+                entry = write_ledger_entry(
                     period=locked,
                     entry_type=ServiceLedgerEntryType.DEBIT,
                     hours=-service_log.debited_hours,
@@ -603,7 +644,14 @@ def reverse_debit(service_log, actor=None):
     a client has already been billed for. The caller decides what to do about that --
     ``ServiceLog.delete()`` lets the error propagate so the API can explain it, and the
     deletion cascade skips that work log and leaves it intact rather than deleting a row
-    whose money it cannot unwind.
+    whose money it cannot unwind. A **closed allowance** refuses for the same reason and
+    behaves the same way.
+
+    **Where the hours go is read off the ``DEBIT`` row, not resolved again.** A debit
+    names either a period or an allowance -- exactly one, by check constraint -- so this
+    dispatches on a column instead of re-asking rule R6. That is Phase 5's acceptance
+    criterion 6: deleting a work log gives the hours back to the allowance, never to the
+    contract.
     """
     debit = ServiceHourLedgerEntry.objects.filter(
         service_log_id=service_log.pk, entry_type=ServiceLedgerEntryType.DEBIT
@@ -619,6 +667,17 @@ def reverse_debit(service_log, actor=None):
     if existing is not None:
         return existing
 
+    if debit.allowance_id is not None:
+        # **The origin comes from the persisted debit, never from re-resolving R6**, and
+        # that is Phase 5's acceptance criterion 6 in one line. Re-resolving would send
+        # the hours to the contract pool the moment the allowance was closed, and to a
+        # different allowance the moment the work item was re-parented -- both of them
+        # silent, and both of them the wrong client's hours. One query, one row, and the
+        # answer is a column on it.
+        from plane.utils.service_allowance import reverse_allowance_debit
+
+        return reverse_allowance_debit(service_log, debit, actor=actor)
+
     with transaction.atomic():
         locked = _lock_period(debit.period)
 
@@ -632,7 +691,7 @@ def reverse_debit(service_log, actor=None):
 
         try:
             with transaction.atomic():
-                entry = _write_entry(
+                entry = write_ledger_entry(
                     period=locked,
                     entry_type=ServiceLedgerEntryType.REVERSAL,
                     hours=returned,
@@ -831,7 +890,7 @@ def _settle_deficit(period, contract, balance, settlement, actor):
         )
 
     if settlement == ServiceOverageSettlement.BILLED:
-        _write_entry(
+        write_ledger_entry(
             period=period,
             entry_type=ServiceLedgerEntryType.OVERAGE_BILLED,
             hours=owed,
@@ -850,7 +909,7 @@ def _settle_deficit(period, contract, balance, settlement, actor):
             {"period_id": str(period.pk), "deficit_hours": str(owed)},
         )
 
-    _write_entry(
+    write_ledger_entry(
         period=period,
         entry_type=ServiceLedgerEntryType.CARRY_OUT,
         hours=owed,
@@ -858,7 +917,7 @@ def _settle_deficit(period, contract, balance, settlement, actor):
         actor=actor,
         notes=f"Deficit de {owed}h transportado para {following.competence_label}",
     )
-    _write_entry(
+    write_ledger_entry(
         period=following,
         entry_type=ServiceLedgerEntryType.CARRY_IN,
         hours=-owed,
@@ -878,7 +937,7 @@ def _settle_surplus(period, contract, actor):
 
     for origin, hours in remaining_parcels(period):
         if _parcel_has_expired(contract, origin, period):
-            _write_entry(
+            write_ledger_entry(
                 period=period,
                 entry_type=ServiceLedgerEntryType.EXPIRED_BY_VALIDITY,
                 hours=-hours,
@@ -901,7 +960,7 @@ def _settle_surplus(period, contract, actor):
         # of contract" is a different fact from "the balance ran out of validity" and a
         # renewal negotiation turns on which one it was.
         for origin, hours in surviving:
-            _write_entry(
+            write_ledger_entry(
                 period=period,
                 entry_type=ServiceLedgerEntryType.EXPIRED_BY_CONTRACT_END,
                 hours=-hours,
@@ -917,7 +976,7 @@ def _settle_surplus(period, contract, actor):
         if hours <= 0:
             continue
 
-        _write_entry(
+        write_ledger_entry(
             period=period,
             entry_type=ServiceLedgerEntryType.CARRY_OUT,
             hours=-hours,
@@ -925,7 +984,7 @@ def _settle_surplus(period, contract, actor):
             actor=actor,
             notes=f"{hours}h da competencia {origin.competence_label} transportadas",
         )
-        _write_entry(
+        write_ledger_entry(
             period=following,
             entry_type=ServiceLedgerEntryType.CARRY_IN,
             hours=hours,
@@ -979,7 +1038,7 @@ def _apply_accrual_cap(period, contract, parcels, actor):
         origin, hours = trimmed[index]
         take = min(hours, excess)
 
-        _write_entry(
+        write_ledger_entry(
             period=period,
             entry_type=ServiceLedgerEntryType.EXPIRED_BY_CAP,
             hours=-take,
@@ -1036,7 +1095,7 @@ def update_contracted_hours(period, contracted_hours, actor):
         locked.contracted_hours = target
         save_with_config_activity(locked, actor=actor)
 
-        _write_entry(
+        write_ledger_entry(
             period=locked,
             entry_type=ServiceLedgerEntryType.GRANT,
             hours=delta,
@@ -1241,7 +1300,7 @@ def renew_expiring_balance(contract, *, actor):
 
             for origin, hours in remaining_parcels(locked):
                 expired.append(
-                    _write_entry(
+                    write_ledger_entry(
                         period=locked,
                         entry_type=ServiceLedgerEntryType.EXPIRED_BY_CONTRACT_END,
                         hours=-hours,
@@ -1283,20 +1342,21 @@ def end_and_create_successor(
     writes a ledger row naming who decided and when, which is criterion 20 applied to
     the path where hours are most likely to quietly vanish.
 
-    ``issue_allowance`` raises ``ISSUE_ALLOWANCE_NOT_AVAILABLE``. The allowance entity is
-    **Phase 5's**, and section 8c says to prepare and document the interface if that
-    phase is not built yet. The entry type ``CONVERTED_TO_ISSUE_ALLOWANCE`` and the
-    ``target_issue`` argument are both already here, so Phase 5 supplies a body rather
-    than a design. That leaves one third of criterion 17 open, and it is recorded as an
-    inherited criterion rather than ticked off.
+    ``issue_allowance`` credits the remaining balance into ``target_issue``'s allowance,
+    **parcel by parcel**, each ``CREDIT`` carrying the competency it came from in
+    ``origin_period``. That is what closes the third of criterion 17 that Phase 4 left
+    open: the destination existed as an interface -- the entry type, the argument, and an
+    explicit ``ISSUE_ALLOWANCE_NOT_AVAILABLE`` with HTTP 501 -- and Phase 5 supplied the
+    entity it needed.
+
+    Crediting per parcel rather than in one lump is deliberate: the hours arrive in the
+    allowance labelled with where they came from, so a client asking "where did these 12h
+    come from" is answered from the ledger instead of from a note.
     """
     from plane.utils.service_catalog import create_with_config_activity, save_with_config_activity
 
-    if balance_destination == BalanceDestination.ISSUE_ALLOWANCE:
-        raise ServicePoolValidationError(
-            ISSUE_ALLOWANCE_NOT_AVAILABLE,
-            {"target_issue_id": str(target_issue.pk) if target_issue else None},
-        )
+    if balance_destination == BalanceDestination.ISSUE_ALLOWANCE and target_issue is None:
+        raise ServicePoolValidationError(ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE, {})
 
     with transaction.atomic():
         successor = ServiceContract(
@@ -1322,6 +1382,7 @@ def end_and_create_successor(
             successor=successor,
             balance_destination=balance_destination,
             actor=actor,
+            target_issue=target_issue,
         )
 
         contract.status = ServiceContract.Status.ENDED
@@ -1330,8 +1391,15 @@ def end_and_create_successor(
     return successor, moved
 
 
-def _drain_open_periods(contract, *, successor, balance_destination, actor):
-    """Empty every open period of a contract into its successor, or write it off."""
+def _drain_open_periods(contract, *, successor, balance_destination, actor, target_issue=None):
+    """Empty every open period of a contract into its successor, or write it off.
+
+    Three destinations, and each parcel leaves with a ledger row naming who decided and
+    when -- criterion 20 applied to the path where hours are most likely to quietly
+    vanish.
+    """
+    from plane.utils.service_allowance import credit_allowance
+
     moved = []
     target = resolve_period(successor, successor.starts_on, actor=actor) if successor else None
 
@@ -1343,7 +1411,7 @@ def _drain_open_periods(contract, *, successor, balance_destination, actor):
         for origin, hours in remaining_parcels(locked):
             if balance_destination == BalanceDestination.TRANSFER:
                 moved.append(
-                    _write_entry(
+                    write_ledger_entry(
                         period=locked,
                         entry_type=ServiceLedgerEntryType.TRANSFERRED_TO_CONTRACT,
                         hours=-hours,
@@ -1355,7 +1423,7 @@ def _drain_open_periods(contract, *, successor, balance_destination, actor):
                         ),
                     )
                 )
-                _write_entry(
+                write_ledger_entry(
                     period=target,
                     entry_type=ServiceLedgerEntryType.CARRY_IN,
                     hours=hours,
@@ -1369,9 +1437,37 @@ def _drain_open_periods(contract, *, successor, balance_destination, actor):
                 ServiceContractPeriod.objects.filter(pk=target.pk).update(
                     carried_hours=F("carried_hours") + _quantize(hours)
                 )
+            elif balance_destination == BalanceDestination.ISSUE_ALLOWANCE:
+                # Criterion 17's third destination. The mirrored pair is the same shape as
+                # CARRY_OUT / CARRY_IN: the balance leaves the period as
+                # CONVERTED_TO_ISSUE_ALLOWANCE, and arrives in the allowance as a CREDIT
+                # whose `origin_period` still names the competency it came from.
+                moved.append(
+                    write_ledger_entry(
+                        period=locked,
+                        entry_type=ServiceLedgerEntryType.CONVERTED_TO_ISSUE_ALLOWANCE,
+                        hours=-hours,
+                        origin_period=origin,
+                        actor=actor,
+                        notes=(
+                            f"{hours}h da competencia {origin.competence_label} convertidas em "
+                            f"bolsa do chamado {target_issue.pk}"
+                        ),
+                    )
+                )
+                credit_allowance(
+                    target_issue,
+                    hours,
+                    actor=actor,
+                    origin_period=origin,
+                    credit_notes=(
+                        f"{hours}h da competencia {origin.competence_label} recebidas do "
+                        f"encerramento do contrato {contract.code}"
+                    ),
+                )
             else:
                 moved.append(
-                    _write_entry(
+                    write_ledger_entry(
                         period=locked,
                         entry_type=ServiceLedgerEntryType.EXPIRED_BY_CONTRACT_END,
                         hours=-hours,
@@ -1432,6 +1528,13 @@ def contract_balance_statement(contract):
     ]
 
 
+#: Which origin a work log on this work item would debit. Rule R6's hierarchy, named, so
+#: that a panel never has to infer it from which key came back null -- "no period" and
+#: "an allowance pays instead" are different facts and were previously the same payload.
+ORIGIN_ISSUE_ALLOWANCE = "issue_allowance"
+ORIGIN_CONTRACT_PERIOD = "contract_period"
+
+
 def issue_pool_snapshot(issue, worked_on=None):
     """The pool position a work item's panel shows. Section 7.
 
@@ -1439,18 +1542,41 @@ def issue_pool_snapshot(issue, worked_on=None):
     acumulado disponível" -- plus the resolution failure, when there is one, because a
     panel that simply shows nothing is indistinguishable from a client with no
     consumption.
+
+    **Asks rule R6 in R6's order.** When the work item, or an ancestor of it, has an
+    allowance, that allowance is what pays and the contract is not consulted at all --
+    which also means an allowance-funded work item in a project with no client resolves
+    cleanly instead of reporting ``NO_SERVICE_CLIENT_FOR_PROJECT``.
+
+    ``origin`` is always present and is the key a caller should branch on.
     """
     worked_on = worked_on or timezone.now().date()
+
+    from plane.utils.service_allowance import issue_allowance_snapshot
+
+    allowance = issue_allowance_snapshot(issue)
+
+    if allowance is not None:
+        return {
+            "origin": ORIGIN_ISSUE_ALLOWANCE,
+            "allowance": allowance,
+            "contract_id": None,
+            "contract_code": None,
+            "warning": None,
+            "period": None,
+        }
 
     try:
         contract, warning = resolve_contract(issue, worked_on)
     except ServicePoolValidationError as error:
-        return {"error": error.code, "detail": error.detail}
+        return {"origin": None, "allowance": None, "error": error.code, "detail": error.detail}
 
     period = resolve_period(contract, worked_on, materialize=False)
 
     if period is None:
         return {
+            "origin": ORIGIN_CONTRACT_PERIOD,
+            "allowance": None,
             "contract_id": str(contract.pk),
             "contract_code": contract.code,
             "warning": warning,
@@ -1458,6 +1584,8 @@ def issue_pool_snapshot(issue, worked_on=None):
         }
 
     return {
+        "origin": ORIGIN_CONTRACT_PERIOD,
+        "allowance": None,
         "contract_id": str(contract.pk),
         "contract_code": contract.code,
         "warning": warning,

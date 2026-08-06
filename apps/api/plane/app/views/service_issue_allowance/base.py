@@ -1,0 +1,211 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+"""The work item hour allowance, over HTTP. Phase 5, section 4.
+
+**Reading and writing are split by role, and the split is not cosmetic.** Crediting hours
+is a commercial act -- it is the moment somebody decides a project is worth 40 hours -- so
+it needs a **workspace ADMIN**, the same level every money-writing endpoint of the
+contract phase requires. A project ADMIN is not a workspace ADMIN in this fork.
+
+Reading is open to MEMBER as well, because section 4 puts the balance indicator on the
+work item and the technician about to log against it is exactly who needs to see it.
+
+GUEST is excluded from all of it, like every other work log endpoint in this feature: the
+payload carries debited hours and pool totals, and the client's own view is Phase 8's
+portal with its own serializer. Hiding it in the interface and sending it in the payload
+is the leak R11(b) names.
+"""
+
+# Third party imports
+from rest_framework import status
+from rest_framework.response import Response
+
+# Module imports
+from plane.app.permissions import ROLE, allow_permission
+from plane.app.serializers import (
+    ServiceHourLedgerEntrySerializer,
+    ServiceIssueAllowanceCreditSerializer,
+    ServiceIssueAllowanceSerializer,
+)
+from plane.db.models import Issue, ServiceIssueAllowance, Workspace
+from plane.utils.service_allowance import (
+    allowance_credits,
+    close_allowance,
+    credit_allowance,
+    issue_allowance_snapshot,
+    reconcile_allowance,
+    resolve_work_item_allowance,
+)
+from plane.utils.service_pool import ServicePoolValidationError
+from plane.utils.service_pool_alerts import evaluate_allowance, workspace_allowance_alerts
+
+from ..base import BaseAPIView
+
+
+def _not_found():
+    return Response(
+        {"error": "The required object does not exist."}, status=status.HTTP_404_NOT_FOUND
+    )
+
+
+class IssueServiceAllowanceEndpoint(BaseAPIView):
+    """Read the allowance on a work item, or credit hours into it. Section 4."""
+
+    def _issue(self, slug, project_id, issue_id):
+        return (
+            Issue.objects.filter(workspace__slug=slug, project_id=project_id, pk=issue_id)
+            .select_related("project")
+            .first()
+        )
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
+    def get(self, request, slug, project_id, issue_id):
+        """The allowance that pays for work on this work item, inherited or its own.
+
+        Resolves through the work item tree, so a sub-task reports the allowance that will
+        actually be debited -- flagged as inherited, with the ancestor it came from,
+        because a technician seeing 40h on a sub-task needs to know those hours belong to
+        the parent project.
+
+        ``null`` is a legitimate answer and means rule R6 falls through to the contract
+        pool. The work item's contract panel is the separate ``service-pool`` endpoint.
+        """
+        issue = self._issue(slug, project_id, issue_id)
+
+        if issue is None:
+            return _not_found()
+
+        allowance = resolve_work_item_allowance(issue)
+
+        if allowance is None:
+            return Response({"allowance": None}, status=status.HTTP_200_OK)
+
+        return Response(
+            {
+                "allowance": ServiceIssueAllowanceSerializer(allowance).data,
+                "summary": issue_allowance_snapshot(issue),
+                "alerts": evaluate_allowance(allowance),
+                "credits": allowance_credits(allowance),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug, project_id, issue_id):
+        """Credit hours, creating the allowance on the first one. Criteria 1 and 5.
+
+        Credits **this** work item, never an inherited ancestor's allowance: the Admin
+        named a work item and the hours go where they pointed. Crediting through
+        inheritance would put hours somewhere other than where they were aimed, which for
+        a commercial act is unacceptable even when it is usually what was meant. To top up
+        a parent project, credit the parent.
+        """
+        issue = self._issue(slug, project_id, issue_id)
+
+        if issue is None:
+            return _not_found()
+
+        serializer = ServiceIssueAllowanceCreditSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated = serializer.validated_data
+
+        try:
+            allowance = credit_allowance(
+                issue,
+                validated["hours"],
+                actor=request.user,
+                reference=validated.get("reference"),
+                notes=validated.get("notes"),
+            )
+        except ServicePoolValidationError as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                "allowance": ServiceIssueAllowanceSerializer(allowance).data,
+                "summary": issue_allowance_snapshot(issue),
+                "alerts": evaluate_allowance(allowance),
+                "credits": allowance_credits(allowance),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ServiceIssueAllowanceCloseEndpoint(BaseAPIView):
+    """Settle an allowance and stop it accepting movement. Section 3."""
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug, pk):
+        """Close it: bill the deficit, or write off the surplus.
+
+        Neither outcome is offered as a choice, and that is deliberate -- see
+        ``close_allowance``. The brief's other option for a deficit, crediting more hours,
+        is a credit **before** this call rather than a way of making it.
+
+        The reconciliation result comes back in the response. Closing is the one moment
+        the ledger has to sum to exactly zero, so this is the cheapest place to prove it
+        did, and an operator who closed a month sees immediately whether the numbers agree
+        instead of finding out when a client disputes an invoice.
+        """
+        allowance = (
+            ServiceIssueAllowance.objects.filter(workspace__slug=slug, pk=pk)
+            .select_related("issue")
+            .first()
+        )
+
+        if allowance is None:
+            return _not_found()
+
+        try:
+            closed = close_allowance(allowance, actor=request.user)
+        except ServicePoolValidationError as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                "allowance": ServiceIssueAllowanceSerializer(closed).data,
+                "reconciliation": reconcile_allowance(closed),
+                "entries": ServiceHourLedgerEntrySerializer(
+                    closed.ledger_entries.order_by("created_at"), many=True
+                ).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ServiceIssueAllowanceAlertPanelEndpoint(BaseAPIView):
+    """Work item allowances that need attention. Section 3.
+
+    A list of its own rather than an addition to
+    ``ServiceContractAlertPanelEndpoint``'s entries, because that structure is keyed by
+    contract and competency and an allowance has neither.
+
+    Open to members as well as admins, for the reason section 9 gives about the contract
+    panel: a technician about to take on more work on a project needs to know its
+    allowance is already spent.
+    """
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def get(self, request, slug):
+        workspace = Workspace.objects.filter(slug=slug).first()
+
+        if workspace is None:
+            return _not_found()
+
+        entries = workspace_allowance_alerts(
+            workspace.id, project_id=request.GET.get("project_id") or None
+        )
+
+        return Response(
+            {"entries": entries, "count": len(entries)},
+            status=status.HTTP_200_OK,
+        )

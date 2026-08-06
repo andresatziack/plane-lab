@@ -193,6 +193,10 @@ class ServiceHourLedgerEntrySerializer(BaseSerializer):
             "id",
             "contract",
             "period",
+            # Null on a period entry and set on a work item allowance entry -- exactly
+            # one of the two, by check constraint. Exposed so a statement can say which
+            # pool a movement belonged to without inferring it from the entry type.
+            "allowance",
             "origin_period",
             "origin_competence",
             "hours",

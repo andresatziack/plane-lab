@@ -273,6 +273,28 @@ class ServiceLog(ProjectBaseModel):
         blank=True,
     )
 
+    # The work item allowance this row debited instead, when rule R6's first level
+    # applied. Section 2 of the Phase 5 brief asks for it by name: "o apontamento
+    # persiste explicitamente qual origem foi debitada", because without it the Phase 9
+    # reports cannot separate project revenue from support consumption.
+    #
+    # **This and `debited_period` are mutually exclusive, and in DDL** -- see
+    # `service_log_debits_at_most_one_origin` below. Two nullable columns that could
+    # both be filled would be a state with no meaning, and criterion 7 forbids a partial
+    # debit against both origins. The constraint makes that unrepresentable rather than
+    # refused by a validation someone forgets to call, which is the reasoning of D5.
+    #
+    # Both null is legitimate and means one of three things, all recoverable rather than
+    # guessed: the route does not debit a pool, the debited hours are zero, or the
+    # contract configuration is absent (D27).
+    debited_allowance = models.ForeignKey(
+        "db.ServiceIssueAllowance",
+        on_delete=models.DO_NOTHING,
+        related_name="service_logs",
+        null=True,
+        blank=True,
+    )
+
     # ------------------------------------------------------------------- batching
 
     # Groups the segments that one submission produced (R10, and section 3 of the
@@ -352,6 +374,34 @@ class ServiceLog(ProjectBaseModel):
                     )
                 ),
                 name="service_log_debited_hours_follows_billing_route",
+            ),
+            # Rule R6, in DDL: "nunca debitar de dois lugares". The allowance and the
+            # competency period are the two origins, and a row may name at most one.
+            #
+            # Both null stays legal, and has to: it is what a non-billable row, a
+            # zero-hour row, and a row with no contract configured (D27) all look like.
+            # What this forbids is the one combination with no meaning.
+            models.CheckConstraint(
+                condition=~Q(debited_period__isnull=False, debited_allowance__isnull=False),
+                name="service_log_debits_at_most_one_origin",
+            ),
+            # Rule R5 again, from the other side, and Phase 5's acceptance criterion 9:
+            # a non-billable entry consumes **no** origin -- not a contract pool and not
+            # a work item allowance.
+            #
+            # The constraint above it already guarantees `debited_hours = 0` on a
+            # non-billable row, so a debit engine that read the column would move nothing.
+            # This one closes the remaining gap: a code path that stamped the origin
+            # without moving hours would leave the row *claiming* an allowance paid for
+            # it, which is what a Phase 9 report would then bill against. One direction
+            # only, deliberately -- a `DEBIT_POOL` row with no origin is the ordinary
+            # D27 case and must stay representable.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(applied_billing_route=ServiceBillingType.BillingRoute.NON_BILLABLE)
+                    | Q(debited_period__isnull=True, debited_allowance__isnull=True)
+                ),
+                name="service_log_non_billable_debits_no_origin",
             ),
         ]
 
