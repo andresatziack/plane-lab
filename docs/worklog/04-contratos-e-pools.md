@@ -120,7 +120,7 @@ deixe a interface preparada e documentada.
 
 ### 5. Motor de débito
 
-Ao salvar um apontamento cuja rota de faturamento é `DEBITA_POOL`:
+Ao salvar um apontamento cuja rota de faturamento é `DEBIT_POOL`:
 1. Resolver o Cliente a partir do **project** do work item (contexto mestre,
    seção 2b)
 2. Resolver o contrato: contrato fixado no project → contrato padrão do Cliente,
@@ -130,7 +130,7 @@ Ao salvar um apontamento cuja rota de faturamento é `DEBITA_POOL`:
 5. Persistir no apontamento a referência do período debitado e o multiplicador
    aplicado (regra R4)
 
-Apontamento com Garantia não debita (regra R5).
+Apontamento de rota `NON_BILLABLE` não debita (regra R5).
 Editar ou excluir um apontamento deve estornar e reaplicar o débito de forma
 transacional e idempotente. Nunca deixar saldo divergente.
 
@@ -211,7 +211,7 @@ período, para não virar ruído.
 2. Apontamento de `2h` com multiplicador 1.0 reduz o saldo do mês de 30h para
    28h
 3. Apontamento de `2h` com multiplicador 2.0 reduz o saldo em 4h, não 2h
-4. Apontamento com Garantia não altera o saldo
+4. Apontamento de rota `NON_BILLABLE` (Garantia ou Cortesia) não altera o saldo
 5. Cliente consome 22h de 30h em janeiro: fevereiro abre com 38h concedidas
 6. Com validade de saldo definida em 2 meses, o saldo de janeiro não utilizado
    expira no momento correto e não infla os meses seguintes

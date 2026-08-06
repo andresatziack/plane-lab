@@ -35,7 +35,7 @@ no momento do registro.
 
 ### 3. Cálculo do valor
 
-Para apontamento com rota de faturamento `FATURA_REAIS`:
+Para apontamento com rota de faturamento `BILL_AMOUNT`:
 
 ```
 valor = horas_equivalentes × valor_hora_base_do_cliente
@@ -49,15 +49,14 @@ valor = horas_apontadas × valor_absoluto_do_tipo
 
 Regras:
 - `Decimal`, duas casas, `ROUND_HALF_UP`
-- Garantia → valor R$ 0,00 (regra R5)
-- Rota `NAO_FATURAVEL` → valor R$ 0,00
+- Rota `NON_BILLABLE` (Garantia, Cortesia) → valor R$ 0,00 (regra R5)
 - Persistir no apontamento: valor/hora aplicado e valor calculado (snapshot)
 
 ### 4. Exibição
 
 - No work item de cliente avulso: valor por apontamento e **valor total**
 - Em cliente de contrato: não exibir valores em R$, apenas horas — exceto para
-  apontamentos com rota `FATURA_REAIS` lançados fora do escopo do contrato, e
+  apontamentos com rota `BILL_AMOUNT` lançados fora do escopo do contrato, e
   para excedente faturado
 - Valores visíveis apenas para papéis autorizados. Definir se técnico vê valor
   ou apenas Admin — recomendo que técnico veja apenas horas
@@ -121,7 +120,8 @@ calculadas.
    gera R$ 200,00
 2. O mesmo apontamento em Fora do expediente (1.5) gera R$ 300,00
 3. Apontamento de `1h 15min` em horário comercial gera R$ 250,00
-4. Apontamento com Garantia gera R$ 0,00 e aparece na lista como não cobrado
+4. Apontamento de rota `NON_BILLABLE` gera R$ 0,00 e aparece na lista como não
+   cobrado, com o Tipo de Atendimento identificado
 5. Override absoluto de R$ 350,00 em Domingos e feriados prevalece sobre o
    cálculo por multiplicador
 6. Reajustar o valor base do cliente não altera o valor de apontamentos já

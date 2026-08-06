@@ -86,7 +86,7 @@ Ainda **não** têm prompt escrito. Detalhamento e justificativa em
 |---|---|
 | `.kiro/steering/worklog-contexto.md` | **Contexto mestre.** 11 regras invioláveis, as 4 grandezas de tempo, a especificação de precisão numérica (seção 4b), arquitetura de Cliente, restrições técnicas reais do repositório. Carregado automaticamente |
 | `ACHADOS-DO-CODIGO.md` | Auditoria do fork em 14 seções, com arquivo e linha. Papéis reais, flags mortas, padrões de model/API/teste, stack de gráficos |
-| `DECISOES.md` | As 19 decisões de negócio tomadas, com o registro de por que três delas mudaram a arquitetura |
+| `DECISOES.md` | As 20 decisões de negócio tomadas, com o registro de por que quatro delas mudaram a arquitetura |
 | `OPORTUNIDADES.md` | Ganchos mortos no fork (resquícios da edição paga) e lacunas do escopo, com prioridade |
 
 ---

@@ -31,7 +31,7 @@ consumido.
 ### 2. Precedência sobre o contrato
 
 Regra R6 do contexto mestre, reforçada: se o work item tem bolsa ativa, todo
-apontamento de rota `DEBITA_POOL` naquele chamado debita a bolsa e **nunca** o
+apontamento de rota `DEBIT_POOL` naquele chamado debita a bolsa e **nunca** o
 pool do contrato. Sem débito parcial nos dois.
 
 O apontamento persiste explicitamente qual origem foi debitada — bolsa do work
@@ -72,7 +72,7 @@ mecanismo de lançamento de excedente da Fase 6.
 6. Excluir apontamento devolve as horas à bolsa, não ao contrato
 7. Estourar a bolsa não debita do contrato em nenhuma circunstância
 8. Apontamento com multiplicador 2.0 consome o dobro da bolsa
-9. Apontamento de garantia não consome bolsa
+9. Apontamento de rota `NON_BILLABLE` não consome bolsa
 
 ## Entregar
 

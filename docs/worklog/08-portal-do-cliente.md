@@ -90,7 +90,7 @@ o apontamento original do técnico.
 | Tipo de Hora (rótulo, ex.: "Fora do expediente") | sim |
 | Descrição do apontamento | sim |
 | Autor e data | sim |
-| Flag de Garantia | sim, com `0h` descontado |
+| Tipo de Atendimento (rótulo, ex.: "Garantia") | sim, com `0h` descontado |
 | Duração bruta digitada pelo técnico | **não** |
 | Horas apontadas (pós-arredondamento) | **não** |
 | Multiplicador numérico | **não** |
@@ -109,9 +109,10 @@ contrato" ou "Horas faturadas", **nunca** "Horas trabalhadas". O rótulo errado
 transforma uma cláusula contratual legítima em suspeita de inflação de horas, e
 gera exatamente a ligação de cliente que essa feature deveria evitar.
 
-**Garantia.** Aparece na lista como esforço realizado com `0h` descontado, com
-selo visível. É a cortesia que você concedeu — deve estar visível para o cliente,
-não escondida.
+**Apontamento não faturável.** Garantia e Cortesia aparecem na lista como
+esforço realizado com `0h` descontado, com o rótulo do Tipo de Atendimento
+visível. É a concessão que você fez — deve estar visível para o cliente, não
+escondida.
 
 ### 4. Ações permitidas ao usuário do cliente
 

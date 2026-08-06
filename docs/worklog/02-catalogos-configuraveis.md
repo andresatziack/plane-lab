@@ -34,8 +34,8 @@ Ex.: Contrato, Avulso, Cortesia, Projeto.
 
 Campos:
 - Nome e descrição
-- **Rota de faturamento** — enum: `DEBITA_POOL`, `FATURA_REAIS`,
-  `NAO_FATURAVEL`. Este campo é o que decide, no momento do apontamento, para
+- **Rota de faturamento** — enum: `DEBIT_POOL`, `BILL_AMOUNT`,
+  `NON_BILLABLE`. Este campo é o que decide, no momento do apontamento, para
   onde o tempo vai. É o coração da regra R6.
 - Ordem, ativo/inativo, flag de padrão
 
@@ -116,4 +116,5 @@ nunca seriam verificados: a Fase 2 não consegue e a Fase 3 não saberia que exi
 
 Modelo de dados primeiro. Incluir seed com os valores iniciais: Horário
 comercial (1.0), Fora do expediente (1.5), Domingos e feriados (2.0); Contrato
-(DEBITA_POOL), Avulso (FATURA_REAIS), Cortesia (NAO_FATURAVEL).
+(DEBIT_POOL, padrão), Avulso (BILL_AMOUNT), Garantia (NON_BILLABLE) e Cortesia
+(NON_BILLABLE) — ver R5 do contexto mestre para a distinção entre os dois últimos.
