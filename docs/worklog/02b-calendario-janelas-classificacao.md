@@ -2,7 +2,11 @@
 
 > O contexto mestre (`.kiro/steering/worklog-contexto.md`) é incluído
 > automaticamente neste repositório. Depende da Fase 2.
-> Todas as decisões desta fase estão resolvidas (D8, D13, D14, D16, D17).
+> Decisões desta fase: D8, D13, D14, D16 e D17 vinham resolvidas; **D21 e D22 foram
+> decididas aqui** e estão registradas em `DECISOES.md`.
+>
+> **Implementada depois da Fase 3**, que foi executada fora de ordem. Por isso esta fase
+> fecha também os critérios 8 e 9 da Fase 3 — ver "Critérios herdados da Fase 3".
 
 ## Objetivo
 
@@ -263,28 +267,164 @@ sugestão original e escolha final na auditoria.
 
 ## Critérios de aceite
 
+Status registrado após a implementação. **Os dezessete estão atendidos.**
+
 1. Admin cadastra 25/12 como feriado recorrente e ele aparece em todos os anos
+   — **atendido.** `ServiceHoliday.matches()` é o único lugar que interpreta
+   recorrência, e o endpoint `calendar/?year=` expande. Testado no motor e por HTTP
 2. Admin cadastra o Carnaval de um ano específico, sem recorrência, e ele não
-   aparece no ano seguinte
-3. Todos os cenários da tabela da seção 4 passam
-4. Sábado é classificado como 1.5 e domingo como 2.0
-5. Feriado em dia útil vence a janela do dia da semana
+   aparece no ano seguinte — **atendido**, nos dois níveis
+3. Todos os cenários da tabela da seção 4 passam — **atendido.** Os doze são testes
+   nomeados em `test_service_calendar_engine.py`, mais os quatro limites exatos
+4. Sábado é classificado como 1.5 e domingo como 2.0 — **atendido**
+5. Feriado em dia útil vence a janela do dia da semana — **atendido.** O escopo
+   `FERIADO` é **aditivo** ao dia da semana e vence por prioridade, não substituindo o
+   dia — é isso que permite criar "Plantão de madrugada" na prioridade 15 sem deploy
 6. Apontamento que atravessa a meia-noite sem mudar de classificação não é
-   dividido
+   dividido — **atendido.** A união de segmentos compara só o Tipo de Hora, então
+   entrar na janela idêntica do dia seguinte continua sendo um segmento
 7. Apontamento que atravessa a virada do mês gera segmentos com datas — e
-   competências — corretas
-8. Modo Duração nunca gera divisão
+   competências — corretas — **atendido**
+8. Modo Duração nunca gera divisão — **atendido**, e a regra é do adaptador
+   `build_segments`, não do motor: ele descarta os horários antes de classificar, para
+   que não exista caminho pelo qual o motor possa dividir o que a D13 proíbe
 9. Modo Duração em dia útil deixa o Tipo de Hora para o técnico escolher
+   — **atendido**, e agora por regra e não por acidente. Existe teste de controle
+   positivo (`test_the_tuesday_case_is_a_rule_and_not_a_missing_configuration`) na
+   mesma fixture, porque "sem sugestão" também é o que um motor quebrado produz
 10. Seg 17:50–18:10 gera 2 apontamentos de 15 min cada, com o total exibido antes
-    de salvar
+    de salvar — **atendido.** A divisão é desta fase, o arredondamento por segmento é
+    da Fase 3, e o teste cobre a composição das duas
 11. Seg 17:57–18:03 gera **1** apontamento de 15 min, sem divisão (guardrail)
+    — **atendido.** O motor divide e o `apply_minimum_block_guardrail` da Fase 3
+    recolhe; o teste tem esse nome porque a ordem importa
 12. Cadastro de janelas com sobreposição no mesmo nível de prioridade é rejeitado
+    — **atendido**, e escopado por `(escopo do dia, prioridade)`: por prioridade
+    apenas, segunda 08:00–18:00 e terça 08:00–18:00 seriam falsamente acusadas.
+    Verificado também que a janela recusada faz rollback junto com sua trilha
 13. Admin cria um Tipo de Hora novo com janela e prioridade próprias pelo painel,
-    e o motor passa a usá-lo sem alteração de código
+    e o motor passa a usá-lo sem alteração de código — **atendido**, e testado de
+    ponta a ponta: cria por HTTP, depois chama o motor. Foi esse teste que revelou que
+    `priority` não estava no serializer — os testes de motor criavam pela ORM e não
+    conseguiam ver a falha
 14. Técnico sobrescreve a classificação e a auditoria registra sugestão e escolha
+    — **atendido.** O gerador `service_log.activity.overridden` existia desde a Fase 3
+    sem poder disparar, porque sem sugestão não havia divergência
 15. Alterar janelas ou calendário não reclassifica nenhum apontamento existente
-16. A UI exibe o motivo de cada segmento
+    — **atendido** (R4). A classificação é resolvida na escrita e congelada em
+    `applied_multiplier`, `suggested_hour_type` e `classification_reason`
+16. A UI exibe o motivo de cada segmento — **atendido.** O motivo vem do servidor,
+    por segmento, na lista e no preview
 17. Não existe entidade de jornada de trabalho por técnico no modelo de dados
+    — **atendido.** As janelas são do workspace e valem para todos os técnicos
+
+### Uma consequência que ficou fora dos critérios
+
+A cobertura é uma **catraca** — "um conjunto completo nunca pode ficar incompleto" —
+e não uma exigência absoluta. Exigir cobertura total sempre tornaria impossível criar
+a primeira janela de um workspace montado à mão, e impossível **consertar** um
+workspace já quebrado: o admin ficaria trancado fora da única tela capaz de corrigir.
+Sobreposição, ao contrário, é sempre recusada: não há desculpa transitória para duas
+janelas entre as quais não existe regra de decisão.
+
+Isso significa que um workspace pode legitimamente ficar incompleto, e é por isso que
+o motor é **total** — nunca levanta exceção num instante descoberto, devolve
+`suggested_hour_type=None` com o motivo. A R10 diz que classificação é conveniência e
+não trava, e a D4/D9 proíbem bloquear trabalho já executado: uma configuração ruim não
+pode impedir todo o apontamento do workspace. O indicador de saúde do painel existe
+como o outro lado disso — mostra **quais** escopos e **quais** faixas estão
+descobertos, porque um estado incompleto invisível só reapareceria como um Tipo de Hora
+em branco no formulário, onde ninguém ligaria as duas coisas.
+
+### Limitação conhecida: horário de verão
+
+Documentada como limitação de **configuração**, não de impossibilidade geográfica:
+`Workspace.timezone` aceita qualquer fuso, inclusive um com DST. Num dia de avanço do
+relógio, a janela 18:00→08:00 tem 13 horas de relógio de parede em vez de 14, e um
+apontamento que atravessa a transição recebe a duração de um segmento errada em uma
+hora — um erro **financeiro**, pequeno e raro. Não foi corrigido; foi **fixado por
+teste de caracterização** (`TestDaylightSaving`, com fixture em Lisboa), do tipo
+`assert total == 240, "se isto agora é 180, o DST foi tratado"`. O teste falha no dia
+em que alguém implementar o tratamento, que é exatamente quando se quer ser avisado.
+
+## Critérios herdados da Fase 3: dois que só podiam ser fechados aqui
+
+A Fase 3 foi implementada **fora de ordem** — o `README.md` declara que ela depende
+desta fase — e por isso dois dos seus dezesseis critérios ficaram registrados como
+**BLOQUEADOS na Fase 2b** em `03-worklog-core.md`. Eles dependem do motor de
+classificação, que é entrega desta fase, e são responsabilidade dela.
+
+**Os dois foram fechados aqui.**
+
+| Critério da Fase 3                                                                                                                                       | O que faltava                                                                                                                                                            | Status                                                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| 8 — "apontamento em data de feriado já abre com 'Domingos e feriados' pré-selecionado e o motivo visível, nos dois modos de entrada"                     | o calendário, a janela, `priority` e o motor. O modelo já tinha `suggested_hour_type`, `is_hour_type_overridden` e `classification_reason` esperando quem os preenchesse | **atendido** — e nos dois modos, com o motivo nomeando o feriado                                        |
+| 9 — "intervalo de segunda-feira 17:00 às 20:00 cria 2 apontamentos agrupados: 1h Horário comercial e 2h Fora do expediente, com preview antes de salvar" | quem decidisse **onde** cortar. O lote, o `batch_id`, o arredondamento por segmento, o guardrail e o preview de N segmentos já estavam prontos e testados                | **atendido** — 2 segmentos, um `batch_id`, e o preview conferido campo por campo contra o que foi salvo |
+
+Onde estão fechados: `plane/tests/contract/app/test_service_log_classification_app.py`,
+12 testes, por HTTP e de ponta a ponta.
+
+Três observações sobre **como** foram fechados, porque cada uma responde a um jeito de
+fechar mal:
+
+1. **Arquivo separado, fixture oposta.** As fixtures de `test_service_log_app.py`
+   constroem Tipos de Hora à mão, sem janela e sem prioridade — que é a cara de um
+   workspace antes desta fase — e continuam assim de propósito: parser, arredondamento
+   e totais **não devem** depender de calendário, e aqueles testes são o que afirma
+   isso. Misturar os dois deixaria ambíguo qual teste depende de qual estado.
+
+2. **A fixture semeia as janelas explicitamente e depois afirma o que semeou** — e
+   afirma as **janelas específicas** de que os testes dependem, não uma contagem. Treze
+   janelas podem ser treze pelos motivos errados, enquanto "segunda é comercial das
+   08:00 às 18:00 e fora do expediente a partir das 18:00" é precisamente a
+   configuração que faz o corte das 17:00–20:00 cair onde o critério 9 manda. Ler o que
+   o workspace por acaso tivesse é como um teste de classificação passa sem
+   classificador: sem janela não há sugestão, e "sem sugestão" é também o que um motor
+   quebrado produz. Verificado por sabotagem — removida a janela de segunda do seed, os
+   12 testes falham nomeando a janela ausente, em vez de ficarem verdes.
+
+3. **Controle positivo para a divisão.** `test_an_evening_that_does_not_cross_a_border_stays_one_log`
+   existe porque uma suíte em que _todo_ intervalo produzisse dois segmentos — por
+   cortar em algo que não é a fronteira das 18:00 — seria indistinguível desta passando.
+
+Ao fechar os dois, os critérios 8 e 9 da Fase 3 estão marcados como atendidos em
+`03-worklog-core.md`, apontando para cá.
+
+## Fora do escopo original: a coluna `verb` na trilha de auditoria
+
+Esta fase acrescentou `verb` a `ServiceConfigActivity` (migração 0127), o que **não
+estava no briefing**. O motivo:
+
+`ChangeTrackerMixin` estruturalmente não emite evento de criação nem de exclusão, só de
+alteração de campo rastreado. Para os catálogos da Fase 2 isso bastava — o evento
+financeiro ali é **editar** o multiplicador. Para feriado e janela a relação **se
+inverte**: criar e excluir _são_ os eventos financeiros. Cadastrar 15/03 como feriado
+dobra a fatura daquele dia sem que campo nenhum de linha existente mude, e sem `verb`
+esse cadastro não apareceria em lugar nenhum da trilha.
+
+`created_by` / `deleted_at` na própria entidade não substituem: quem está sob pressão
+porque o cliente contestou a fatura tem de ler **um** lugar, e o endpoint de auditoria
+não mostraria nada.
+
+Três decisões dentro dela:
+
+- **Não nullable, com back-fill para `updated`.** Uma coluna de auditoria nullable
+  obriga todo consumidor a tratar o nulo, e o nulo codificaria um palpite. O back-fill
+  é **fato, não chute**: toda linha existente veio do `ChangeTrackerMixin`, que só
+  dispara em edição.
+- **`field_name` passou a nullable, com `CheckConstraint`** admitindo exatamente as três
+  formas coerentes (`updated` exige `field_name` + os dois valores; `created` põe o
+  resumo em `new_value`; `deleted` põe em `old_value`).
+- **Uma linha por criação ou exclusão**, não uma por campo. O resumo é legível e contém
+  o que muda o cálculo — para feriado ele **precisa** incluir a recorrência, para a
+  trilha distinguir "cadastrou o Natal de 2027" de "cadastrou o Natal para sempre".
+
+> **Consequência a registrar, porque ela cobra o preço em outra fase.** Exigir
+> `old_value` e `new_value` não nulos em `updated` é seguro hoje porque todo
+> `TRACKED_FIELDS` é campo de modelo não nulo. Uma fase futura que rastreie um campo
+> **nullable** — o preço sobrescrito opcional da Fase 6 é o caso concreto — violaria a
+> constraint no momento da escrita. As três saídas estão listadas no comentário da
+> constraint, em `plane/db/models/service_config_activity.py`.
 
 ## Entregar
 

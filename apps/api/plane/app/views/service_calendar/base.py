@@ -34,7 +34,7 @@ from plane.utils.service_catalog import (
     save_with_config_activity,
 )
 
-from ..base import BaseAPIView, BaseViewSet
+from ..base import BaseViewSet
 
 #: How far the annual calendar will look. Guards against `?year=999999` turning the
 #: recurrence expansion into a denial of service.

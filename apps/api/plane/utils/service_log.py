@@ -228,8 +228,13 @@ def resolve_segment_hour_type(segment, *, override=None):
     the two genuinely differ. Overriding a suggestion with the same value is not an
     override.
 
-    Raises when neither exists, which today is any entry where the technician did not
-    choose: no engine runs yet, so there is never a suggestion to fall back on.
+    Raises when neither exists. Before the calendar and windows phase that was every
+    entry where the technician did not choose, because no engine ran and there was never
+    a suggestion to fall back on. Now it means the instant is genuinely unclassified --
+    an uncovered range, which the coverage ratchet permits -- and the technician has to
+    pick. The engine is total and returns ``None`` with a reason instead of raising, so
+    this is the only place the missing choice becomes an error, and it is a 400 rather
+    than a crash.
     """
     suggested = segment.suggested_hour_type
     final = override or suggested

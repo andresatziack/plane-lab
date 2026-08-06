@@ -16,9 +16,16 @@ Walks the acceptance criteria of this phase that are reachable over HTTP:
 * 15 -- a later multiplier change does not move an existing log
 * 16 -- an edit recalculates the totals and records the change
 
-Criteria 8, 9 and 10 depend on the classification engine of the calendar and windows
-phase, which does not exist. 10 passes today as a side effect of there being no engine
-(the technician chooses); 8 and 9 cannot be tested yet.
+Criteria 8 and 9 depend on the classification engine of the calendar and windows phase.
+They are closed in `test_service_log_classification_app.py`, which is a separate file
+because it needs the opposite fixture: the hour types below are built by hand, with no
+windows and no priority, and they stay that way deliberately. The parser, the rounding
+and the totals must not depend on a calendar, and these tests are what says so.
+
+Criterion 10 -- duration mode on a weekday leaves the choice to the technician -- passes
+here and passes there. It used to pass as a side effect of there being no engine at all;
+it now passes because R10 requires a weekday in duration mode to carry no suggestion,
+which is a rule rather than an accident.
 """
 
 from decimal import Decimal

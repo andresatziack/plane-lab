@@ -2,24 +2,24 @@
 
 ## Resolvidas — todas incorporadas aos prompts
 
-| # | Decisão | Onde foi aplicada |
-|---|---|---|
-| D1 | Duração abaixo de 6 min arredonda para o **piso de 15 min** | R2 do contexto mestre |
-| D2 | Arredondamento **no meio do bloco** (7min30s), empate para cima | R2, tabela de testes |
-| D3 | Saldo não utilizado **acumula** para os meses seguintes | Fase 4, seção 3 |
-| D4 | Saldo **pode ficar negativo**, sem bloquear. Ao fechar o mês, Admin escolhe transportar o déficit ou **faturar o excedente em R$** | Fase 4 seção 4, Fase 6 seção 6 |
-| D6 | Preço avulso = **valor/hora base × multiplicador**, com override absoluto opcional | Fase 6, seção 1 |
-| D7 | **O Cliente define o padrão** de Tipo de Atendimento; o apontamento pode sobrescrever | Fase 2, seção 3 |
-| D8 | Feriados e horários cadastráveis no painel; classificação automática; modo de entrada por hora início/fim | Fase 2b + Fase 3 |
-| D9 | Contrato vencido: **permitir, alertar e sinalizar** no relatório. Nunca descartar registro por pendência comercial | Fase 4, seção 1 |
-| D10 | **Sem workflow de aprovação** de timesheet. Fica o travamento de período | Fase 4, seção 6 |
-| D11 | Usuário de cliente pode responder por **mais de uma empresa** (matriz e filial). Implementado via participação em múltiplos projects — **ver D19**, que substituiu a tabela de associação | Fase 1 seção 2, Fase 8 seção 2 |
-| D12 | **Sem migração** agora, mas com campo de origem no apontamento desde já | Fase 3, seção 4 |
-| D13 | **Divisão em segmentos apenas no modo Intervalo.** No modo Duração o técnico seleciona o tipo | R10, Fase 2b seções 3 e 4, Fase 3 seção 3 |
-| D14 | Calendário de feriados **único no workspace**, campo de abrangência no modelo sem lógica de filtro | Fase 2b, seção 1 |
-| D15 | Três caminhos de renovação, incluindo **converter saldo em bolsa de horas de um chamado**. Teto de acúmulo + alertas de alto e baixo consumo | Fase 4 seções 3, 8 e 9; Fase 9 seção 3b |
-| D16 | **Não existe jornada por técnico.** As janelas de classificação do workspace são a única fonte da verdade | Fase 2b, requisito negativo explícito |
-| D17 | **Arredondar por segmento**, com guardrail para lançamentos abaixo de 15 min | Fase 2b, seção 6 |
+| #   | Decisão                                                                                                                                                                                   | Onde foi aplicada                         |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| D1  | Duração abaixo de 6 min arredonda para o **piso de 15 min**                                                                                                                               | R2 do contexto mestre                     |
+| D2  | Arredondamento **no meio do bloco** (7min30s), empate para cima                                                                                                                           | R2, tabela de testes                      |
+| D3  | Saldo não utilizado **acumula** para os meses seguintes                                                                                                                                   | Fase 4, seção 3                           |
+| D4  | Saldo **pode ficar negativo**, sem bloquear. Ao fechar o mês, Admin escolhe transportar o déficit ou **faturar o excedente em R$**                                                        | Fase 4 seção 4, Fase 6 seção 6            |
+| D6  | Preço avulso = **valor/hora base × multiplicador**, com override absoluto opcional                                                                                                        | Fase 6, seção 1                           |
+| D7  | **O Cliente define o padrão** de Tipo de Atendimento; o apontamento pode sobrescrever                                                                                                     | Fase 2, seção 3                           |
+| D8  | Feriados e horários cadastráveis no painel; classificação automática; modo de entrada por hora início/fim                                                                                 | Fase 2b + Fase 3                          |
+| D9  | Contrato vencido: **permitir, alertar e sinalizar** no relatório. Nunca descartar registro por pendência comercial                                                                        | Fase 4, seção 1                           |
+| D10 | **Sem workflow de aprovação** de timesheet. Fica o travamento de período                                                                                                                  | Fase 4, seção 6                           |
+| D11 | Usuário de cliente pode responder por **mais de uma empresa** (matriz e filial). Implementado via participação em múltiplos projects — **ver D19**, que substituiu a tabela de associação | Fase 1 seção 2, Fase 8 seção 2            |
+| D12 | **Sem migração** agora, mas com campo de origem no apontamento desde já                                                                                                                   | Fase 3, seção 4                           |
+| D13 | **Divisão em segmentos apenas no modo Intervalo.** No modo Duração o técnico seleciona o tipo                                                                                             | R10, Fase 2b seções 3 e 4, Fase 3 seção 3 |
+| D14 | Calendário de feriados **único no workspace**, campo de abrangência no modelo sem lógica de filtro                                                                                        | Fase 2b, seção 1                          |
+| D15 | Três caminhos de renovação, incluindo **converter saldo em bolsa de horas de um chamado**. Teto de acúmulo + alertas de alto e baixo consumo                                              | Fase 4 seções 3, 8 e 9; Fase 9 seção 3b   |
+| D16 | **Não existe jornada por técnico.** As janelas de classificação do workspace são a única fonte da verdade                                                                                 | Fase 2b, requisito negativo explícito     |
+| D17 | **Arredondar por segmento**, com guardrail para lançamentos abaixo de 15 min                                                                                                              | Fase 2b, seção 6                          |
 
 Nenhuma decisão bloqueia a implementação. Os prompts estão prontos para uso.
 
@@ -101,14 +101,14 @@ de participação em cada um.
 
 O que isso resolve:
 
-| Problema | Como o desenho anterior resolvia | Como resolve agora |
-|---|---|---|
-| Isolamento entre clientes | Filtro de queryset customizado em cada endpoint | Mecanismo nativo do Plane |
-| Vínculo usuário↔Cliente | Tabela de associação N:N própria | Derivado da participação nos projects |
-| Troca de portal (Marcel) | Seletor de empresa customizado | Seletor de project nativo |
-| Qual Cliente é o chamado | Campo editável, com risco de ficar errado | Derivado do project, impossível divergir |
-| Ambiguidade do usuário multi-empresa | Seleção obrigatória na abertura | Deixa de existir: o chamado nasce num project |
-| Relatório cross-cliente | — | Admin e Member enxergam todos os projects |
+| Problema                             | Como o desenho anterior resolvia                | Como resolve agora                            |
+| ------------------------------------ | ----------------------------------------------- | --------------------------------------------- |
+| Isolamento entre clientes            | Filtro de queryset customizado em cada endpoint | Mecanismo nativo do Plane                     |
+| Vínculo usuário↔Cliente              | Tabela de associação N:N própria                | Derivado da participação nos projects         |
+| Troca de portal (Marcel)             | Seletor de empresa customizado                  | Seletor de project nativo                     |
+| Qual Cliente é o chamado             | Campo editável, com risco de ficar errado       | Derivado do project, impossível divergir      |
+| Ambiguidade do usuário multi-empresa | Seleção obrigatória na abertura                 | Deixa de existir: o chamado nasce num project |
+| Relatório cross-cliente              | —                                               | Admin e Member enxergam todos os projects     |
 
 Onde foi aplicada: contexto mestre seção 2b; Fase 1 reescrita; Fase 8 reescrita;
 Fase 4 seções 1b e 5; Fase 9 seções 1b, 1c e 3c.
@@ -143,7 +143,6 @@ já assumido:
 2. ~~Fase 8, investigação sobre papéis customizados~~ — **respondido pela
    auditoria do fork.** Não existem papéis customizados nem papel Commenter; o
    caminho é estender o GUEST. Ver a seção seguinte.
-
 
 ---
 
@@ -198,7 +197,6 @@ foi reescrita com a estrutura real.
    e a de maior risco de segurança se implementada na ordem errada — a allowlist de
    campos precisa vir **antes** de incluir GUEST no `partial_update`.
 
-
 ---
 
 ## D20 — A flag booleana `garantia` foi eliminada
@@ -215,10 +213,10 @@ de faturamento é um eixo único e precisa de um mecanismo único.
 exclusivamente por `ServiceBillingType.billing_route == NON_BILLABLE`, e o seed
 traz **dois tipos distintos** com essa rota:
 
-| Tipo | Significado | O que um volume alto indica |
-|---|---|---|
+| Tipo         | Significado                                                  | O que um volume alto indica          |
+| ------------ | ------------------------------------------------------------ | ------------------------------------ |
 | **Garantia** | retrabalho — o serviço já foi cobrado e você está corrigindo | problema de qualidade na sua entrega |
-| **Cortesia** | decisão comercial de não cobrar | desconto concedido |
+| **Cortesia** | decisão comercial de não cobrar                              | desconto concedido                   |
 
 **Por que não fundir os dois num só.** São o mesmo mecanismo mas informações
 diferentes, com ações de gestão opostas. Um mês com 20h de garantia é um problema
@@ -245,7 +243,59 @@ Os documentos citavam os valores da rota de faturamento em português
 convenção da casa, com valores em inglês. Os documentos foram alinhados ao código:
 
 | Nos documentos (antes) | No código (`ServiceBillingType.BillingRoute`) |
-|---|---|
-| `DEBITA_POOL` | `DEBIT_POOL` = `"debit_pool"` |
-| `FATURA_REAIS` | `BILL_AMOUNT` = `"bill_amount"` |
-| `NAO_FATURAVEL` | `NON_BILLABLE` = `"non_billable"` |
+| ---------------------- | --------------------------------------------- |
+| `DEBITA_POOL`          | `DEBIT_POOL` = `"debit_pool"`                 |
+| `FATURA_REAIS`         | `BILL_AMOUNT` = `"bill_amount"`               |
+| `NAO_FATURAVEL`        | `NON_BILLABLE` = `"non_billable"`             |
+
+## D21 e D22 — decididas na Fase 2b, porque só ali se tornaram inevitáveis
+
+### D21 — A cobertura da semana é uma **catraca**, e o motor é **total**
+
+A Fase 2b pedia que "o conjunto total deve cobrir 100% da semana" e que um instante sem
+classificação fosse "impedido no cadastro". Implementado, mas com duas restrições que o
+texto original não previa:
+
+**A cobertura é verificada como catraca: um conjunto completo nunca pode ficar
+incompleto.** Exigi-la incondicionalmente tornaria impossível criar a _primeira_ janela
+de um workspace montado à mão, e impossível **consertar** um workspace já quebrado — o
+admin ficaria trancado fora da única tela capaz de corrigir. Um workspace semeado nasce
+completo, então na prática toda instalação está protegida desde o primeiro dia.
+Sobreposição no mesmo par `(escopo do dia, prioridade)`, ao contrário, é **sempre**
+recusada: não existe desculpa transitória para duas janelas entre as quais não há regra
+de decisão.
+
+**Em consequência, o motor é total: nunca levanta exceção.** Num instante descoberto
+devolve `suggested_hour_type=None` com o motivo. A R10 diz que a classificação é
+conveniência e não trava, e a D4 e a D9 estabelecem que nada bloqueia trabalho já
+executado por pendência de configuração ou de contrato. Um motor que estourasse numa
+faixa descoberta faria uma configuração ruim parar **todo** o apontamento do workspace.
+
+O preço disso é que "incompleto" passa a ser um estado real e precisa ser visível: o
+indicador de saúde do painel diz **quais** escopos e **quais** faixas estão descobertos.
+"Incompleto" sozinho não dá ao admin nada em que agir, e um estado incompleto invisível
+só reapareceria como um Tipo de Hora em branco no formulário, onde ninguém ligaria as
+duas coisas.
+
+### D22 — A trilha de configuração ganhou `verb`, não nullable
+
+Para os catálogos da Fase 2, o evento financeiro é **editar** — um multiplicador que
+muda. Para feriado e janela a relação **se inverte**: criar e excluir _são_ os eventos
+financeiros, porque cadastrar 15/03 como feriado dobra a fatura daquele dia sem que
+campo nenhum de linha existente mude. `ChangeTrackerMixin` estruturalmente não emite
+evento de criação nem de exclusão, então sem `verb` esses eventos não apareceriam em
+lugar nenhum da trilha.
+
+`created_by` e `deleted_at` na própria entidade **não** substituem: quem está sob pressão
+porque o cliente contestou a fatura tem de ler **um** lugar, e o endpoint de auditoria
+não mostraria nada.
+
+A coluna é **não nullable, com back-fill para `updated`**. O back-fill é fato e não
+palpite — toda linha existente veio do `ChangeTrackerMixin`, que só dispara em edição. Uma
+coluna de auditoria nullable obrigaria todo consumidor a ramificar no nulo, e o nulo
+codificaria um chute sobre o que aconteceu.
+
+As Fases 4 e 6 devem usar os três verbos. O ponto de extensão está no docstring de
+`ServiceConfigActivity`, junto com o aviso de que a constraint que exige `old_value` e
+`new_value` em `updated` cobra um preço de quem rastrear um campo **nullable** — o preço
+sobrescrito opcional da Fase 6 é o caso concreto.
