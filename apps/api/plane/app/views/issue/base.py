@@ -199,6 +199,9 @@ class IssueListEndpoint(BaseAPIView):
                 "is_draft",
                 "archived_at",
                 "deleted_at",
+                # Client company, derived from the project. Same key name as the
+                # other list paths so consumers see one consistent contract.
+                "project__service_client_id",
             )
             datetime_fields = ["created_at", "updated_at"]
             issues = user_timezone_converter(issues, datetime_fields, request.user.user_timezone)
@@ -500,6 +503,9 @@ class IssueViewSet(BaseViewSet):
                 pk=pk,
             )
             .select_related("state")
+            # project is joined so that the derived service_client_id exposed by
+            # IssueDetailSerializer costs no additional query.
+            .select_related("project")
             .annotate(cycle_id=Subquery(CycleIssue.objects.filter(issue=OuterRef("id")).values("cycle_id")[:1]))
             .annotate(
                 link_count=Subquery(
@@ -1055,8 +1061,13 @@ class IssueDetailEndpoint(BaseAPIView):
             .values("id")
         )
         # Main issue query
-        issue = Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id).filter(
-            Exists(permission_subquery)
+        # project is joined because the serializer exposes the derived
+        # service_client_id, which reads project.service_client_id. Without this
+        # the list would issue one extra query per work item.
+        issue = (
+            Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id)
+            .filter(Exists(permission_subquery))
+            .select_related("project")
         )
 
         # Add additional prefetch based on expand parameter

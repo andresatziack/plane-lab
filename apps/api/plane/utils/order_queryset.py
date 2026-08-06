@@ -92,6 +92,11 @@ ISSUE_GROUP_BY_ALLOWLIST = frozenset({
     "issue_module__module_id",
     "cycle_id",
     "project_id",
+    # Client company of the work item's project. A forward foreign key hop, so it
+    # is a plain indexed column after the join and is safe inside F(), .values()
+    # and Window partition_by. Resolved by issue_group_values() in both
+    # plane/utils/grouper.py and plane/space/utils/grouper.py.
+    "project__service_client_id",
     "created_by",
     "target_date",
     "start_date",

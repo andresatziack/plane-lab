@@ -165,6 +165,11 @@ class IssueFilterSet(BaseFilterSet):
     project_id = filters.UUIDFilter(field_name="project_id")
     project_id__in = UUIDInFilter(field_name="project_id", lookup_expr="in")
 
+    # The client of a work item is derived from its project, so this traverses a
+    # forward foreign key rather than reading a column on the work item itself.
+    service_client_id = filters.UUIDFilter(field_name="project__service_client_id")
+    service_client_id__in = UUIDInFilter(field_name="project__service_client_id", lookup_expr="in")
+
     subscriber_id = filters.UUIDFilter(method="filter_subscriber_id")
     subscriber_id__in = UUIDInFilter(method="filter_subscriber_id_in", lookup_expr="in")
 

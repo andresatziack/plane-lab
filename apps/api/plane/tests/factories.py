@@ -6,7 +6,14 @@ import factory
 from uuid import uuid4
 from django.utils import timezone
 
-from plane.db.models import User, Workspace, WorkspaceMember, Project, ProjectMember
+from plane.db.models import (
+    User,
+    Workspace,
+    WorkspaceMember,
+    Project,
+    ProjectMember,
+    ServiceClient,
+)
 
 
 class UserFactory(factory.django.DjangoModelFactory):
@@ -81,5 +88,25 @@ class ProjectMemberFactory(factory.django.DjangoModelFactory):
     project = factory.SubFactory(ProjectFactory)
     member = factory.SubFactory(UserFactory)
     role = 20  # Admin role by default
+    created_at = factory.LazyFunction(timezone.now)
+    updated_at = factory.LazyFunction(timezone.now)
+
+
+
+class ServiceClientFactory(factory.django.DjangoModelFactory):
+    """Factory for creating ServiceClient instances"""
+
+    class Meta:
+        model = ServiceClient
+        django_get_or_create = ("name", "workspace")
+
+    id = factory.LazyFunction(uuid4)
+    name = factory.Sequence(lambda n: f"Service Client {n}")
+    trade_name = factory.Sequence(lambda n: f"Client {n}")
+    # Left as None by default: tax_id is unique per workspace, so generating one
+    # would make every extra client in a test collide unless the test cares.
+    tax_id = None
+    is_active = True
+    workspace = factory.SubFactory(WorkspaceFactory)
     created_at = factory.LazyFunction(timezone.now)
     updated_at = factory.LazyFunction(timezone.now)

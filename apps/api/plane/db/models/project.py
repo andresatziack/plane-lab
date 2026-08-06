@@ -107,6 +107,27 @@ class Project(BaseModel):
         related_name="project_cover_image",
     )
     estimate = models.ForeignKey("db.Estimate", on_delete=models.SET_NULL, related_name="projects", null=True)
+    # The client company this project delivers work for. Nullable: a project
+    # without a client is internal work and is not billable.
+    #
+    # on_delete=DO_NOTHING is deliberate and load bearing. Read
+    # plane.bgtasks.deletion_task.soft_delete_related_objects before changing it:
+    # that task walks every reverse relation and branches on the on_delete name.
+    # CASCADE and PROTECT both fall into its catch-all branch, which would soft
+    # delete this client's projects -- and recursively their work items -- the
+    # moment an admin soft deletes a client. SET_NULL would silently unlink every
+    # project instead. DO_NOTHING is skipped by that task, and because Django
+    # still emits the database constraint (db_constraint defaults to True), a hard
+    # delete of a referenced client raises IntegrityError. That enforces
+    # "a client with projects can only be deactivated, never physically deleted"
+    # at the database level rather than in application code alone.
+    service_client = models.ForeignKey(
+        "db.ServiceClient",
+        on_delete=models.DO_NOTHING,
+        related_name="projects",
+        null=True,
+        blank=True,
+    )
     archive_in = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(12)])
     close_in = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(12)])
     logo_props = models.JSONField(default=dict)
