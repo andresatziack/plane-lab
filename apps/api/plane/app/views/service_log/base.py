@@ -43,7 +43,9 @@ from plane.utils.service_permission import (
     ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG,
     SERVICE_LOG_AUTHOR_IS_REASSIGNED_SEPARATELY,
     SERVICE_LOG_AUTHOR_IS_REQUIRED,
-    SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN,
+    # `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN` is deliberately NOT imported: since D47 it is
+    # a 400, so it is no longer named in `PERMISSION_DENIED_CODES` and the view never
+    # references it directly -- the domain raises it and the default branch answers 400.
     SERVICE_LOG_DELEGATION_NOT_PERMITTED,
     SERVICE_LOG_REASSIGNMENT_NOT_PERMITTED,
     resolve_capabilities,
