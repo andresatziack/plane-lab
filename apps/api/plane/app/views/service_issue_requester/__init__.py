@@ -2,4 +2,4 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-from .base import ServiceLogClientEndpoint, ServiceLogViewSet
+from .base import ServiceIssueRequesterEndpoint

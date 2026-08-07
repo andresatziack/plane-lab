@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import ServiceIssueAllowanceSerializer, ServiceLogSerializer
 from plane.db.models import (
+    Project,
     ServiceContract,
     ServiceIssueAllowance,
     Workspace,
@@ -58,6 +59,7 @@ from plane.utils.service_reports import (
     non_billable_breakdown,
     revenue_series,
 )
+from plane.utils.service_portal import client_project_ids, scope_filterset_to_client
 from plane.utils.service_reports_filters import (
     CompetenceBasis,
     ServiceLogFilterSet,
@@ -118,6 +120,61 @@ class ServiceReportBaseView(BaseAPIView):
 
     def _filterset(self, request):
         return ServiceLogFilterSet.from_params(request.GET)
+
+    def _allowances(self, workspace_id, client_ids, viewer):
+        """Active allowances, and the ones **awaiting a decision**, as separate lists.
+
+        The split is the revised D35 (see ``ALLOWANCE_PENDING_CLOSURE``). An allowance whose
+        work item closed more than the grace period ago is not an active pool -- it is a
+        decision waiting on somebody -- and leaving it in "bolsas ativas" is what would make
+        this panel fill with allowances from tickets closed months ago until it stopped being
+        read.
+
+        ``credits`` carries the history section 3b had no screen for: each credit with its
+        author, its date and its origin competency. The API already returned it and nothing
+        consumed it; the expandable panel is the consumer.
+
+        On the base view rather than on the consumption endpoint because Phase 8's portal
+        shows the same panel to the client. The money projection travels with ``viewer``, so
+        the client gets the identical structure with ``overage_hour_rate`` popped -- moving it
+        here rather than copying it is what keeps that from being two decisions.
+        """
+        allowances = ServiceIssueAllowance.objects.filter(
+            workspace_id=workspace_id, status=ServiceIssueAllowance.Status.OPEN
+        ).select_related("issue", "project")
+
+        if client_ids:
+            allowances = allowances.filter(project__service_client_id__in=client_ids)
+
+        pending = pending_closure_q()
+
+        return {
+            "active": [
+                self._allowance_entry(allowance, viewer)
+                for allowance in allowances.exclude(pending)
+            ],
+            "pending_closure": [
+                self._allowance_entry(allowance, viewer)
+                for allowance in allowances.filter(pending)
+            ],
+        }
+
+    def _allowance_entry(self, allowance, viewer):
+        """One allowance as the panel shows it, with its credit history.
+
+        ``ServiceIssueAllowanceSerializer`` rather than a dict built here, so the money gating
+        is the one Phase 5 already established and tested: ``overage_hour_rate`` is popped for
+        a non-Admin by the serializer's own ``MONEY_FIELDS``. Re-deriving the projection would
+        be a second place for R11 to be got wrong.
+        """
+        entry = ServiceIssueAllowanceSerializer(
+            allowance, context={"can_see_amounts": viewer.can_see_money}
+        ).data
+
+        # Section 3b's missing screen. The API already returned this and nothing consumed it.
+        entry["credits"] = allowance_credits(allowance)
+
+        return entry
 
 
 class ServiceConsumptionReportEndpoint(ServiceReportBaseView):
@@ -218,57 +275,6 @@ class ServiceConsumptionReportEndpoint(ServiceReportBaseView):
         ).values_list("id", flat=True)
 
         return list(dict.fromkeys(list(client_ids) + list(children)))
-
-    def _allowances(self, workspace_id, client_ids, viewer):
-        """Active allowances, and the ones **awaiting a decision**, as separate lists.
-
-        The split is the revised D35 (see ``ALLOWANCE_PENDING_CLOSURE``). An allowance whose
-        work item closed more than the grace period ago is not an active pool -- it is a
-        decision waiting on somebody -- and leaving it in "bolsas ativas" is what would make
-        this panel fill with allowances from tickets closed months ago until it stopped being
-        read.
-
-        ``credits`` carries the history section 3b had no screen for: each credit with its
-        author, its date and its origin competency. The API already returned it and nothing
-        consumed it; the expandable panel is the consumer.
-        """
-        allowances = ServiceIssueAllowance.objects.filter(
-            workspace_id=workspace_id, status=ServiceIssueAllowance.Status.OPEN
-        ).select_related("issue", "project")
-
-        if client_ids:
-            allowances = allowances.filter(project__service_client_id__in=client_ids)
-
-        pending = pending_closure_q()
-
-        return {
-            "active": [
-                self._allowance_entry(allowance, viewer)
-                for allowance in allowances.exclude(pending)
-            ],
-            "pending_closure": [
-                self._allowance_entry(allowance, viewer)
-                for allowance in allowances.filter(pending)
-            ],
-        }
-
-    def _allowance_entry(self, allowance, viewer):
-        """One allowance as the panel shows it, with its credit history.
-
-        ``ServiceIssueAllowanceSerializer`` rather than a dict built here, so the money gating
-        is the one Phase 5 already established and tested: ``overage_hour_rate`` is popped for
-        a non-Admin by the serializer's own ``MONEY_FIELDS``. Re-deriving the projection would
-        be a second place for R11 to be got wrong.
-        """
-        entry = ServiceIssueAllowanceSerializer(
-            allowance, context={"can_see_amounts": viewer.can_see_money}
-        ).data
-
-        # Section 3b's missing screen. The API already returned this and nothing consumed it.
-        entry["credits"] = allowance_credits(allowance)
-
-        return entry
-
 
 class ServiceOperationalReportEndpoint(ServiceReportBaseView):
     """Who worked on what. Section 3.
@@ -452,3 +458,140 @@ class ServiceReportLogsEndpoint(ServiceReportBaseView, BasePaginator):
             ).data,
             extra_stats={"totals": headline_totals(workspace.id, filterset, viewer)},
         )
+
+
+
+class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
+    """What the client sees about their own consumption. D55, D63. Criteria 13 and 22.
+
+    **Criterion 22 is inherited, not decided here.** ``ReportViewer.guest()`` was built and
+    tested at the domain layer by Phase 9 precisely so this route would not get to rediscover
+    which columns leak (D55). This endpoint mounts that projection; it does not choose fields.
+
+    Everything in the payload is hours. There is no monetary key anywhere, and
+    ``revenue_series`` is deliberately not called even though it would not raise: it returns
+    hours-only buckets for a non-money viewer rather than a 403, so calling it would produce a
+    silently empty section instead of an error. The client's money lives on the work log rows
+    that were billed to them (D58), one endpoint over, where each amount corresponds to an
+    invoice line.
+
+    ``contract_balance_statement`` is handed over unprojected because it is entirely hours --
+    contracted, carried, consumed, granted, balance, discarded, overage, plus each carried
+    parcel's origin competency. It answers the portal's first question, "how much of my
+    contract have I used", and it contains nothing R11 withholds.
+    """
+
+    def _viewer(self, request, slug):
+        """Always the client's projection. **Overridden, never inherited.** D63.
+
+        The inherited implementation resolves workspace-Admin membership and falls back to
+        ``ReportViewer.member()``, which carries ``logged_hours`` -- and a Member projection
+        handed to a client is worse than a 403, because the client sees ``equivalent_hours``
+        legitimately and the two together give up the multiplier (R11(c)).
+
+        Unconditional, so a Member or an Admin calling this route sees exactly what the client
+        sees. That is the point: it makes the portal auditable from the inside without a
+        role-conditional branch for R11 to be wrong in, the same reasoning as
+        ``ServiceLogClientEndpoint``.
+        """
+        return ReportViewer.guest()
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    def get(self, request, slug):
+        workspace = self._workspace(slug)
+
+        if workspace is None:
+            return _not_found()
+
+        viewer = self._viewer(request, slug)
+
+        try:
+            filterset = self._filterset(request)
+        except ServiceReportFilterError as error:
+            return _bad_filter(error)
+
+        # Resolved first, narrowed last. Both halves matter and both fail silently:
+        #
+        # `narrow()` is `dataclasses.replace`, so it REPLACES rather than intersects -- the
+        # scope has to be applied after anything that arrived in the query string, or a
+        # crafted `?project_ids=` would widen the tenancy boundary with no error anywhere.
+        #
+        # And narrowing with an empty tuple selects EVERY project in the workspace, because
+        # `ServiceLogFilterSet.queryset` applies each lookup only `if values:`. A client with
+        # no projects would receive the whole workspace. `scope_filterset_to_client` raises
+        # rather than accept an empty scope, and this is the short circuit that keeps it from
+        # ever being called with one. See D63.
+        project_ids = client_project_ids(request.user, slug=slug)
+
+        if not project_ids:
+            return Response(self._empty_payload(filterset), status=status.HTTP_200_OK)
+
+        filterset = scope_filterset_to_client(filterset, project_ids)
+
+        client_ids = list(
+            Project.objects.filter(id__in=project_ids, service_client_id__isnull=False)
+            .values_list("service_client_id", flat=True)
+            .distinct()
+        )
+
+        contracts = list(
+            ServiceContract.objects.filter(
+                workspace_id=workspace.id, service_client_id__in=client_ids
+            ).select_related("service_client")
+            if client_ids
+            else []
+        )
+
+        payload = {
+            "shape": "contract" if contracts else "standalone",
+            "totals": headline_totals(workspace.id, filterset, viewer),
+            "distributions": {
+                dimension: distribution(workspace.id, filterset, viewer, dimension=dimension)
+                for dimension in ("hour_type", "billing_type")
+            },
+            # R5: never one number, for the client least of all -- "não faturável" collapsed
+            # into a single figure is what turns a courtesy into an argument.
+            "non_billable": non_billable_breakdown(workspace.id, filterset, viewer),
+            "allowances": self._allowances(workspace.id, client_ids, viewer),
+        }
+
+        if contracts:
+            # D48, the same asymmetry the Admin dashboard has and for the same reason: a work
+            # log dated before the contract's vigency debits the first period (D31), so its
+            # `worked_on` month has no period and grouping by it would file those hours in a
+            # month the contract never had.
+            period_basis = filterset.narrow(competence_basis=CompetenceBasis.DEBITED_PERIOD)
+            payload["consumption_series"] = hours_series(workspace.id, period_basis, viewer)
+            payload["contracts"] = [
+                {
+                    "contract_id": str(contract.pk),
+                    "code": contract.code,
+                    "name": contract.name,
+                    "status": contract.status,
+                    # Listed per contract, never merged. Section 1c's rule holds here too:
+                    # a client holding two contracts must not see one balance.
+                    "statement": contract_balance_statement(contract),
+                }
+                for contract in contracts
+            ]
+        else:
+            payload["consumption_series"] = hours_series(workspace.id, filterset, viewer)
+
+        return Response(payload, status=status.HTTP_200_OK)
+
+    def _empty_payload(self, filterset):
+        """What a caller with no projects gets: the shape, with nothing in it.
+
+        200 and not 403. The caller is a legitimate workspace member who has not been given a
+        project yet, which is a state of the data and not a permission failure -- and a portal
+        that answers 403 on its own dashboard sends its user to support rather than to their
+        administrator. Returns the full key set so the frontend has no special case.
+        """
+        return {
+            "shape": "standalone",
+            "totals": {"entries": 0, "issues": 0, "filters": filterset.to_params()},
+            "distributions": {"hour_type": [], "billing_type": []},
+            "non_billable": [],
+            "allowances": {"active": [], "pending_closure": []},
+            "consumption_series": [],
+        }

@@ -5,6 +5,7 @@
 from .base import (
     ServiceAttentionReportEndpoint,
     ServiceBillingReportEndpoint,
+    ServiceClientPortalReportEndpoint,
     ServiceConsumptionReportEndpoint,
     ServiceOperationalReportEndpoint,
     ServiceReportLogsEndpoint,

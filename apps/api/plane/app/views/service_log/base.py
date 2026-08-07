@@ -16,7 +16,11 @@ from rest_framework.response import Response
 
 # Module imports
 from plane.app.permissions import ROLE, allow_permission
-from plane.app.serializers import ServiceLogSerializer, ServiceLogWriteSerializer
+from plane.app.serializers import (
+    ServiceLogClientSerializer,
+    ServiceLogSerializer,
+    ServiceLogWriteSerializer,
+)
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.db.models import (
     Issue,
@@ -58,9 +62,14 @@ from plane.utils.service_permission import (
 from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours
 from plane.utils.service_money import ZERO_MONEY, format_money
 from plane.utils.service_pool import ServicePoolValidationError, issue_pool_snapshot
+from plane.utils.service_portal import (
+    client_may_reach_issue,
+    is_client_portal_member,
+    issue_client_totals,
+)
 from plane.utils.service_pricing import ServicePricingValidationError
 
-from ..base import BaseViewSet
+from ..base import BaseAPIView, BaseViewSet
 
 # THE STATUS CODE RULE FOR THIS VIEWSET, in one line:
 #
@@ -898,6 +907,73 @@ class ServiceLogViewSet(BaseViewSet):
             {
                 "totals": self._totals(issue_id, can_see_amounts=self._can_see_amounts(request, slug)),
                 "pool": issue_pool_snapshot(issue),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+class ServiceLogClientEndpoint(BaseAPIView):
+    """The work logs of one work item, as the client is allowed to see them. R11, D58.
+
+    Separate from ``ServiceLogViewSet`` rather than a seventh action on it, because that
+    viewset's guarantee is "GUEST is on no endpoint here, including reads" and that
+    sentence should stay true. A GUEST action on it would make the guarantee conditional on
+    a decorator, which is a worse thing to have to verify.
+
+    **The projection is identical for every role that may call this.** An Admin asking this
+    endpoint sees exactly what the client sees, which is the point: it gives an operator a
+    way to check what the portal is showing before a client asks about it, and it means
+    there is no role-conditional branch in here for R11 to be wrong inside. The unrestricted
+    view of the same rows is ``ServiceLogViewSet.list``, one path over.
+
+    What is absent by construction rather than by stripping: ``raw_duration_minutes``,
+    ``logged_hours``, ``applied_multiplier``, the hour rate, the rate basis, and
+    ``pricing_failure_reason``. None of them is in ``ServiceLogClientSerializer.Meta.fields``,
+    so no context flag can restore them.
+
+    Money follows the settled route of each individual row (D58), so one response can
+    legitimately carry a pool-debited row with no amount beside a billed row with one.
+    """
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
+    def get(self, request, slug, project_id, issue_id):
+        issue = (
+            Issue.objects.filter(workspace__slug=slug, project_id=project_id, pk=issue_id)
+            .select_related("project")
+            .first()
+        )
+
+        if issue is None:
+            return Response(
+                {"error": "The required object does not exist."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # A client must not read the work logs of a work item the read endpoint refuses to
+        # show them. Same condition `IssueViewSet.retrieve` applies, and the reason it has
+        # to be repeated here is that this endpoint is reached by issue id directly rather
+        # than through the work item.
+        if is_client_portal_member(request.user, slug=slug, project_id=project_id) and not client_may_reach_issue(
+            request.user, issue
+        ):
+            return Response(
+                {"error": "You are not allowed to view this issue"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        service_logs = (
+            ServiceLog.objects.filter(workspace__slug=slug, project_id=project_id, issue_id=issue_id)
+            .select_related("author")
+            # Not the catalogue foreign keys: they are DO_NOTHING and may point at a soft
+            # deleted option, which the default manager would turn into a None join. The
+            # serializer reads them through all_objects.
+        )
+
+        return Response(
+            {
+                "service_logs": ServiceLogClientSerializer(service_logs, many=True).data,
+                "totals": issue_client_totals(issue_id),
             },
             status=status.HTTP_200_OK,
         )

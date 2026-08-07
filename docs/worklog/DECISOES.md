@@ -1490,3 +1490,364 @@ primeiro escritor não atendido do livro-caixa.
 | D56         | **Sim**      | `bucket()` exige exatamente um de `filters`/`drill_down`                                 |
 | D57         | **Sim**      | `MONEY_FIELDS` + `COMMERCIAL_STATE_FIELDS`; testes da Fase 6 ajustados                   |
 | Revisão D35 | **Sim**      | `ALLOWANCE_PENDING_CLOSURE`, `pending_closure_q`, sem tarefa periódica                   |
+
+
+
+## D58 a D66 — decididas na Fase 8, porque só ali se tornaram inevitáveis
+
+A Fase 8 é a última do núcleo e a única que altera código do core do Plane. Sete das
+nove decisões abaixo existem por causa disso: expor o papel GUEST como ator real
+obriga a responder perguntas que oito fases puderam deixar em aberto porque nenhum
+cliente tinha login.
+
+Duas fogem desse recorte e valem além da fase. A **D62** (solicitante) é entregue em PR
+próprio, porque conta outra história — registrar quem pediu, não proteger o que o cliente
+vê. A **D66** (varredura enumera o roteador) é método de teste, não regra de negócio, e é
+reutilizável por qualquer fase futura; ela também é o que encontrou a leitura cross-tenant
+corrigida em PR separado, e uma segunda no core do Plane que ficou registrada sem correção
+em `ACHADOS-DO-CODIGO.md`.
+
+## D58 — Dinheiro para o cliente segue a rota liquidada do apontamento, não uma propriedade do Cliente
+
+**Não estende regra nenhuma — resolve uma imprecisão da tabela da R11 contra o texto
+mais específico da §4 da Fase 6.** O enquadramento importa porque muda quem tem
+autoridade sobre isso depois: não é uma decisão de visibilidade financeira nova, é a
+leitura de duas frases que discordavam.
+
+A tabela da R11 abreviava como "só se avulso". A §4 da Fase 6 diz, literalmente: "em
+cliente de contrato: não exibir valores em R$, apenas horas — **exceto** para
+apontamentos com rota `FATURA_REAIS` lançados fora do escopo do contrato, e para
+excedente faturado". A exceção por apontamento sempre foi a regra. A abreviação foi
+escrita antes de a D33 e a D44 criarem a distinção entre rota escolhida e rota
+liquidada, e por isso não tinha vocabulário para expressá-la.
+
+Três fatos que fecham a leitura:
+
+1. **Não existe campo "avulso".** O enum `default_billing_mode` do `ServiceClient`
+   virou `default_billing_type` na Fase 2. A pergunta "este Cliente é avulso?" não tem
+   onde ser respondida, e nunca teve depois daquela fase.
+2. **A §3 do contexto mestre prevê o caso misto explicitamente** — cliente de contrato
+   recebendo serviço fora de escopo, faturado à parte. Uma flag no Cliente responderia
+   a pergunta errada para exatamente esse caso, que não é raro.
+3. **O critério que torna essa a única leitura defensável:** o cliente vê dinheiro
+   exatamente onde vai receber linha de fatura. Mostrar valor de algo que ele não será
+   cobrado e esconder valor de algo que ele será são os dois errados, e uma flag no
+   Cliente comete um dos dois sempre.
+
+Consequência: `settled_billing_route == BILL_AMOUNT`, por linha (D44 — liquidada, não
+escolhida). A taxa e a base da taxa continuam invisíveis mesmo na linha faturada: o
+valor é a linha de fatura, a taxa é o termo comercial por trás dela.
+
+**Por linha implica `to_representation` e não o `__init__` que o
+`ServiceLogSerializer` usa.** Uma resposta mistura legitimamente uma linha debitada da
+bolsa sem valor com uma linha faturada com valor; um campo removido na construção
+aplicaria a resposta da primeira linha a todas.
+
+O total do work item filtra a rota **explicitamente**, em vez de confiar em que linhas
+de pool carregam `0.00` por construção. Esse raciocínio é correto para o total do
+Admin, mas faria a fronteira monetária do cliente ser propriedade emergente de um
+check constraint em outro lugar — e no dia em que um débito de pool legitimamente
+carregar valor (excedente faturado já é precificado, D40), um cliente de contrato
+passaria a ver dinheiro de horas que a bolsa dele absorveu.
+
+**A tabela da R11 no contexto mestre foi emendada.** Sem isso a próxima fase que ler a
+tabela rediscute isso do zero.
+
+## D59 — A allowlist de campos do cliente é módulo de domínio, não código de view
+
+`plane/utils/service_portal.py`, com constante de módulo, não literal inline.
+
+Duas razões, e a segunda é a que decide:
+
+1. `IssueViewSet.partial_update` é código core rebaseado do upstream. Uma allowlist
+   escrita ali é uma allowlist que um rebase pode alargar sem que ninguém veja.
+2. Um teste que reafirma a lista continua passando depois que alguém a alarga. A
+   constante é o mesmo objeto que o código usa — o padrão da D57, com o argumento mais
+   afiado aqui do que lá.
+
+**A ordem é a decisão, não a organização do arquivo.** A allowlist tem de existir
+*antes* de o GUEST entrar em `allowed_roles`, porque
+`allow_permission(..., creator=True, model=Issue)` libera a view inteira para quem
+criou a linha **antes de a lista de papéis ser consultada**. Um cliente que abriu um
+chamado já alcança a view hoje, com qualquer papel, e sem allowlist estaria alterando
+responsável, labels, datas, estimativa e parent nos chamados dele.
+
+Isso também é o que justifica tocar o core em vez de acrescentar endpoint:
+**extensão pode acrescentar uma porta segura; não pode fechar uma aberta.** O buraco
+está dentro de `partial_update` e é alcançável hoje. Um endpoint novo ao lado
+acrescenta um caminho; não remove nenhum. O critério 19 é o que prova isso, e ele
+passa no commit em que o GUEST ainda está fora da lista de papéis — é essa a prova de
+que a allowlist, e não a lista, é o que fecha.
+
+## D60 — Campo desconhecido cai em silêncio; grupo de estado inelegível recebe 400 nomeado
+
+Tratamentos diferentes porque as duas situações são diferentes.
+
+**Campo fora da allowlist: descartado, sem erro.** O critério 19 aceita "ignorados ou
+rejeitados", e o precedente da casa é ignorar — `IntakeIssueViewSet.partial_update`
+reconstrói o dict do guest exatamente assim, cada chave com default vindo da
+instância. A interface do cliente nunca ofereceu `assignees`, então não há campo onde
+renderizar um erro, e um 400 transformaria um payload que um cliente bem-comportado
+nunca manda em modo de falha que ele tem de tratar.
+
+**Grupo de estado inelegível: 400 com `STATE_GROUP_NOT_PERMITTED_FOR_CLIENT`.** Por
+D47: o ator genuinamente tem a capacidade de mudar estado — é o critério 6 inteiro — e
+é o *alvo* nomeado pelo payload que é inelegível. Um 403 diria "você não pode mudar
+estados", que é falso, e mandaria quem lê procurar um problema de permissão que não
+existe.
+
+Quatro grupos permitidos: `completed` e `cancelled` (fechar), `unstarted` e `started`
+(reabrir). Dois negados:
+
+- **`triage`.** Já é recusado hoje, mas só como efeito colateral de `partial_update`
+  não passar `allow_triage_state` no contexto do serializer. Garantia que repousa numa
+  chave ausente é garantia que a próxima fase a acrescentar essa chave remove sem
+  perceber. Agora é recusado de propósito, e existe teste de caracterização sobre o
+  comportamento herdado.
+- **`backlog`.** Não é omissão. O cliente já tem os dois controles que backlog
+  embaralharia: fechar diz "não quero mais", prioridade diz "o quanto é urgente".
+  Backlog é planejamento interno. Um chamado que o cliente estacionou lá não está
+  fechado nem enfileirado, sai das visões ativas, e volta seis semanas depois como
+  "vocês ignoraram meu pedido". Negar remove uma ambiguidade cujo único produto é
+  disputa.
+
+Valida o **grupo**, nunca a linha de estado: workspaces renomeiam e acrescentam
+estados livremente, e uma lista de ids ou nomes permitidos fica obsoleta na primeira
+vez que um admin cria "Aguardando cliente".
+
+## D61 — O feed de atividade exclui as linhas de apontamento para o cliente, em vez de reprojetá-las
+
+**A Fase 8 cria a exposição, então a Fase 8 é dona da correção.** Antes do portal,
+nenhum GUEST era membro de project de Cliente, então os leitores de atividade — que
+sempre admitiram GUEST — não tinham cliente lendo. Entregar o portal sem isso seria
+entregar um vazamento conhecido no mesmo PR que o habilita.
+
+**O vazamento é aritmético.** `_service_log_batch_summary` persiste
+`f"{sum(logged_hours)} h (...)"` em `IssueActivity.new_value`. O cliente vê
+`equivalent_hours` legitimamente; com `logged_hours` do feed, uma divisão devolve o
+multiplicador — exatamente a derivação que a R11(c) existe para impedir e que a D55
+recusa calcular para `ReportViewer.guest()`. Duração bruta e multiplicador ficam no
+`requested_data` transitório e não são persistidos, o que não ameniza nada.
+
+**Por que nenhum teste pegou:** `test_the_activity_trail_carries_no_money` usa
+`logged_hours == "1.0000"` como **controle positivo**. Correto para um feed lido por
+Member; é o vazamento para um feed lido por Guest. O teste nunca esteve errado — nunca
+lhe foi feita a pergunta do Guest.
+
+**Excluir, não reprojetar.** O conteúdo informativo inteiro da linha `service_log` *é*
+as horas apontadas, então não existe resto seguro para mostrar depois de tirar o
+número. E uma segunda projeção do mesmo apontamento seria um segundo lugar onde a R11
+pode errar, sendo que a primeira já tem testes — o argumento da D51 sobre fronteira de
+agregação, aplicado aqui.
+
+**Os quatro valores de `field`, não só um.** A varredura do domínio de serviço no
+`IssueActivity` encontrou quatro, e todos são negados ao cliente pela mesma razão: cada
+um responde a uma pergunta sobre **como o trabalho foi registrado e precificado
+internamente** — a trilha da R8, o registro de sobrescrita da R10 — e nenhum responde a
+uma pergunta que o cliente fez.
+
+| `field`                          | conteúdo persistido               |
+| -------------------------------- | --------------------------------- |
+| `service_log`                    | `{soma logged_hours} h (rótulos)` |
+| `service_log_author`             | correção de quem é creditado      |
+| `service_log_delegation`         | "João, registrado por Maria"      |
+| `service_log_hour_type_override` | sugerido contra aplicado          |
+
+`route_deviation_reason`, `pricing_failure_reason` e `settled_billing_route` **não
+chegam ao `IssueActivity` em nenhum caminho** — a pergunta da D57 sobre eles não se
+coloca no feed. Ela se coloca no endpoint de apontamento do cliente, e é a D65.
+
+**Três portas, não uma.** Patchear a óbvia teria deixado duas abertas, porque duas
+classes de permissão não aplicam filtro de papel algum em método seguro:
+
+| leitor                          | como o cliente chega                                |
+| ------------------------------- | --------------------------------------------------- |
+| `IssueActivityEndpoint`         | GUEST está na própria `allow_permission`            |
+| `WorkspaceUserActivityEndpoint` | `WorkspaceEntityPermission`, actor id vem da **URL** |
+| `IssueActivityListAPIEndpoint`  | `ProjectEntityPermission`, API externa por token    |
+
+A segunda é a mais afiada: o id do ator é segmento de URL, então o cliente pede a
+atividade de um técnico nomeado diretamente.
+
+## D62 — O solicitante é modelo próprio, e a atribuição concede visibilidade
+
+Modelo próprio em vez de coluna em `Issue`. `Issue` é o modelo mais editado do core do
+Plane, e uma FK nullable nele seria superfície de merge permanente na tabela mais
+quente do schema em troca de uma atribuição opcional. O mesmo raciocínio que a D45
+aplicou a `WorkspaceMember`; oito fases foram entregues sem acrescentar coluna a
+modelo core.
+
+**Sem `ChangeTrackerMixin` e não é `ServiceConfigEntity`**, ao contrário de todo outro
+modelo `Service*` que carrega decisão. Registrar quem pediu não decide dinheiro nenhum
+— não muda taxa, rota, multiplicador nem saldo — então `ServiceConfigActivity` é a
+trilha errada (§6 do contexto mestre: aquela trilha é para configuração que afeta
+dinheiro). As colunas de auditoria herdadas respondem "quem registrou e quando", que é
+a pergunta forense aqui.
+
+**A metade que teria silenciosamente não funcionado.** O critério 15 pede que o
+solicitante registrado **veja** o chamado no portal. Na configuração recomendada ele
+veria de todo jeito, porque o project concede visibilidade total aos clientes — então
+todo teste de visibilidade desta decisão **desliga essa flag primeiro**. Com ela
+ligada, uma atribuição quebrada passa. Um administrador que registra um solicitante que
+depois não vê nada é uma funcionalidade que relata sucesso e não faz nada, o que é pior
+que não existir.
+
+Por isso `client_may_reach_issue` passa a ser **a única definição** de "este cliente
+alcança este work item". O core fazia essa pergunta em três lugares com grafias
+diferentes — `role=ROLE.GUEST.value` num, o literal `role=5` em dois, a comparação de
+`created_by` uma vez como filtro de queryset e uma vez como teste de identidade — e a
+Fase 8 precisa dela em três outros. Seis cópias de uma regra de visibilidade são seis
+chances de uma divergir. Os três sítios do core agora chamam a função ou o gêmeo de
+queryset dela, cada um **dentro da condição que já existia**.
+
+Notificação é o `IssueSubscriber` nativo. Reaproveitar a inscrição do próprio Plane
+significa que notificação, digest e cancelamento já funcionam; um caminho paralelo para
+uma atribuição seria uma segunda coisa a manter e a errar. Apagar a atribuição
+**deixa** a inscrição: cancelar é decisão do solicitante e o Plane já lhe dá esse
+controle.
+
+A atribuição não pode virar meio de conceder visibilidade arbitrária: o solicitante tem
+de ser GUEST ativo **daquele project**. Sem isso, uma rota cujo propósito inteiro é
+conceder visibilidade entregaria a qualquer membro do workspace a visão de um work item
+num project onde ele não está. 400 por D47.
+
+## D63 — A rota do portal sobrescreve o viewer, e o escopo é resolvido antes e aplicado por último
+
+**`_viewer` sobrescrito, nunca herdado.** A implementação herdada resolve pertencimento
+de Admin de workspace e cai para `ReportViewer.member()` — que carrega `logged_hours`.
+Uma projeção de Member entregue a um cliente é pior que um 403, porque o cliente vê
+`equivalent_hours` legitimamente e os dois juntos entregam o multiplicador. O docstring
+da Fase 9 já dizia isso; esta decisão é o que o cumpre.
+
+Incondicional: um Member ou Admin chamando a rota vê exatamente o que o cliente vê.
+Isso torna o portal auditável por dentro e não deixa ramo condicional por papel onde a
+R11 possa errar — o mesmo desenho de `ServiceLogClientEndpoint`.
+
+**Escopo resolvido primeiro, aplicado por último, com curto-circuito em zero projects.
+Os três, porque as duas metades falham em silêncio com 200:**
+
+1. `narrow()` é `dataclasses.replace`, então **substitui em vez de interseccionar**. Um
+   escopo aplicado antes da query string é um escopo que um `?project_ids=` forjado
+   alarga, sem erro em lugar nenhum.
+2. `narrow(project_ids=())` **não aplica filtro de project algum**, porque
+   `queryset()` só aplica cada lookup `if values:`. Escopo vazio virando acesso total é
+   a falha que parece impossível em revisão, precisamente porque o código *lê* como se
+   estivesse escopando. `scope_filterset_to_client` levanta exceção em vez de aceitar
+   escopo vazio, e a view curto-circuita para que ela nunca seja chamada com um.
+
+Cada uma é coberta por exatamente um teste, verificado por sabotagem.
+
+**O descritor é um registro, não uma permissão.** Todo bucket carrega
+`filters: to_params()`, e o drill-down reconstrói com `from_params(request.GET)` sem
+reescopar. Um drill-down de portal tem de reaplicar o escopo na entrada.
+
+`revenue_series` **não é chamada**, ainda que não levantasse erro: ela devolve buckets
+só-horas para viewer sem dinheiro, então chamá-la produziria uma seção silenciosamente
+vazia em vez de um erro.
+
+`contract_balance_statement` é entregue sem projeção porque cada campo dela é hora —
+contratadas, acumuladas, consumidas, concedidas, saldo, descartadas, excedente, mais a
+competência de origem de cada parcela. Responde à primeira pergunta do portal e não
+contém nada que a R11 retenha.
+
+## D64 — O gate do frontend passa a ser por campo, nos dois caminhos
+
+`allowPermissions` faz inclusão simples em lista, sem hierarquia. Acrescentar GUEST ao
+booleano `isEditable` habilitaria título, descrição, responsável, labels, datas,
+estimativa, parent, widgets e a seção de apontamento. O gate deixa de ser um booleano e
+passa a ser um registro por campo, montado de chamadas independentes: estado e
+prioridade incluem GUEST, todo o resto continua `[ADMIN, MEMBER]`.
+
+**Existem dois gates, e o segundo é o caminho que as pessoas usam.**
+`peek-overview/root.tsx` duplica o mesmo `allowPermissions`, e o peek é onde se cai
+clicando um item em qualquer visão de lista. Alterar só `issue-detail/root.tsx` deixaria
+o critério 21 passando numa conferência manual na página de detalhe e falso no caminho
+real.
+
+Nenhum componente-folha muda: todos já aceitam `disabled`. O que muda é a origem do
+booleano.
+
+## D65 — Dos três campos de estado comercial, o cliente vê dois
+
+A D57 separou dinheiro de estado comercial e tornou o segundo visível ao MEMBER. GUEST
+era outra pergunta, e é esta. Decidida, não herdada por omissão.
+
+| campo                    | cliente | por quê                                                                                              |
+| ------------------------ | ------- | ---------------------------------------------------------------------------------------------------- |
+| `settled_billing_route`  | vê      | explica qual arranjo absorveu as horas; ele já vê `debited_hours`                                     |
+| `route_deviation_reason` | vê      | quando o valor está visível, ele vai perguntar por que está sendo cobrado tendo contrato              |
+| `pricing_failure_reason` | não vê  | lacuna de configuração nossa, numa linha que ainda não é faturável; nada em que ele possa agir        |
+
+O caso do desvio é o que fecha a decisão: pela D58 o cliente vê o valor quando a rota
+liquidada é `BILL_AMOUNT`, e "contrato vencido" é a **resposta** para a pergunta que
+esse valor provoca. Mostrar a cobrança e esconder o motivo dela é a mesma forma de erro
+que a D58 rejeita — as duas metades têm de andar juntas.
+
+E pela D33, em DDL, a única forma de um desvio existir é "escolheu pool, foi faturado
+em reais". O teste desta decisão constrói a linha assim, que é o cenário de produção de
+que ela trata, e não uma combinação sintética.
+
+## D66 — Teste de escopo enumera o roteador, nunca uma lista de endpoints mantida à mão
+
+Vale para qualquer fase futura, e é por isso que está registrada como decisão em vez de
+ficar como comentário no arquivo de teste.
+
+**O enunciado.** Um teste que prova "nenhum endpoint vaza X" tem de descobrir os endpoints
+percorrendo o resolvedor de URL do Django, e tratar cada rota encontrada como **negada por
+padrão**. Admitir um papel a uma rota exige editar uma allowlist nomeada, no próprio teste,
+com o motivo escrito.
+
+**O que motivou.** A varredura do critério 16 da Fase 8 foi escrita assim e encontrou, na
+primeira execução, uma leitura cross-tenant no
+`ServiceClassificationWindowViewSet` da Fase 2b: `get: retrieve` estava roteado, nenhum
+`retrieve` estava definido, e o herdado do `ModelViewSet` rodava sob
+`permission_classes = [IsAuthenticated]` — sem checagem de papel e sem checagem de
+pertencimento. `get_queryset` filtra pelo slug da URL e mais nada, então qualquer usuário
+autenticado da instância lia a janela de qualquer workspace, dado o id. Devolvia **200 com o
+payload inteiro** para quem não é membro de workspace algum.
+
+**Por que uma lista à mão não pegaria.** O docstring da classe já dizia "reads are open to
+admins and members, GUEST to neither". Era verdadeiro sobre toda ação **escrita** e falso
+sobre a única que estava apenas **roteada**. Uma lista de endpoints escrita à mão é escrita
+lendo a classe — ou seja, lendo o docstring — então ela teria afirmado o docstring e
+concordado com ele. O resolvedor não lê docstring: ele sabe o que está roteado.
+
+**A generalização, que é o valor da decisão.** As duas formas de teste falham de maneiras
+diferentes:
+
+| forma                | falha quando                                                    |
+| -------------------- | --------------------------------------------------------------- |
+| lista à mão          | alguém **acrescenta** uma rota (a lista fica silenciosamente incompleta) |
+| enumerar o roteador  | alguém acrescenta uma rota **e o teste fica vermelho**          |
+
+A segunda transforma "esqueci de decidir" em erro. A primeira transforma em nada. E o modo
+de falha que importa nesta arquitetura não é uma decisão errada — é uma **ausente**: uma ação
+que ninguém escreveu, mas que o roteador expõe.
+
+**Consequência prática.** Toda condição de refusa aceitável tem de ser enumerada também.
+`401`, `403` e `405` significam "nenhum dado atravessou" — o `405` inclusive, porque o DRF
+recusa o verbo antes de qualquer handler. Qualquer outra coisa, inclusive `404` e `400`,
+significa que a camada de permissão deixou passar até o corpo da view, e é o sinal a
+investigar. Foi exatamente um `404` onde se esperava `403` que expôs o buraco: o id sorteado
+não existia, e a resposta contou que a permissão havia passado.
+
+**Corolário sobre alcance.** A varredura da Fase 8 cobre as rotas `service-*`, que são código
+desta série. O mesmo padrão pode existir em rotas do core do Plane, que a operação hospeda sem
+ter escrito. A Fase 8 rodou a varredura ampliada uma vez sobre todas as rotas com escopo de
+workspace e registrou o resultado em `ACHADOS-DO-CODIGO.md`, **sem corrigir** — saber é
+informação de operador, e decidir o que fazer é outra conversa.
+
+
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde                                                                                          |
+| ------- | ------------ | --------------------------------------------------------------------------------------------- |
+| D58     | **Sim**      | `CLIENT_MONEY_FIELDS`, `to_representation` por linha, `issue_client_totals` filtra a rota      |
+| D59     | **Sim**      | módulo `service_portal.py`; `partial_update` passa a chamar em vez de decidir                  |
+| D60     | **Sim**      | `filter_issue_payload_for_client`, `validate_client_state_transition`, 400 nomeado             |
+| D61     | **Sim**      | `activity_fields_hidden_from` nos **três** leitores de atividade                               |
+| D62     | **Sim**      | migração 0133, `ServiceIssueRequester`, `client_visible_issues_q`, três sítios do core         |
+| D63     | **Sim**      | `ServiceClientPortalReportEndpoint`, `_viewer` sobrescrito, `scope_filterset_to_client`        |
+| D64     | **Sim**      | registro por campo em `issue-detail` **e** `peek-overview`                                     |
+| D65     | **Sim**      | `CLIENT_COMMERCIAL_STATE_FIELDS`; `pricing_failure_reason` fora do `Meta.fields`               |
+| D66     | **Sim**      | a varredura percorre `get_resolver()`; allowlist `CLIENT_REACHABLE` nomeada no teste            |

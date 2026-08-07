@@ -20,11 +20,12 @@ import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useMember } from "@/hooks/store/use-member";
 import { useUser } from "@/hooks/store/user";
 import useReloadConfirmations from "@/hooks/use-reload-confirmation";
+import { withArchived, type TWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 import useSize from "@/hooks/use-window-size";
 // services
 import { WorkItemVersionService } from "@/services/issue";
 // components
-import { ServiceLogSection } from "@/components/service-logs";
+import { ServiceLogClientSection, ServiceLogSection } from "@/components/service-logs";
 // local imports
 import { IssueDetailWidgets } from "../issue-detail-widgets";
 import { NameDescriptionUpdateStatus } from "../issue-update-status";
@@ -42,12 +43,12 @@ type Props = {
   projectId: string;
   issueId: string;
   issueOperations: TIssueOperations;
-  isEditable: boolean;
+  editPermissions: TWorkItemEditPermissions;
   isArchived: boolean;
 };
 
 export const IssueMainContent = observer(function IssueMainContent(props: Props) {
-  const { workspaceSlug, projectId, issueId, issueOperations, isEditable, isArchived } = props;
+  const { workspaceSlug, projectId, issueId, issueOperations, editPermissions, isArchived } = props;
   // refs
   const editorRef = useRef<EditorRefApi>(null);
   // states
@@ -91,7 +92,7 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
         )}
 
         <div className="mb-2.5 flex items-center justify-between gap-4">
-          <IssueTypeSwitcher issueId={issueId} disabled={isArchived || !isEditable} />
+          <IssueTypeSwitcher issueId={issueId} disabled={isArchived || !editPermissions.restrictedFields} />
           <div className="flex items-center gap-3">
             <NameDescriptionUpdateStatus isSubmitting={isSubmitting} />
           </div>
@@ -104,7 +105,7 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
           isSubmitting={isSubmitting}
           setIsSubmitting={(value) => setIsSubmitting(value)}
           issueOperations={issueOperations}
-          disabled={isArchived || !isEditable}
+          disabled={isArchived || !editPermissions.restrictedFields}
           value={issue.name}
           containerClassName="-ml-3"
         />
@@ -112,7 +113,7 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
         <DescriptionInput
           issueSequenceId={issue.sequence_id}
           containerClassName="-ml-6 border-none p-0! pl-6!"
-          disabled={isArchived || !isEditable}
+          disabled={isArchived || !editPermissions.restrictedFields}
           editorRef={editorRef}
           entityId={issue.id}
           fileAssetType={EFileAssetType.ISSUE_DESCRIPTION}
@@ -141,14 +142,14 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
               disabled={isArchived}
             />
           )}
-          {isEditable && (
+          {editPermissions.restrictedFields && (
             <DescriptionVersionsRoot
               className="flex-shrink-0"
               entityInformation={{
                 createdAt: issue.created_at ? new Date(issue.created_at) : new Date(),
                 createdByDisplayName: getUserDetails(issue.created_by ?? "")?.display_name ?? "",
                 id: issueId,
-                isRestoreDisabled: !isEditable || isArchived,
+                isRestoreDisabled: !editPermissions.restrictedFields || isArchived,
               }}
               fetchHandlers={{
                 listDescriptionVersions: (issueId) =>
@@ -168,18 +169,23 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
         workspaceSlug={workspaceSlug}
         projectId={projectId}
         issueId={issueId}
-        disabled={!isEditable || isArchived}
+        disabled={!editPermissions.restrictedFields || isArchived}
         renderWidgetModals={!isPeekModeActive}
         issueServiceType={EIssueServiceType.ISSUES}
       />
 
+      {/*
+        The narrow-viewport twin of the sidebar, and the same component the peek overview
+        renders. It gets the per-field object rather than one boolean, or a client on a phone
+        would find the state and the priority disabled.
+      */}
       {windowSize[0] < 768 && (
         <PeekOverviewProperties
           workspaceSlug={workspaceSlug}
           projectId={projectId}
           issueId={issueId}
           issueOperations={issueOperations}
-          disabled={!isEditable || isArchived}
+          editPermissions={withArchived(editPermissions, isArchived)}
         />
       )}
 
@@ -189,12 +195,25 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
         the feed below records changes made to it -- including, per rule R8, the work
         log activity this section produces.
       */}
-      <ServiceLogSection
-        workspaceSlug={workspaceSlug}
-        projectId={projectId}
-        issueId={issueId}
-        disabled={!isEditable || isArchived}
-      />
+      {/*
+        Two components, not one with a mode. A client's own user gets the R11 projection from
+        its own endpoint; everybody else gets the full section. The same split the server
+        makes, and for the same reason: a single component with a role branch has one render
+        path that can reach either shape, and the branch that forgets is the leak.
+
+        `restrictedFields` is the right discriminator rather than a role check, because it is
+        already the answer to "may this person do technician things here".
+      */}
+      {editPermissions.restrictedFields ? (
+        <ServiceLogSection
+          workspaceSlug={workspaceSlug}
+          projectId={projectId}
+          issueId={issueId}
+          disabled={isArchived}
+        />
+      ) : (
+        <ServiceLogClientSection workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} />
+      )}
 
       <IssueActivity workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} disabled={isArchived} />
     </>

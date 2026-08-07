@@ -19,6 +19,7 @@ from .. import BaseAPIView
 from plane.app.serializers import IssueActivitySerializer, IssueCommentSerializer
 from plane.app.permissions import ProjectEntityPermission, allow_permission, ROLE
 from plane.db.models import IssueActivity, IssueComment, CommentReaction, IntakeIssue
+from plane.utils.service_portal import activity_fields_hidden_from
 
 
 class IssueActivityEndpoint(BaseAPIView):
@@ -32,10 +33,17 @@ class IssueActivityEndpoint(BaseAPIView):
         if request.GET.get("created_at__gt", None) is not None:
             filters = {"created_at__gt": request.GET.get("created_at__gt")}
 
+        # A client's own user must not receive the work log entries. The feed persists the
+        # *logged* hours, which R11 keeps from the client precisely because dividing them
+        # by the equivalent hours the client does see yields the multiplier. See
+        # `CLIENT_HIDDEN_ACTIVITY_FIELDS` for why all four values and not only one, and
+        # why these are excluded rather than re-projected. D61.
+        hidden_fields = activity_fields_hidden_from(request.user, slug=slug, project_id=project_id)
+
         issue_activities = (
             IssueActivity.objects.filter(issue_id=issue_id)
             .filter(
-                ~Q(field__in=["comment", "vote", "reaction", "draft"]),
+                ~Q(field__in=hidden_fields),
                 project__project_projectmember__member=self.request.user,
                 project__project_projectmember__is_active=True,
                 project__archived_at__isnull=True,

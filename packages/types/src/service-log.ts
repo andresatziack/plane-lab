@@ -198,3 +198,97 @@ export interface IServiceLogResponse {
   readonly batch_id?: string;
   readonly warning?: IServiceLogWarning | null;
 }
+
+/**
+ * A work log as the *client* is allowed to see it. Rule R11, decisions D58 and D65.
+ *
+ * A separate type from `IServiceLog` rather than a `Partial<IServiceLog>`, and the reason is
+ * the same one that gives the client its own serializer on the server: the fields R11
+ * withholds must be **impossible to reference**, not merely absent at runtime. With a
+ * `Partial`, `row.logged_hours` would still typecheck and would still compile into a
+ * template that renders `undefined` — or, once somebody switched the fetch, the real number.
+ *
+ * Absent by construction and therefore absent from this type:
+ *
+ * - `raw_duration_minutes` — what the technician typed
+ * - `logged_hours` — the chronological time before the multiplier
+ * - `applied_multiplier` — the numeric multiplier
+ * - `applied_hour_rate` / `applied_rate_basis` — the commercial terms behind an amount
+ * - `pricing_failure_reason` — an internal configuration gap (D65)
+ *
+ * `logged_hours` is the one to guard hardest, and not because it is the biggest number: the
+ * client sees `equivalent_hours` legitimately, so one division returns the multiplier. R11(c)
+ * exists to prevent exactly that.
+ */
+export interface IServiceLogClientRow {
+  readonly id: string;
+  readonly issue: string;
+
+  /** The day the work happened. */
+  readonly worked_on: string;
+  readonly description: string;
+
+  /** Who did the work. R11 shows the client the author. */
+  readonly author: string;
+  readonly author_detail: {
+    readonly id: string;
+    readonly display_name: string;
+    readonly first_name: string;
+    readonly last_name: string;
+    readonly avatar_url: string | null;
+  } | null;
+
+  /**
+   * After the multiplier. **Never label this "hours worked"** — R11(c): an hour worked after
+   * hours shows as 1,5h, and the wrong label turns a contractual rule into an accusation of
+   * inflated hours. Label it as hours consumed from the contract.
+   */
+  readonly equivalent_hours: string;
+  readonly equivalent_hours_display: string;
+
+  /** Zero on a non-billable route, which is how a courtesy or warranty entry shows as effort
+   * performed with nothing charged. */
+  readonly debited_hours: string;
+
+  readonly hour_type_name: string | null;
+  /** The label, e.g. "Warranty". Never the billing route configuration behind it. */
+  readonly billing_type_name: string | null;
+
+  /** Which arrangement absorbed the hours. D65. */
+  readonly settled_billing_route: string;
+  /** Why the route deviated, e.g. the contract had expired. Present only when it did. D65. */
+  readonly route_deviation_reason: string | null;
+
+  /**
+   * **Optional because it is genuinely absent** on any row whose settled route did not bill
+   * this client (D58). Render when present; never substitute a zero for its absence — a zero
+   * would be a number the client may not have, and a false one.
+   */
+  readonly amount?: string;
+  readonly amount_display?: string;
+
+  readonly created_at: string;
+}
+
+/**
+ * The work item totals a client may see. Two hour quantities, not three.
+ *
+ * `logged_hours` is absent for the R11(c) reason above. These are deliberately the same two
+ * field names `ReportViewer.guest()` uses at the aggregation boundary, so a client comparing
+ * this panel against their dashboard is comparing like with like.
+ */
+export interface IServiceLogClientTotals {
+  readonly equivalent_hours: string;
+  readonly equivalent_hours_display: string;
+  readonly debited_hours: string;
+  readonly debited_hours_display: string;
+
+  /** Absent when nothing on this work item was billed to the client. D58. */
+  readonly amount?: string;
+  readonly amount_display?: string;
+}
+
+export interface IServiceLogClientResponse {
+  readonly service_logs: IServiceLogClientRow[];
+  readonly totals: IServiceLogClientTotals;
+}

@@ -63,6 +63,7 @@ from plane.utils.order_queryset import ACTIVITY_ORDER_BY_ALLOWLIST, order_issue_
 from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPaginator
 from plane.utils.filters import ComplexFilterBackend
 from plane.utils.filters import IssueFilterSet
+from plane.utils.service_portal import activity_fields_hidden_from
 
 
 class UserLastProjectWithWorkspaceEndpoint(BaseAPIView):
@@ -379,7 +380,10 @@ class WorkspaceUserActivityEndpoint(BaseAPIView):
         projects = request.query_params.getlist("project", [])
 
         queryset = IssueActivity.objects.filter(
-            ~Q(field__in=["comment", "vote", "reaction", "draft"]),
+            # The actor comes straight from the URL, so a client's own user could ask for
+            # a named technician's activity. `WorkspaceEntityPermission` admits any active
+            # member on a safe method, GUEST included. D61.
+            ~Q(field__in=activity_fields_hidden_from(request.user, slug=slug)),
             workspace__slug=slug,
             project__project_projectmember__member=request.user,
             project__project_projectmember__is_active=True,

@@ -35,6 +35,7 @@ import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
+import { clientWritableStateIds, type TWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 // plane web components
 import { IssueParentSelectRoot } from "@/components/issues/parent-select-root";
 import type { TIssueOperations } from "../issue-detail";
@@ -46,19 +47,19 @@ interface IPeekOverviewProperties {
   workspaceSlug: string;
   projectId: string;
   issueId: string;
-  disabled: boolean;
+  editPermissions: TWorkItemEditPermissions;
   issueOperations: TIssueOperations;
 }
 
 export const PeekOverviewProperties = observer(function PeekOverviewProperties(props: IPeekOverviewProperties) {
-  const { workspaceSlug, projectId, issueId, issueOperations, disabled } = props;
+  const { workspaceSlug, projectId, issueId, issueOperations, editPermissions } = props;
   const { t } = useTranslation();
   // store hooks
   const { getProjectById } = useProject();
   const {
     issue: { getIssueById },
   } = useIssueDetail();
-  const { getStateById } = useProjectState();
+  const { getStateById, getProjectStates } = useProjectState();
   const { getUserDetails } = useMember();
   // derived values
   const issue = getIssueById(issueId);
@@ -77,13 +78,15 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
   return (
     <div>
       <h6 className="text-body-xs-medium">{t("common.properties")}</h6>
-      <div className={`mt-3 w-full space-y-3 ${disabled ? "opacity-60" : ""}`}>
+      <div className={`mt-3 w-full space-y-3 ${!editPermissions.anyField ? "opacity-60" : ""}`}>
         <SidebarPropertyListItem icon={StatePropertyIcon} label={t("common.state")}>
           <StateDropdown
             value={issue?.state_id}
             onChange={(val) => issueOperations.update(workspaceSlug, projectId, issueId, { state_id: val })}
             projectId={projectId}
-            disabled={disabled}
+            disabled={!editPermissions.state}
+            // Only the groups the API accepts, so a client cannot pick one that 400s.
+            stateIds={clientWritableStateIds(getProjectStates(projectId), editPermissions)}
             buttonVariant="transparent-with-text"
             className="group w-full grow"
             buttonContainerClassName="w-full text-left h-7.5"
@@ -97,7 +100,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
           <MemberDropdown
             value={issue?.assignee_ids ?? undefined}
             onChange={(val) => issueOperations.update(workspaceSlug, projectId, issueId, { assignee_ids: val })}
-            disabled={disabled}
+            disabled={!editPermissions.restrictedFields}
             projectId={projectId}
             placeholder={t("issue.add.assignee")}
             multiple
@@ -115,7 +118,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
           <PriorityDropdown
             value={issue?.priority}
             onChange={(val) => issueOperations.update(workspaceSlug, projectId, issueId, { priority: val })}
-            disabled={disabled}
+            disabled={!editPermissions.priority}
             buttonVariant="transparent-with-text"
             className="h-7.5 w-full grow rounded-sm"
             buttonContainerClassName="w-full text-left h-7.5"
@@ -150,7 +153,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
             placeholder={t("issue.add.start_date")}
             buttonVariant="transparent-with-text"
             maxDate={maxDate ?? undefined}
-            disabled={disabled}
+            disabled={!editPermissions.restrictedFields}
             className="group w-full grow"
             buttonContainerClassName="w-full text-left h-7.5"
             buttonClassName={`text-body-xs-medium ${issue?.start_date ? "" : "text-placeholder"}`}
@@ -171,7 +174,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
               placeholder={t("issue.add.due_date")}
               buttonVariant="transparent-with-text"
               minDate={minDate ?? undefined}
-              disabled={disabled}
+              disabled={!editPermissions.restrictedFields}
               className="group w-full grow"
               buttonContainerClassName="w-full text-left h-7.5"
               buttonClassName={cn("text-body-xs-medium", {
@@ -190,7 +193,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
               value={issue.estimate_point ?? undefined}
               onChange={(val) => issueOperations.update(workspaceSlug, projectId, issueId, { estimate_point: val })}
               projectId={projectId}
-              disabled={disabled}
+              disabled={!editPermissions.restrictedFields}
               buttonVariant="transparent-with-text"
               className="group w-full grow"
               buttonContainerClassName="w-full text-left h-7.5"
@@ -211,7 +214,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
               projectId={projectId}
               issueId={issueId}
               issueOperations={issueOperations}
-              disabled={disabled}
+              disabled={!editPermissions.restrictedFields}
             />
           </SidebarPropertyListItem>
         )}
@@ -224,7 +227,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
               projectId={projectId}
               issueId={issueId}
               issueOperations={issueOperations}
-              disabled={disabled}
+              disabled={!editPermissions.restrictedFields}
             />
           </SidebarPropertyListItem>
         )}
@@ -232,7 +235,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
         <SidebarPropertyListItem icon={ParentPropertyIcon} label={t("common.parent")}>
           <IssueParentSelectRoot
             className="h-7.5 w-full grow"
-            disabled={disabled}
+            disabled={!editPermissions.restrictedFields}
             issueId={issueId}
             issueOperations={issueOperations}
             projectId={projectId}
@@ -241,7 +244,12 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
         </SidebarPropertyListItem>
 
         <SidebarPropertyListItem icon={LabelPropertyIcon} label={t("common.labels")}>
-          <IssueLabel workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} disabled={disabled} />
+          <IssueLabel
+            workspaceSlug={workspaceSlug}
+            projectId={projectId}
+            issueId={issueId}
+            disabled={!editPermissions.restrictedFields}
+          />
         </SidebarPropertyListItem>
       </div>
     </div>

@@ -4,7 +4,7 @@
 
 from django.urls import path
 
-from plane.app.views import ServiceLogViewSet
+from plane.app.views import ServiceLogClientEndpoint, ServiceLogViewSet
 
 # Explicit path() entries, one file per resource, following the house convention --
 # there is no DRF router in this codebase.
@@ -27,6 +27,16 @@ urlpatterns = [
         "workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/service-logs/totals/",
         ServiceLogViewSet.as_view({"get": "totals"}),
         name="service-log-totals",
+    ),
+    # The client portal's read of the same rows, through `ServiceLogClientSerializer`.
+    # A separate endpoint and not a role branch on `list`, so that the viewset above keeps
+    # its "GUEST is on no endpoint here" guarantee unconditionally. Declared before the
+    # `batches/<uuid:batch_id>/` route for no routing reason -- `client` is not a UUID and
+    # cannot collide -- but kept next to the read routes it belongs with.
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/service-logs/client/",
+        ServiceLogClientEndpoint.as_view(),
+        name="service-log-client",
     ),
     # Validates, classifies and computes without persisting, so the form can show what
     # will be created before it is created.

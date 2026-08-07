@@ -89,6 +89,7 @@ from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from .base import BaseAPIView
 from plane.utils.host import base_host
 from plane.utils.issue_relation_mapper import get_actual_relation
+from plane.utils.service_portal import activity_fields_hidden_from
 from plane.bgtasks.webhook_task import model_activity
 from plane.app.permissions import ROLE
 from plane.utils.openapi import (
@@ -1720,7 +1721,10 @@ class IssueActivityListAPIEndpoint(BaseAPIView):
         issue_activities = (
             IssueActivity.objects.filter(issue_id=issue_id, workspace__slug=slug, project_id=project_id)
             .filter(
-                ~Q(field__in=["comment", "vote", "reaction", "draft"]),
+                # `ProjectEntityPermission` admits any active project member on a safe
+                # method, GUEST included, so the token API is a third door to the work log
+                # hours the portal hides. D61.
+                ~Q(field__in=activity_fields_hidden_from(self.request.user, slug=slug, project_id=project_id)),
                 project__project_projectmember__member=self.request.user,
                 project__project_projectmember__is_active=True,
             )

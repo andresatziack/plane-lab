@@ -96,6 +96,7 @@ from .service_issue_allowance import (
     ServiceIssueAllowance,
     ServiceIssueAllowanceStatus,
 )
+from .service_issue_requester import ServiceIssueRequester
 from .service_member_permission import ServiceMemberPermission
 from .service_log import (
     INTERNAL_WORK_FAILURES,

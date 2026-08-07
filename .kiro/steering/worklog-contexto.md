@@ -309,7 +309,31 @@ final que o cliente verá.
 | Tipo de Atendimento (rótulo, ex.: "Garantia") | vê              | vê               | vê    | vê           |
 | Descrição do apontamento                      | vê              | vê               | vê    | vê           |
 | Autor do apontamento                          | vê              | vê               | vê    | vê           |
-| Valor em R$                                   | não vê          | não vê           | vê    | só se avulso |
+| Valor em R$                                   | não vê          | não vê           | vê    | só nos apontamentos cuja rota liquidada é `BILL_AMOUNT` |
+
+**Emenda da Fase 8 (D58).** A última célula dizia "só se avulso". Era uma
+abreviação escrita antes de a D33 e a D44 separarem rota escolhida de rota
+liquidada, e ela conflitava com o texto mais específico da §4 da Fase 6: "em
+cliente de contrato, não exibir valores em R$, apenas horas — **exceto** para
+apontamentos com rota `FATURA_REAIS` lançados fora do escopo do contrato, e para
+excedente faturado". A exceção por apontamento sempre foi a regra; a tabela é que
+resumia demais.
+
+A célula agora diz o que decide de fato: a rota **liquidada** do apontamento
+individual. Consequências:
+
+- Não existe campo "avulso" em `ServiceClient` — aquele enum virou
+  `default_billing_type` na Fase 2 — então a pergunta nunca teve como ser
+  respondida no nível do Cliente.
+- Um cliente de contrato vê valor no apontamento fora de escopo que lhe foi
+  faturado, e não vê valor nos apontamentos que a bolsa dele absorveu. Isso é o
+  comportamento correto, não uma exceção.
+- O critério que torna essa a única leitura defensável: **o cliente vê dinheiro
+  exatamente onde vai receber linha de fatura.** Mostrar valor de algo que ele não
+  será cobrado e esconder valor de algo que ele será são os dois errados.
+- A taxa (`applied_hour_rate`) e a base da taxa continuam invisíveis ao cliente
+  mesmo no apontamento faturado: o valor é uma linha de fatura, a taxa é o termo
+  comercial por trás dela.
 
 Consequências obrigatórias:
 

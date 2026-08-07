@@ -387,3 +387,105 @@ gerais. O restante do monorepo: `packages/editor`, `packages/hooks`,
 usar Recharts diretamente nas telas. Consumir os wrappers do `@plane/propel`. Se
 faltar um tipo de gráfico, adicionar o wrapper ao propel seguindo o padrão dos
 existentes.
+
+
+
+## 14. Leitura e escrita cross-tenant em rotas do core, encontradas pela varredura da Fase 8
+
+**NÃO CORRIGIDO. Isto é informação de operador, e decidir o que fazer é outra conversa.**
+
+A Fase 8 escreveu a varredura de escopo enumerando o resolvedor de URL do Django em vez de
+uma lista de endpoints à mão (D66). Ela encontrou um bug no código *desta série* — corrigido
+em PR próprio — e, rodada uma vez sobre **todas** as rotas com escopo de workspace, encontrou
+o mesmo padrão em código do **core do Plane**, que a operação hospeda sem ter escrito.
+
+### O padrão
+
+`BaseViewSet.permission_classes = [IsAuthenticated]` (`plane/app/views/base.py:51`). A
+autorização real desta base de código está no decorador `allow_permission`, aplicado **por
+ação**. Consequência: uma ação que está *roteada* mas cujo handler não foi escrito — ou foi
+escrito sem o decorador — cai no handler herdado do `ModelViewSet` e roda sob
+`IsAuthenticated` sozinho. Sem checagem de papel e **sem checagem de pertencimento a
+workspace**.
+
+Quando o `get_queryset` filtra apenas pelo `slug` que vem da URL, o resultado é cross-tenant.
+
+### Achado 1 — `ServiceClassificationWindowViewSet.retrieve` (código desta série)
+
+`get: retrieve` roteado, nenhum `retrieve` definido. Devolvia **200 com o payload inteiro**
+para usuário que não é membro de workspace algum. **Corrigido** em PR separado, com cinco
+testes. Registrado aqui porque é o achado que provou o método.
+
+### Achado 2 — `WorkspaceViewViewSet` (core do Plane) — **inclui ESCRITA**
+
+`plane/app/views/view/base.py:52`. Rota
+`workspaces/<str:slug>/views/<uuid:pk>/`, que roteia
+`{"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}`.
+
+Três das quatro ações têm decorador. Duas não:
+
+| ação             | linha | decorador                                     | resultado para não-membro |
+| ---------------- | ----- | --------------------------------------------- | ------------------------- |
+| `list`           | 77    | `[ADMIN, MEMBER, GUEST]` WORKSPACE             | 403 ✔                     |
+| `partial_update` | 86    | `[]` + `creator=True`                          | 403 ✔                     |
+| `destroy`        | 120   | `[ADMIN]` + `creator=True`                     | 403 ✔                     |
+| **`retrieve`**   | 108   | **nenhum** (definido, mas sem decorador)       | **200, e lê o conteúdo**  |
+| **`update`** (PUT) | —   | **não definido** (cai no do `ModelViewSet`)    | **200, e MODIFICA**       |
+
+Medido, não inferido. Usuário autenticado, membro de nenhum workspace, contra uma view
+`access=1` (compartilhada no workspace) de outro workspace:
+
+```
+GET     -> 200
+PUT     -> 200   *** o nome da view foi modificado ***
+PATCH   -> 403
+DELETE  -> 403
+```
+
+O `get_queryset` (linha 60) filtra `workspace__slug` da URL, `project__isnull=True` e
+`Q(owned_by=eu) | Q(access=1)`. É a cláusula `access=1` que abre: "compartilhada com o
+workspace" torna-se, sem checagem de pertencimento, compartilhada com **qualquer pessoa que
+tenha login na instância**.
+
+Note que o `list` da mesma classe faz a coisa certa e até rebaixa GUEST a
+`owned_by=request.user` (linha 81-82). O cuidado existe. Só não alcançou as duas ações que
+ninguém escreveu com decorador.
+
+### O que a varredura ampliada mediu
+
+336 rotas com escopo de workspace, probadas com GET por usuário membro de nenhum workspace.
+39 responderam algo diferente de 401/403/405. Segunda passagem, plantando dados reais no
+workspace-vítima e procurando por eles no corpo da resposta:
+
+- **1 vazou conteúdo real**: `views/<pk>/` (achado 2).
+- **17 devolveram 200 vazio.** Busca de workspace, busca de work item (interna e API
+  externa), comentários, reações, convites, `workspace-members/me`, `user-stats`, dashboard,
+  gráficos. O `get_queryset` de cada uma filtra por pertencimento, então o 200 é uma lista
+  vazia. É o padrão que os próprios comentários das classes de permissão descrevem: "Safe
+  Methods -> Handle the filtering logic in queryset". **Não são vazamentos.**
+- Os `404` da lista são id inexistente com permissão já vencida. Merecem uma olhada
+  eventual: para um não-membro, a diferença entre 404 e 200 é um oráculo de enumeração de
+  ids. Não foi investigado além disso.
+- Os `500` são falha de fixture da própria sonda, não achado.
+
+### Por que não foi corrigido aqui
+
+É código do core, e a Fase 8 já é a única fase da série que toca o core — por um motivo
+nomeado e com allowlist provando o alcance (D59). Corrigir `WorkspaceViewViewSet` de
+carona num PR de portal do cliente contraria exatamente o critério que fez a correção do
+achado 1 sair em PR próprio: **correção de leitura cross-tenant não deve viajar dentro de PR
+de feature.**
+
+Três caminhos, para quem decidir:
+
+1. **PR próprio no fork**, no mesmo formato do achado 1: decorador em `retrieve`, `update`
+   definido com decorador ou removido do roteamento, mais testes de dois workspaces.
+2. **Reportar upstream.** É bug do Plane, não do fork. A operação continua exposta enquanto
+   não houver release.
+3. **Não fazer nada por ora**, sabendo. Defensável se a instância for de um único inquilino —
+   o alcance vira "qualquer usuário logado lê e reescreve views compartilhadas", que é menos
+   grave e ainda é errado.
+
+**Enquanto nada for feito:** numa instância multiempresa, uma view compartilhada é legível e
+regravável por qualquer pessoa com login. Uma view carrega `filters`, o que significa que
+carrega nomes de campo, ids de estado e ids de membro do workspace de origem.

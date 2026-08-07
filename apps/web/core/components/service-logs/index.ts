@@ -5,6 +5,7 @@
  */
 
 export * from "./delete-service-log-modal";
+export * from "./service-log-client-section";
 export * from "./service-log-form";
 export * from "./service-log-list-item";
 export * from "./service-log-modal";

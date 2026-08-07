@@ -36,6 +36,7 @@ import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
+import { clientWritableStateIds, type TWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 // components
 import { IssueParentSelectRoot } from "@/components/issues/parent-select-root";
 import { SidebarPropertyListItem } from "@/components/common/layout/sidebar/property-list-item";
@@ -50,12 +51,12 @@ type Props = {
   projectId: string;
   issueId: string;
   issueOperations: TIssueOperations;
-  isEditable: boolean;
+  editPermissions: TWorkItemEditPermissions;
 };
 
 export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: Props) {
   const { t } = useTranslation();
-  const { workspaceSlug, projectId, issueId, issueOperations, isEditable } = props;
+  const { workspaceSlug, projectId, issueId, issueOperations, editPermissions } = props;
   // store hooks
   const { getProjectById } = useProject();
   const { areEstimateEnabledByProjectId } = useProjectEstimates();
@@ -63,7 +64,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
     issue: { getIssueById },
   } = useIssueDetail();
   const { getUserDetails } = useMember();
-  const { getStateById } = useProjectState();
+  const { getStateById, getProjectStates } = useProjectState();
   const issue = getIssueById(issueId);
   if (!issue) return <></>;
 
@@ -84,13 +85,16 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
       <div className="flex h-full w-full flex-col items-center divide-y-2 divide-subtle-1 overflow-hidden">
         <div className="h-full w-full overflow-y-auto px-6">
           <h5 className="mt-5 text-body-xs-medium">{t("common.properties")}</h5>
-          <div className={`mt-4 mb-2 space-y-2.5 truncate ${!isEditable ? "opacity-60" : ""}`}>
+          <div className={`mt-4 mb-2 space-y-2.5 truncate ${!editPermissions.anyField ? "opacity-60" : ""}`}>
             <SidebarPropertyListItem icon={StatePropertyIcon} label={t("common.state")}>
               <StateDropdown
                 value={issue?.state_id}
                 onChange={(val) => issueOperations.update(workspaceSlug, projectId, issueId, { state_id: val })}
                 projectId={projectId?.toString() ?? ""}
-                disabled={!isEditable}
+                disabled={!editPermissions.state}
+                // A client is offered only the groups the API accepts, so choosing one can
+                // never return a 400. `undefined` for a technician, i.e. the whole list.
+                stateIds={clientWritableStateIds(getProjectStates(projectId), editPermissions)}
                 buttonVariant="transparent-with-text"
                 className="group w-full grow"
                 buttonContainerClassName="w-full text-left h-7.5"
@@ -112,7 +116,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
               <MemberDropdown
                 value={issue?.assignee_ids ?? undefined}
                 onChange={(val) => issueOperations.update(workspaceSlug, projectId, issueId, { assignee_ids: val })}
-                disabled={!isEditable}
+                disabled={!editPermissions.restrictedFields}
                 projectId={projectId?.toString() ?? ""}
                 placeholder={t("issue.add.assignee")}
                 multiple
@@ -130,7 +134,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
               <PriorityDropdown
                 value={issue?.priority}
                 onChange={(val) => issueOperations.update(workspaceSlug, projectId, issueId, { priority: val })}
-                disabled={!isEditable}
+                disabled={!editPermissions.priority}
                 buttonVariant="transparent-with-text"
                 className="h-7.5 w-full grow rounded-sm"
                 buttonContainerClassName="size-full text-left"
@@ -157,7 +161,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                   })
                 }
                 maxDate={maxDate ?? undefined}
-                disabled={!isEditable}
+                disabled={!editPermissions.restrictedFields}
                 buttonVariant="transparent-with-text"
                 className="group w-full grow"
                 buttonContainerClassName="w-full text-left h-7.5"
@@ -178,7 +182,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                     })
                   }
                   minDate={minDate ?? undefined}
-                  disabled={!isEditable}
+                  disabled={!editPermissions.restrictedFields}
                   buttonVariant="transparent-with-text"
                   className="group w-full grow"
                   buttonContainerClassName="w-full text-left h-7.5"
@@ -200,7 +204,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                     issueOperations.update(workspaceSlug, projectId, issueId, { estimate_point: val })
                   }
                   projectId={projectId}
-                  disabled={!isEditable}
+                  disabled={!editPermissions.restrictedFields}
                   buttonVariant="transparent-with-text"
                   className="group w-full grow"
                   buttonContainerClassName="w-full text-left h-7.5"
@@ -221,7 +225,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                   projectId={projectId}
                   issueId={issueId}
                   issueOperations={issueOperations}
-                  disabled={!isEditable}
+                  disabled={!editPermissions.restrictedFields}
                 />
               </SidebarPropertyListItem>
             )}
@@ -234,7 +238,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                   projectId={projectId}
                   issueId={issueId}
                   issueOperations={issueOperations}
-                  disabled={!isEditable}
+                  disabled={!editPermissions.restrictedFields}
                 />
               </SidebarPropertyListItem>
             )}
@@ -246,7 +250,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                 projectId={projectId}
                 issueId={issueId}
                 issueOperations={issueOperations}
-                disabled={!isEditable}
+                disabled={!editPermissions.restrictedFields}
               />
             </SidebarPropertyListItem>
 
@@ -255,7 +259,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                 workspaceSlug={workspaceSlug}
                 projectId={projectId}
                 issueId={issueId}
-                disabled={!isEditable}
+                disabled={!editPermissions.restrictedFields}
               />
             </SidebarPropertyListItem>
           </div>

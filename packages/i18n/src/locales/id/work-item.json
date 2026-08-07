@@ -542,6 +542,22 @@
         "contract_suspended": "The contract is suspended, so the work was billed as standalone.",
         "contract_ended": "The contract was ended, so the work was billed as standalone.",
         "contract_expired": "The service date is past the contract vigency, so the work was billed as standalone."
+      },
+      "client": {
+        "title": "Work log",
+        "consumed": "Hours consumed",
+        "consumed_hint": "Hours counted against your contract. Work outside business hours counts at a higher rate, which is why this can exceed the elapsed time.",
+        "charged": "Hours charged",
+        "charged_hint": "Excludes work that is not charged, such as warranty or courtesy.",
+        "amount": "Amount invoiced",
+        "amount_hint": "Billed separately from your contract, because this work fell outside its scope.",
+        "not_charged": "not charged",
+        "deviation": {
+          "no_contract_for_client": "no active contract",
+          "contract_suspended": "contract suspended",
+          "contract_ended": "contract ended",
+          "contract_expired": "contract expired"
+        }
       }
     },
     "service_allowance": {
