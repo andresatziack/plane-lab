@@ -328,6 +328,37 @@ class ServiceClassificationWindowViewSet(BaseViewSet):
         return Response(self.serializer_class(windows, many=True).data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def retrieve(self, request, slug, pk):
+        """Read one window. **This action was reachable by anybody with a login.**
+
+        ``get: retrieve`` is routed for this viewset but no ``retrieve`` was ever defined, so
+        the inherited ``ModelViewSet`` one ran -- and it carries no ``allow_permission``, which
+        left only ``BaseViewSet.permission_classes = [IsAuthenticated]``. No role check and no
+        membership check. ``get_queryset`` filters on the slug taken from the URL and nothing
+        else, so any authenticated user on the instance could read any workspace's window given
+        its id. On an instance hosting two unrelated companies, one could read the other's
+        window configuration.
+
+        The class docstring above already said "reads are open to admins and members, GUEST to
+        neither". That was true of every action that was *written* and false of the one that was
+        only *routed* -- which is why an endpoint list maintained by hand would have asserted
+        the docstring and agreed with it.
+
+        The payload is worth guarding: it carries the hour type, and which hours fall in which
+        window is the operation's pricing structure read from another angle. Whoever sees the
+        windows knows which hours cost more, and when.
+
+        Identical in shape to ``ServiceHolidayViewSet.retrieve``, which has had the decorator
+        since it was written.
+        """
+        window = self.get_queryset().filter(pk=pk).first()
+
+        if not window:
+            return self._not_found()
+
+        return Response(self.serializer_class(window).data, status=status.HTTP_200_OK)
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def coverage(self, request, slug):
         """The health of the workspace's classification configuration.
 
