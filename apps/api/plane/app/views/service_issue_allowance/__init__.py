@@ -6,5 +6,6 @@ from .base import (
     IssueServiceAllowanceEndpoint,
     ServiceIssueAllowanceAlertPanelEndpoint,
     ServiceIssueAllowanceCloseEndpoint,
+    ServiceIssueAllowanceDismissAlertEndpoint,
     ServiceIssueAllowanceOverageRateEndpoint,
 )

@@ -993,17 +993,33 @@ class ServiceHourLedgerEntry(WorkspaceBaseModel):
         return f"{self.entry_type} {self.hours} @ {self.period_id}"
 
 
-class ServiceContractAlertDismissal(WorkspaceBaseModel):
-    """An alert an admin has acknowledged for one period, so it stops being noise.
+class ServiceAlertDismissal(WorkspaceBaseModel):
+    """An alert an admin has acknowledged, so it stops being noise.
 
-    Section 9 requires alerts to be dismissible per period. The naive shape -- unique
-    on ``(period, alert_code)`` and nothing else -- has a hole that decision B2 closes:
-    dismissing the negative-balance alert at -5h would silence it at -200h too. An
-    alert that fires once, on the cheapest day, is not a guardrail.
+    Section 9 requires alerts to be dismissible "para não virar ruído". The naive shape
+    -- unique on ``(period, alert_code)`` and nothing else -- has a hole that decision B2
+    closes: dismissing the negative-balance alert at -5h would silence it at -200h too.
+    An alert that fires once, on the cheapest day, is not a guardrail.
 
     So the **balance at the moment of dismissal is recorded**, and the alert re-fires
     when things get worse by more than one band. The band is
     ``plane.utils.service_pool_alerts.ALERT_REARM_BAND_HOURS``.
+
+    **The target is a period or an allowance, exactly one of the two (D53).** Phase 5
+    left allowance alerts undismissable and named it as debt owed by Phase 9, because
+    ``period`` was mandatory. The fix follows **D29 literally**: a nullable pair with the
+    exclusivity in DDL, which is the shape ``ServiceHourLedgerEntry`` already uses for the
+    same problem a few classes up in this very module. Inventing a sibling table now
+    would be two solutions to one problem.
+
+    What makes the pair cheap here is that ``balance_at_dismissal`` was already generic:
+    ``ServiceContractPeriod`` and ``ServiceIssueAllowance`` **both** expose
+    ``balance_hours``, so the re-arm comparison in ``is_alert_dismissed`` works for either
+    target through one code path, with no branch on type.
+
+    Renamed from ``ServiceContractAlertDismissal``, keeping the table name: the table now
+    holds rows with no contract anywhere in them, and a class saying "Contract" would send
+    the next reader looking for a foreign key that is not there.
 
     **The accepted limitation, registered rather than hidden:** there is still no
     ceiling on the deficit itself. Nothing stops a period reaching -200h; the system
@@ -1013,10 +1029,25 @@ class ServiceContractAlertDismissal(WorkspaceBaseModel):
     deliberately.
     """
 
+    # Nullable half of the D53 pair. Exactly one of `period` and `allowance` is set,
+    # enforced by `service_alert_dismissal_has_exactly_one_target` below rather than by
+    # application code, for the same reason D29 gave for the ledger: a rule about which
+    # columns may coexist is a rule the database can keep, and one it keeps against every
+    # writer including a shell session.
     period = models.ForeignKey(
         "db.ServiceContractPeriod",
         on_delete=models.DO_NOTHING,
         related_name="alert_dismissals",
+        null=True,
+        blank=True,
+    )
+
+    allowance = models.ForeignKey(
+        "db.ServiceIssueAllowance",
+        on_delete=models.DO_NOTHING,
+        related_name="alert_dismissals",
+        null=True,
+        blank=True,
     )
 
     # The UPPER_SNAKE code from `plane.utils.service_pool_alerts`. A plain string, not
@@ -1041,22 +1072,51 @@ class ServiceContractAlertDismissal(WorkspaceBaseModel):
     )
 
     class Meta:
-        verbose_name = "Service Contract Alert Dismissal"
-        verbose_name_plural = "Service Contract Alert Dismissals"
+        verbose_name = "Service Alert Dismissal"
+        verbose_name_plural = "Service Alert Dismissals"
+        # Unchanged across the rename. Renaming the table would buy nothing and would
+        # turn a state-only migration into one that rewrites a table.
         db_table = "service_contract_alert_dismissals"
         ordering = ("-dismissed_at",)
 
-        unique_together = [["period", "alert_code", "deleted_at"]]
+        unique_together = [["period", "allowance", "alert_code", "deleted_at"]]
 
         constraints = [
+            # Two partial uniques rather than one, and the `__isnull=False` halves matter.
+            # In Postgres NULLs are distinct inside a unique index, so a single unique on
+            # (period, alert_code) would silently stop protecting anything the moment
+            # `period` became nullable: every allowance dismissal has period NULL, so they
+            # would all be mutually distinct regardless of alert_code. The condition makes
+            # each index cover only the rows that target its own entity.
             models.UniqueConstraint(
                 fields=["period", "alert_code"],
-                condition=Q(deleted_at__isnull=True),
+                condition=Q(deleted_at__isnull=True, period__isnull=False),
                 name="service_alert_dismissal_unique_per_period_when_deleted_at_null",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["allowance", "alert_code"],
+                condition=Q(deleted_at__isnull=True, allowance__isnull=False),
+                name="service_alert_dismissal_unique_per_allowance_when_deleted_at_null",
+            ),
+            # D53, mirroring `service_ledger_entry_has_exactly_one_target` from D29.
+            # Exactly one target: never both, and never neither. "Never neither" is the
+            # half that is easy to forget and the one that would let an orphan dismissal
+            # silence nothing while looking like a record of somebody's decision.
+            models.CheckConstraint(
+                condition=(
+                    Q(period__isnull=False, allowance__isnull=True)
+                    | Q(period__isnull=True, allowance__isnull=False)
+                ),
+                name="service_alert_dismissal_has_exactly_one_target",
+            ),
         ]
 
-        indexes = [models.Index(fields=["period", "alert_code"], name="svc_alert_dismissal_idx")]
+        indexes = [
+            models.Index(fields=["period", "alert_code"], name="svc_alert_dismissal_idx"),
+            models.Index(
+                fields=["allowance", "alert_code"], name="svc_alert_dismissal_allow_idx"
+            ),
+        ]
 
     def __str__(self):
         return f"{self.alert_code} @ {self.period_id}"

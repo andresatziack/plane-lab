@@ -145,12 +145,18 @@ def post_log(api, setup, *, minutes=60, worked_on=date(2026, 3, 10)):
 
 
 class TestR11TheMoneyIsAbsentFromAMembersPayload:
-    """**The leak test, and it asserts absence rather than a value.**"""
+    """**The leak test, and it asserts absence rather than a value.**
+
+    Revised by D57. Phase 6 had one field set called ``AMOUNT_FIELDS`` holding both the
+    money and the commercial state, and restricted all of it. The commercial half is now
+    ``COMMERCIAL_STATE_FIELDS`` and reaches a Member, so this class asserts **both
+    directions**: money absent, commercial state present. Asserting only the absence
+    would let a future phase re-widen the restriction without a test noticing.
+    """
 
     def test_a_member_receives_no_monetary_keys_at_all(self, setup):
-        post_log(client_for(setup["admin"]), setup)
+        issue, _created = post_log(client_for(setup["admin"]), setup)
 
-        issue = IssueFactory(project=setup["project"])
         response = client_for(setup["member"]).get(
             SERVICE_LOGS_URL.format(
                 slug=setup["workspace"].slug,
@@ -160,14 +166,56 @@ class TestR11TheMoneyIsAbsentFromAMembersPayload:
         )
 
         assert response.status_code == 200
+        assert response.json()["service_logs"], "the fixture must produce a row to inspect"
 
         # Asserted against the serializer's own list, so this test cannot drift from the code
         # by restating the field names.
         for row in response.json()["service_logs"]:
-            for field in ServiceLogSerializer.AMOUNT_FIELDS:
+            for field in ServiceLogSerializer.MONEY_FIELDS:
                 assert field not in row, f"{field} leaked to a MEMBER"
 
         assert "amount" not in response.json()["totals"]
+
+    def test_a_member_does_receive_the_commercial_state(self, setup):
+        """**D57.** The route, the deviation and the pricing pendency are not money.
+
+        None of the three reveals a value, a rate or a multiplier. And a technician who
+        cannot see that the client's contract has expired cannot warn anybody before
+        spending another ten hours that will land as ad-hoc billing -- which makes hiding
+        them operationally worse than showing them.
+
+        Phase 4 section 9 already put contract status in front of technicians in the
+        attention panel; had the route been money-class, that panel would have been
+        violating R11 since Phase 4. This test fixes the narrower classification so the
+        wide one cannot come back by accident.
+        """
+        issue, _created = post_log(client_for(setup["admin"]), setup)
+
+        row = (
+            client_for(setup["member"])
+            .get(
+                SERVICE_LOGS_URL.format(
+                    slug=setup["workspace"].slug,
+                    project_id=setup["project"].id,
+                    issue_id=issue.id,
+                )
+            )
+            .json()["service_logs"][0]
+        )
+
+        for field in ServiceLogSerializer.COMMERCIAL_STATE_FIELDS:
+            assert field in row, f"{field} is commercial state, not money, and a MEMBER needs it"
+
+        # The specific value, not just the key: this log is ad-hoc, so the settled route
+        # says so. Asserting the value is what proves the field is populated rather than
+        # present-and-null.
+        assert row["settled_billing_route"] == "bill_amount"
+
+        # And the two sets really are disjoint -- otherwise this test and the one above
+        # would be contradicting each other rather than partitioning the payload.
+        assert not set(ServiceLogSerializer.MONEY_FIELDS) & set(
+            ServiceLogSerializer.COMMERCIAL_STATE_FIELDS
+        )
 
     def test_an_admin_receives_them(self, setup):
         """The positive control. Without it the test above would pass on a serializer that
@@ -177,7 +225,7 @@ class TestR11TheMoneyIsAbsentFromAMembersPayload:
         assert created.status_code == 201
         row = created.json()["service_logs"][0]
 
-        for field in ServiceLogSerializer.AMOUNT_FIELDS:
+        for field in ServiceLogSerializer.MONEY_FIELDS:
             assert field in row, f"{field} is missing for an ADMIN"
 
         assert row["amount"] == "200.00"
@@ -229,7 +277,7 @@ class TestR11TheMoneyIsAbsentFromAMembersPayload:
 
         payload = json.loads(recorded["requested_data"])
 
-        for field in ServiceLogSerializer.AMOUNT_FIELDS:
+        for field in ServiceLogSerializer.MONEY_FIELDS:
             assert field not in payload[0], f"{field} reached the activity feed"
 
         # Positive control: the trail is not empty, it just has no prices in it.
@@ -251,7 +299,7 @@ class TestR11TheMoneyIsAbsentFromAMembersPayload:
         as_member = client_for(setup["member"]).get(url).json()["allowance"]
         as_admin = client_for(setup["admin"]).get(url).json()["allowance"]
 
-        for field in ServiceIssueAllowanceSerializer.AMOUNT_FIELDS:
+        for field in ServiceIssueAllowanceSerializer.MONEY_FIELDS:
             assert field not in as_member
             assert field in as_admin
 

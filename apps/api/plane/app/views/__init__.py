@@ -103,6 +103,7 @@ from .service_issue_allowance.base import (
     IssueServiceAllowanceEndpoint,
     ServiceIssueAllowanceAlertPanelEndpoint,
     ServiceIssueAllowanceCloseEndpoint,
+    ServiceIssueAllowanceDismissAlertEndpoint,
     ServiceIssueAllowanceOverageRateEndpoint,
 )
 from .service_log.base import ServiceLogViewSet

@@ -41,7 +41,12 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
 
     #: Removed for a non-Admin. Kept as a class attribute so the contract test asserts
     #: against the same list the code uses rather than restating it.
-    AMOUNT_FIELDS = ("overage_hour_rate",)
+    #:
+    #: Named ``MONEY_FIELDS`` to match ``ServiceLogSerializer`` after D57 split money from
+    #: commercial state. Here the whole set is genuinely money -- an hourly rate -- so the
+    #: split changes the name and nothing else. There is no commercial-state counterpart:
+    #: an allowance has a ``status``, and that was never restricted.
+    MONEY_FIELDS = ("overage_hour_rate",)
 
     balance_hours = serializers.DecimalField(max_digits=10, decimal_places=4, read_only=True)
     consumed_pct = serializers.DecimalField(
@@ -55,7 +60,7 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
         super().__init__(*args, **kwargs)
 
         if not self.context.get("can_see_amounts", False):
-            for field in self.AMOUNT_FIELDS:
+            for field in self.MONEY_FIELDS:
                 self.fields.pop(field, None)
 
     class Meta:
