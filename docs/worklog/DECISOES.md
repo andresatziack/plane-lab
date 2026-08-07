@@ -1504,7 +1504,8 @@ Duas fogem desse recorte e valem além da fase. A **D62** (solicitante) é entre
 próprio, porque conta outra história — registrar quem pediu, não proteger o que o cliente
 vê. A **D66** (varredura enumera o roteador) é método de teste, não regra de negócio, e é
 reutilizável por qualquer fase futura; ela também é o que encontrou a leitura cross-tenant
-corrigida em PR separado.
+corrigida em PR separado, e uma segunda no core do Plane que ficou registrada sem correção
+em `ACHADOS-DO-CODIGO.md`.
 
 ## D58 — Dinheiro para o cliente segue a rota liquidada do apontamento, não uma propriedade do Cliente
 
@@ -1668,6 +1669,48 @@ classes de permissão não aplicam filtro de papel algum em método seguro:
 A segunda é a mais afiada: o id do ator é segmento de URL, então o cliente pede a
 atividade de um técnico nomeado diretamente.
 
+## D62 — O solicitante é modelo próprio, e a atribuição concede visibilidade
+
+Modelo próprio em vez de coluna em `Issue`. `Issue` é o modelo mais editado do core do
+Plane, e uma FK nullable nele seria superfície de merge permanente na tabela mais
+quente do schema em troca de uma atribuição opcional. O mesmo raciocínio que a D45
+aplicou a `WorkspaceMember`; oito fases foram entregues sem acrescentar coluna a
+modelo core.
+
+**Sem `ChangeTrackerMixin` e não é `ServiceConfigEntity`**, ao contrário de todo outro
+modelo `Service*` que carrega decisão. Registrar quem pediu não decide dinheiro nenhum
+— não muda taxa, rota, multiplicador nem saldo — então `ServiceConfigActivity` é a
+trilha errada (§6 do contexto mestre: aquela trilha é para configuração que afeta
+dinheiro). As colunas de auditoria herdadas respondem "quem registrou e quando", que é
+a pergunta forense aqui.
+
+**A metade que teria silenciosamente não funcionado.** O critério 15 pede que o
+solicitante registrado **veja** o chamado no portal. Na configuração recomendada ele
+veria de todo jeito, porque o project concede visibilidade total aos clientes — então
+todo teste de visibilidade desta decisão **desliga essa flag primeiro**. Com ela
+ligada, uma atribuição quebrada passa. Um administrador que registra um solicitante que
+depois não vê nada é uma funcionalidade que relata sucesso e não faz nada, o que é pior
+que não existir.
+
+Por isso `client_may_reach_issue` passa a ser **a única definição** de "este cliente
+alcança este work item". O core fazia essa pergunta em três lugares com grafias
+diferentes — `role=ROLE.GUEST.value` num, o literal `role=5` em dois, a comparação de
+`created_by` uma vez como filtro de queryset e uma vez como teste de identidade — e a
+Fase 8 precisa dela em três outros. Seis cópias de uma regra de visibilidade são seis
+chances de uma divergir. Os três sítios do core agora chamam a função ou o gêmeo de
+queryset dela, cada um **dentro da condição que já existia**.
+
+Notificação é o `IssueSubscriber` nativo. Reaproveitar a inscrição do próprio Plane
+significa que notificação, digest e cancelamento já funcionam; um caminho paralelo para
+uma atribuição seria uma segunda coisa a manter e a errar. Apagar a atribuição
+**deixa** a inscrição: cancelar é decisão do solicitante e o Plane já lhe dá esse
+controle.
+
+A atribuição não pode virar meio de conceder visibilidade arbitrária: o solicitante tem
+de ser GUEST ativo **daquele project**. Sem isso, uma rota cujo propósito inteiro é
+conceder visibilidade entregaria a qualquer membro do workspace a visão de um work item
+num project onde ele não está. 400 por D47.
+
 ## D63 — A rota do portal sobrescreve o viewer, e o escopo é resolvido antes e aplicado por último
 
 **`_viewer` sobrescrito, nunca herdado.** A implementação herdada resolve pertencimento
@@ -1803,7 +1846,7 @@ informação de operador, e decidir o que fazer é outra conversa.
 | D59     | **Sim**      | módulo `service_portal.py`; `partial_update` passa a chamar em vez de decidir                  |
 | D60     | **Sim**      | `filter_issue_payload_for_client`, `validate_client_state_transition`, 400 nomeado             |
 | D61     | **Sim**      | `activity_fields_hidden_from` nos **três** leitores de atividade                               |
-| D62     | **Sim**      | migração 0133, `ServiceIssueRequester`, `client_visible_issues_q` — entregue à parte           |
+| D62     | **Sim**      | migração 0133, `ServiceIssueRequester`, `client_visible_issues_q`, três sítios do core         |
 | D63     | **Sim**      | `ServiceClientPortalReportEndpoint`, `_viewer` sobrescrito, `scope_filterset_to_client`        |
 | D64     | **Sim**      | registro por campo em `issue-detail` **e** `peek-overview`                                     |
 | D65     | **Sim**      | `CLIENT_COMMERCIAL_STATE_FIELDS`; `pricing_failure_reason` fora do `Meta.fields`               |
