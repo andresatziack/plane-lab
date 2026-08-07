@@ -26,6 +26,7 @@ combination unrepresentable, so a settlement that got half-written cannot be sto
 
 # Django imports
 from django.db import transaction
+from django.db.models import Case, CharField, Q, Value, When
 
 # Module imports
 from plane.db.models import (
@@ -389,6 +390,114 @@ def revenue_origin_of(service_log, *, client_has_contract):
     return RevenueOrigin.OUT_OF_SCOPE_LOG if client_has_contract else RevenueOrigin.STANDALONE_LOG
 
 
+class ReportBucket:
+    """Where one work log lands in a financial report. The four origins plus the two
+    populations that are **not** revenue and must still be accounted for.
+
+    ``revenue_origin_of`` answers "which origin"; this answers the prior question "is this
+    revenue at all, and if not, which kind of not". Phase 6 made that dispatch inline in
+    ``consolidated_billing``; Phase 9 needs the same dispatch in SQL for the time series, so
+    it is named here and both consumers go through it.
+    """
+
+    #: A project with no client, or a log whose pricing failed *because* of that. Section 1
+    #: of Phase 1: not billable. Excluded from revenue entirely, counted separately, never a
+    #: fifth origin worth zero.
+    INTERNAL_WORK = "internal_work"
+
+    #: Billed work that **cannot be invoiced yet** because no price sheet applies. Not
+    #: revenue, and its absence from any total is the entire reason it is listed.
+    REGISTRATION_PENDENCY = "registration_pendency"
+
+    #: A pool debit or a non-billable row. Real work, no money, nothing for a financial
+    #: report to add up. ``None`` rather than a string so that a caller filtering on the
+    #: annotation gets SQL ``NULL`` and can use ``isnull``.
+    NOT_REVENUE = None
+
+
+def report_bucket_of(service_log, *, client_has_contract, has_client):
+    """Which report bucket one work log belongs to. **The Python statement of the rule.**
+
+    Extracted from ``consolidated_billing``, which now calls it, so that the dispatch has
+    one implementation rather than one per report. The origin half delegates to
+    ``revenue_origin_of`` instead of restating it -- there is still exactly one place that
+    decides standalone versus out-of-scope.
+
+    Order matters and is not arbitrary:
+
+    1. **Route first.** A pool debit or a non-billable row is not revenue whatever else is
+       true of it, and asking about its client would be asking about the wrong thing.
+    2. **Internal work before pendency.** A client-less project has no price sheet *by
+       definition*, so a row that is both would otherwise be filed as a pendency somebody
+       is expected to fix -- and nobody can register a price sheet for a client that does
+       not exist.
+    3. **Pendency before origin.** A row with no resolvable price has no amount, so filing
+       it under an origin would add a zero to a revenue column and make a missing price
+       sheet look like completed work worth nothing.
+    """
+    if service_log.settled_billing_route != _BILL:
+        return ReportBucket.NOT_REVENUE
+
+    if not has_client or service_log.pricing_failure_reason in INTERNAL_WORK_FAILURES:
+        return ReportBucket.INTERNAL_WORK
+
+    if service_log.pricing_failure_reason in PRICING_PENDENCY_FAILURES:
+        return ReportBucket.REGISTRATION_PENDENCY
+
+    return revenue_origin_of(service_log, client_has_contract=client_has_contract)
+
+
+def report_bucket_expression(contracted_client_ids):
+    """``report_bucket_of`` as a ``Case/When``, for aggregating in the database.
+
+    **A second implementation of one rule, which is normally indefensible.** It is
+    defensible here for a reason that has to be checked rather than assumed: the input
+    space is *finite and small*. Three settled routes, five deviation values, four pricing
+    failure values, and two client facts -- and the check constraints on ``ServiceLog`` cut
+    that down to **66 representable combinations**.
+
+    So ``test_service_billing_origins.py`` enumerates **every one of them**, builds the row,
+    and asserts the two implementations agree. That is a proof over the whole input space,
+    not a sample, and it is what makes the duplication safe: adding a value to
+    ``ServiceRouteDeviation`` changes the enumerated count and turns the test red by
+    arithmetic rather than by luck.
+
+    ``contracted_client_ids`` is the set resolved once per competency by
+    ``_clients_with_a_contract_covering``, passed in for the same reason
+    ``client_has_contract`` is passed to the Python version: one query per report instead of
+    one per row.
+    """
+    is_internal = Q(project__service_client_id__isnull=True) | Q(
+        pricing_failure_reason__in=INTERNAL_WORK_FAILURES
+    )
+
+    return Case(
+        # 1. Not revenue at all.
+        When(~Q(settled_billing_route=_BILL), then=Value(None, output_field=CharField())),
+        # 2. Internal work, before pendency -- a client-less project cannot have a sheet.
+        When(is_internal, then=Value(ReportBucket.INTERNAL_WORK)),
+        # 3. No resolvable price: not revenue, and not a zero in a revenue column either.
+        When(
+            Q(pricing_failure_reason__in=PRICING_PENDENCY_FAILURES),
+            then=Value(ReportBucket.REGISTRATION_PENDENCY),
+        ),
+        # 4. D33: a deviation makes it ad-hoc-with-a-reason, never out of scope, whether or
+        # not the client holds a contract.
+        When(
+            Q(route_deviation_reason__isnull=False),
+            then=Value(RevenueOrigin.STANDALONE_LOG),
+        ),
+        # 5. The client holds a contract covering the competency, so this is something sold
+        # outside its scope.
+        When(
+            Q(project__service_client_id__in=list(contracted_client_ids)),
+            then=Value(RevenueOrigin.OUT_OF_SCOPE_LOG),
+        ),
+        default=Value(RevenueOrigin.STANDALONE_LOG),
+        output_field=CharField(),
+    )
+
+
 def _clients_with_a_contract_covering(workspace_id, first_day, last_day):
     """Ids of clients holding a contract whose vigency overlaps the competency.
 
@@ -494,16 +603,29 @@ def consolidated_billing(workspace_id, year, month, *, service_client_id=None):
     for log in logs.iterator():
         client = log.project.service_client
 
-        if client is None or log.pricing_failure_reason in INTERNAL_WORK_FAILURES:
-            # Internal work. Excluded from revenue, counted so the hours are not simply
-            # unaccounted for -- "not billable" and "lost" are different facts.
+        # The dispatch is `report_bucket_of` rather than inline `if`s, because Phase 9 needs
+        # the identical dispatch in SQL for its time series and two hand-written copies of a
+        # revenue rule is how one month of work becomes two different invoices. This is the
+        # oracle the SQL expression is differentially tested against.
+        bucket = report_bucket_of(
+            log,
+            client_has_contract=client is not None and client.pk in contracted_clients,
+            has_client=client is not None,
+        )
+
+        if bucket == ReportBucket.INTERNAL_WORK:
+            # Excluded from revenue, counted so the hours are not simply unaccounted for --
+            # "not billable" and "lost" are different facts.
             internal["hours"] += log.equivalent_hours
             internal["entries"] += 1
             continue
 
+        if bucket == ReportBucket.NOT_REVENUE:
+            continue
+
         entry = bucket_for(client.pk, client.name)
 
-        if log.pricing_failure_reason in PRICING_PENDENCY_FAILURES:
+        if bucket == ReportBucket.REGISTRATION_PENDENCY:
             # Real money that cannot be invoiced yet. Deliberately NOT added to any origin
             # bucket, so it cannot inflate `total_amount` with a zero it does not have.
             pendency = entry["registration_pendencies"].setdefault(
@@ -513,12 +635,7 @@ def consolidated_billing(workspace_id, year, month, *, service_client_id=None):
             pendency["entries"] += 1
             continue
 
-        origin = revenue_origin_of(log, client_has_contract=client.pk in contracted_clients)
-
-        if origin is None:
-            continue
-
-        _add(entry["origins"][origin], hours=log.equivalent_hours, amount=log.amount)
+        _add(entry["origins"][bucket], hours=log.equivalent_hours, amount=log.amount)
 
         if log.route_deviation_reason is not None:
             # D33's reason, surfaced beside the revenue rather than instead of it: the money
