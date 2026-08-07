@@ -580,9 +580,10 @@ class TestDelegation:
             format="json",
         )
 
-        # 403 rather than 400: the id is a valid user, and what refuses it is a rule about
-        # roles. See PERMISSION_DENIED_CODES in the viewset.
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        # 400, not 403, and the distinction is the contract with the interface: this caller
+        # *holds* `can_delegate`, so the refusal is about the value of `author_id` and belongs
+        # on the field. A 403 would tell them they lack a permission they have.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data["error"] == "SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN"
         assert ServiceLog.objects.exists() is False
 
@@ -827,7 +828,8 @@ class TestReassignment:
             _author_url(issue, batch_id), {"author_id": str(guest_user.id)}, format="json"
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        # 400: the Admin holds every capability, so this is the payload being wrong.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data["error"] == "SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN"
 
     def test_reassignment_without_a_target_is_a_validation_error(
@@ -1130,6 +1132,29 @@ class TestClosedPeriodIsAdminOnly:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data["error"] == "PERIOD_IS_CLOSED"
         assert ServiceLog.objects.get(batch_id=batch_id).logged_hours == Decimal("1.0000")
+
+        # The refusal carries a way forward. An Admin who passed the permission gate and was
+        # then stopped by the ledger would otherwise be told only what they cannot do, and the
+        # obvious guess -- "get somebody to reopen the month" -- is the thing D42 now records
+        # as an open question rather than a task.
+        assert response.data["remediation"] == "RECORD_A_NEW_ENTRY_IN_THE_OPEN_COMPETENCE"
+
+    def test_a_refusal_that_is_not_about_a_closed_period_carries_no_remediation(
+        self, client_a, issue, commercial_hours, contract_billing
+    ):
+        """The positive control for the hint above: it is specific, not attached to everything.
+
+        A future date is refused by the same handler and has nothing to do with competencies,
+        so a ``remediation`` key here would mean the hint was being stapled onto every error.
+        """
+        response = client_a.post(
+            _list_url(issue),
+            _payload(commercial_hours, contract_billing, worked_on="2099-01-01"),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "remediation" not in response.data
 
     def test_an_open_period_is_not_locked(
         self, client_a, issue, contract, commercial_hours, contract_billing

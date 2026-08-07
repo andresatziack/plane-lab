@@ -60,23 +60,41 @@ from plane.utils.service_pricing import ServicePricingValidationError
 
 from ..base import BaseViewSet
 
-#: Refusals of *authority*, which are 403. Every other domain error code is a refusal of
-#: *input*, which is 400. Kept as a set at module level so the mapping is stated once and
-#: a new permission code cannot be added without deciding which kind it is.
+# THE STATUS CODE RULE FOR THIS VIEWSET, in one line:
+#
+#   403 when the ACTOR lacks the capability; 400 when the PAYLOAD is wrong -- whether it is
+#   malformed or names an ineligible target.
+#
+# The distinction is a contract with the interface, not bookkeeping. A 403 means the UI
+# should hide or disable the action; a 400 means it should show an error **on the field**.
+#
+# `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN` is therefore a 400 and deliberately not in this
+# set, even though it guards a privilege boundary. The caller in that case *holds*
+# `can_delegate` -- they are authorised to delegate, and what is wrong is the value of
+# `author_id`. Answering 403 would make the interface say "you do not have permission" to
+# somebody who does, and they would go and ask for a permission they already have.
+#
+# Nothing leaks by saying so: anybody holding `can_delegate` is a workspace MEMBER and can
+# already list the members and their roles.
 PERMISSION_DENIED_CODES = {
     ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG,
     SERVICE_LOG_DELEGATION_NOT_PERMITTED,
     SERVICE_LOG_REASSIGNMENT_NOT_PERMITTED,
     CLOSED_PERIOD_IS_ADMIN_ONLY,
-    # "That person may not be credited with work here" is a **policy** refusal, not a
-    # malformed payload: the id is a valid UUID of a real user, and what stops it is a
-    # rule about roles. 403 is the code for "understood, and refused to authorise".
-    #
-    # It also keeps criterion 8 coherent -- every refusal on a work log write route is a
-    # 403, and the only 400s left are genuinely about the shape of the request (a missing
-    # author, an author sent to the edit route instead of the reassignment route).
-    SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN,
 }
+
+#: What to do about a closed competency, returned alongside ``PERIOD_IS_CLOSED``.
+#:
+#: A workspace ADMIN passes the permission gate for a closed period and then hits the pool
+#: layer, which refuses to move hours in a settled competency for everybody. Without this,
+#: the Admin gets a refusal and no route forward -- and the obvious guess, "ask an engineer
+#: to reopen the month", is very possibly the wrong thing to build. See D42, which is now
+#: recorded as an open question rather than a task: accounting does not edit a closed period,
+#: it posts an adjustment in the open one.
+#:
+#: A code rather than a sentence, like every other error in this domain: the frontend owns the
+#: translation and the API never returns Portuguese.
+RECORD_A_NEW_ENTRY_IN_THE_OPEN_COMPETENCE = "RECORD_A_NEW_ENTRY_IN_THE_OPEN_COMPETENCE"
 
 
 class ServiceLogViewSet(BaseViewSet):
@@ -215,12 +233,10 @@ class ServiceLogViewSet(BaseViewSet):
         return resolve_capabilities(request.user, slug=slug)
 
     def _permission_error(self, code):
-        """403 for a refusal of authority, 400 for a refusal of input. Criterion 8.
+        """403 when the actor lacks the capability, 400 when the payload is wrong. Criterion 8.
 
-        The distinction matters to the frontend: a 403 means "you may not", which is a
-        message about the user, and a 400 means "this payload is wrong", which is a
-        message about the form. Returning 400 for a denied permission would make the UI
-        show a field error for something no field can fix.
+        See ``PERMISSION_DENIED_CODES`` for the rule and for why naming an ineligible author
+        is the 400 side of it rather than the 403 side.
         """
         return Response(
             {"error": code},
@@ -228,6 +244,21 @@ class ServiceLogViewSet(BaseViewSet):
                 status.HTTP_403_FORBIDDEN if code in PERMISSION_DENIED_CODES else status.HTTP_400_BAD_REQUEST
             ),
         )
+
+    def _pool_error(self, error):
+        """A domain refusal from the pool or pricing layer, with a way forward where one exists.
+
+        ``PERIOD_IS_CLOSED`` reaching an ADMIN is the case worth handling: they passed the
+        permission gate, so as far as authorisation goes they may edit this log, and the
+        refusal comes from the ledger declining to move hours in a settled competency. A bare
+        code there tells them what they cannot do and nothing about what they can.
+        """
+        body = {"error": error.code, "detail": error.detail}
+
+        if error.code == "PERIOD_IS_CLOSED":
+            body["remediation"] = RECORD_A_NEW_ENTRY_IN_THE_OPEN_COMPETENCE
+
+        return Response(body, status=status.HTTP_400_BAD_REQUEST)
 
     def _can_see_amounts(self, request, slug):
         """Whether this caller may see the value in reais. Rule R11.
@@ -553,9 +584,7 @@ class ServiceLogViewSet(BaseViewSet):
                 create_service_log_batch(rows)
                 settle_service_log_batch(rows, actor=request.user)
         except (ServicePoolValidationError, ServicePricingValidationError) as error:
-            return Response(
-                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return self._pool_error(error)
 
         context = self._serializer_context(request)
         payload = ServiceLogSerializer(rows, many=True, context=context).data
@@ -683,9 +712,7 @@ class ServiceLogViewSet(BaseViewSet):
                 replace_service_log_batch(batch_id=batch_id, rows=rows)
                 settle_service_log_batch(rows, actor=request.user)
         except (ServicePoolValidationError, ServicePricingValidationError) as error:
-            return Response(
-                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return self._pool_error(error)
 
         context = self._serializer_context(request)
         payload = ServiceLogSerializer(rows, many=True, context=context).data
@@ -854,9 +881,7 @@ class ServiceLogViewSet(BaseViewSet):
         try:
             delete_service_log_batch(batch_id)
         except ServicePoolValidationError as error:
-            return Response(
-                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return self._pool_error(error)
 
         self._record_activity(
             "service_log.activity.deleted",

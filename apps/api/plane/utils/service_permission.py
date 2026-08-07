@@ -61,6 +61,11 @@ SERVICE_LOG_DELEGATION_NOT_PERMITTED = "SERVICE_LOG_DELEGATION_NOT_PERMITTED"
 SERVICE_LOG_REASSIGNMENT_NOT_PERMITTED = "SERVICE_LOG_REASSIGNMENT_NOT_PERMITTED"
 
 #: The declared author is not somebody who can perform work in this workspace.
+#:
+#: **A refusal of the payload, not of the actor** -- the caller holds ``can_delegate`` and is
+#: authorised to delegate; what is wrong is the value of ``author_id``. The views answer 400,
+#: so the interface can put the error on the field instead of telling somebody they lack a
+#: permission they hold. See ``PERMISSION_DENIED_CODES`` in the work log viewset.
 SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN = "SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN"
 
 #: A work log whose competency period is CLOSED may only be touched by a workspace

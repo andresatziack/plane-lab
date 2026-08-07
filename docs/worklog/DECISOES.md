@@ -832,7 +832,35 @@ Reabrir período é mecanismo que a Fase 4 deliberadamente não construiu, e o c
 do saldo já transportado para a competência seguinte é problema dela, não da fase do R$.
 Construí-lo aqui seria a mesma invasão de escopo que a D35 recusou.
 
-**O que um estorno exigiria, registrado para quem pegar isto não redescobrir:**
+### Antes de construir: reabrir período pode ser a solução errada
+
+**Revisado na Fase 7, e esta parte é pergunta, não tarefa.** A redação original tratava a
+reabertura de período como trabalho a fazer. Ela pode ser trabalho a **não** fazer.
+
+Em contabilidade não se edita período fechado. Corrige-se **lançando um ajuste no período
+aberto**. Isso é prática padrão exatamente por causa do problema que o item 3 abaixo
+descreve: reabrir um mês já fechado obriga a recascatear o saldo transportado para as
+competências seguintes — e o transporte já aconteceu, então a reabertura **não é uma
+operação local, é uma cascata**, recursiva se a competência seguinte também fechou.
+
+Ou seja: o comportamento atual pode não ser limitação, e sim o modelo certo. O que falta,
+nessa leitura, não é reabrir período — é um caminho explícito de **lançamento de ajuste na
+competência aberta**, que não desfaz nada, não cascateia, e é auditável por construção
+porque é uma linha nova num livro-caixa append-only (D23), não a edição de uma linha antiga.
+
+**A pergunta a responder antes de escrever código, então, é: reabrir período ou lançar
+ajuste no período aberto?** Quem pegar isto economiza a construção de uma cascata que
+talvez não devesse existir.
+
+Enquanto a pergunta está aberta, a Fase 7 fez a única coisa que não a prejulga: **o erro
+passou a dizer o que fazer, não só o que não pode.** Um ADMIN que edite horas de um
+apontamento em período fechado recebe `PERIOD_IS_CLOSED` com
+`remediation: RECORD_A_NEW_ENTRY_IN_THE_OPEN_COMPETENCE`. Antes recebia uma recusa sem
+caminho, e o palpite óbvio de quem a recebesse — "pedir para alguém reabrir o mês" — é
+precisamente o que esta seção agora questiona.
+
+**O que um estorno exigiria, registrado para quem pegar isto não redescobrir** — e note que
+os itens 2 e 3 são exatamente o custo que a rota do ajuste evita:
 
 1. um `entry_type` novo e reversor, que precisa entrar em uma das três listas de sinal
    (`NEGATIVE_ONLY_`, `POSITIVE_ONLY_`, `SIGNED_LEDGER_ENTRY_TYPES`) ou a constraint
@@ -940,3 +968,153 @@ R11 o esconde, a um salto do endpoint que cuidadosamente o omitiu. Por isso exis
 | D42 | Não | dívida nomeada. Compensada por preview com `is_reversible: false` e pelo único parcial |
 | D43 | **Sim** | `INTERNAL_PROJECT_NO_CLIENT` fora da receita; três classes de motivo |
 | D44 | **Sim** | `settled_billing_route` nova; `applied_billing_route` mantém o significado |
+
+
+---
+
+# Decisões da Fase 7 — permissões, delegação e auditoria
+
+Tomadas na sessão de implementação da Fase 7 e confirmadas antes de escrever código,
+conforme a §7.1 do contexto mestre. A fase é a primeira desde a 1 em que a pergunta
+central não é "quanto vale" e sim "quem pode" — e as duas primeiras decisões são as que
+teriam custado caro se tomadas pelo caminho mais curto.
+
+## D45 — As três capacidades elevadas são um modelo próprio, e a de reatribuição é escopada
+
+O briefing pedia três capacidades concedíveis a usuários específicos "sem precisar
+torná-los Admin", e ofereceu duas rotas: um modelo pequeno de concessão, ou flags em
+`WorkspaceMember`. A proposta inicial foi **as flags** — menos código, uma query a menos, e
+nenhuma tabela nova.
+
+**Recusada, por duas razões que só aparecem depois.**
+
+**(a) `WorkspaceMember` é modelo do core do Plane.** `plane/app/views/workspace/member.py` é
+justamente o tipo de arquivo que o upstream mexe com frequência, e três colunas ali seriam
+superfície de conflito permanente num caminho de gerenciamento de membros. A §6 do contexto
+mestre pede preferir extensão a modificação do core exatamente por isso, e sete fases foram
+entregues sem tocar em modelo do core — a única exceção prevista é a Fase 8, que vai doer e
+é inevitável.
+
+**(b) As flags perderiam auditoria de graça.** Conceder `can_manage_others` é dar a alguém o
+poder de alterar registro financeiro alheio, e "quem deu essa permissão, e quando?" é
+pergunta de primeira ordem no momento em que um apontamento aparece editado errado. Um
+modelo `Service*` herda `ChangeTrackerMixin` e grava em `ServiceConfigActivity`, que a §6
+define como a trilha de configuração que afeta dinheiro. `WorkspaceMember` não é
+`ServiceConfigEntity`, e torná-lo um significa mexer no core de novo.
+
+`ServiceMemberPermission`, então: uma linha por membro por workspace, as três flags em
+`TRACKED_FIELDS`, endpoint próprio restrito a ADMIN de workspace. **A intenção de UI ficou
+intacta: não existe tela nova de permissões** — os controles ficam na tela de membros que já
+existe, com uma chamada separada. O operador vê um lugar; o backend não invade o core.
+
+### As três são independentes, e `can_reassign_author` é escopada ao que o membro já pode editar
+
+Independentes porque são eixos diferentes: gerenciar apontamento alheio move dinheiro
+(horas, tipo, data), reatribuir autor não move nada, e delegar cria registro para autor
+declarado. Composição livre é o correto.
+
+**Mas `can_reassign_author` sozinha precisava de escopo, senão concederia em silêncio uma
+fatia de `can_manage_others`.** Reatribuir o apontamento de outra pessoa **é** editar o
+registro de outra pessoa, mesmo que o campo alterado não mexa em saldo. A regra:
+
+| Concessões | Alcance |
+| --- | --- |
+| autor + `can_reassign_author` | reatribui os próprios |
+| `can_manage_others` + `can_reassign_author` | reatribui os de qualquer um |
+| `can_manage_others` sozinha | edita os de qualquer um, **sem** trocar autor |
+| `can_reassign_author` sozinha | reatribui **só os próprios** |
+
+A última linha é o caso de uso mais comum e o motivo de a capacidade existir isolada:
+"lancei isto, mas o trabalho foi do João". Nenhuma flag empresta escopo da outra sem que
+alguém tenha concedido.
+
+ADMIN mantém as três implicitamente, por resolução `is_admin OR flag` — nunca por linha
+concedida. Um Admin cujas capacidades dependessem de uma linha as perderia num back-fill
+ruim, que é o modo de falha de codificar uma implicação como dado.
+
+### GUEST não pode sustentar nenhuma delas, em três camadas
+
+Um GUEST com `can_delegate` é escalação de privilégio — usuário de cliente criando
+apontamento em nome de um técnico — e com `can_manage_others` edita registro financeiro.
+
+Não é expressável em check constraint: as capacidades estão em `service_member_permissions`
+e o papel está em `workspace_members`, e uma check constraint do PostgreSQL não lê outra
+tabela. **Por isso a camada externa é um portão de leitura, e não DDL** — o que difere de
+todo o resto desta série, onde invariante de dinheiro virou constraint:
+
+1. `resolve_capabilities` lê o **papel vivo** a cada chamada e devolve nada para GUEST ou
+   não-membro. **É esta que sustenta a segurança**, porque vale contra linha obsoleta,
+   editada à mão, ou escrita por um caminho que ninguém previu;
+2. a concessão recusa GUEST (`GUEST_CANNOT_HOLD_SERVICE_LOG_PERMISSIONS`);
+3. o rebaixamento a GUEST **revoga** a linha, para o dado armazenado não afirmar algo falso.
+
+Verificado por sabotagem escrevendo a linha direto pelo ORM: com a camada 1 desligada, o
+GUEST resolve as três capacidades. As camadas 2 e 3 não pegaram essa sabotagem, e é assim
+mesmo — elas mantêm o dado honesto, não fecham a escalação.
+
+Nota de cobertura, registrada porque é contraintuitiva: no nível HTTP o GUEST está barrado
+**independentemente** por `allow_permission` em toda rota de apontamento, então a camada 1 é
+provada por teste unitário e não por teste de contrato. As duas proteções são redundantes de
+propósito; a redundância é o ponto, não desperdício.
+
+## D46 — Período fechado continua ADMIN-only, e reatribuição não é exceção
+
+A proposta inicial foi abrir a reatribuição de autor em período fechado para quem tem a
+concessão, com o argumento de que trocar autor não move saldo. **Recusada, e o motivo não é
+o débito.**
+
+O que o fechamento de período protege não é "saldo parado" — é a **reprodutibilidade de um
+documento já enviado**. O consolidado da §5 da Fase 6 lista, por linha: data, chamado,
+**técnico**, tempo, tipo de hora, horas equivalentes, valor. E a R11 diz que o cliente
+**vê** o autor do apontamento. Ou seja: o nome do técnico está no anexo que o cliente
+recebeu. Reatribuir depois do faturamento mantém o total e **quebra o detalhe** — um cliente
+que reconcilie linha por linha encontra divergência com o documento que está na mão dele.
+
+Segundo motivo, de manutenção: a trava só funciona enquanto for uma regra só. "Fechado
+significa apenas Admin, sempre" é auditável e ensinável. "Fechado significa apenas Admin,
+exceto troca de autor" convida a próxima exceção, e depois a seguinte. **Travas financeiras
+erodem por exceção, nunca de uma vez.**
+
+O custo de manter é baixo, e é isso que a torna sustentável: as concessões existem para o
+trabalho normal não precisar de Admin, e período fechado é anormal por definição.
+
+**O limite honesto, que é dívida da D42 e não buraco novo.** Passar nesta checagem deixa o
+ADMIN *tentar* a escrita; não faz a camada de pool aceitá-la. `apply_debit` e `reverse_debit`
+levantam `PERIOD_IS_CLOSED` para todo mundo, ADMIN incluído. Na prática a edição de um Admin
+em período fechado funciona exatamente quando não move horas: reatribuição de autor, linha
+não faturável, ou apontamento que nunca debitou período. Edição que moveria horas falha uma
+camada abaixo, com código explícito e agora com remediação. Fixado por teste de
+caracterização, para que a fase que responder a pergunta da D42 mude isto de propósito em
+vez de descobrir a limitação por acidente.
+
+## D47 — 403 é sobre o ator; 400 é sobre o payload, inclusive alvo inelegível
+
+A primeira implementação devolvia 403 para `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN`, com o
+argumento de que toda recusa numa rota de apontamento deveria ser 403 — uma regra só, fácil
+de enunciar. **Recusada por juntar duas coisas que o consumidor da API precisa distinguir:**
+
+| Código | Significa | O que a UI deve fazer |
+| --- | --- | --- |
+| 403 | o **ator** não tem a capacidade | esconder ou desabilitar a ação |
+| 400 | o **payload** nomeia alvo inelegível, ou está malformado | mostrar erro **no campo** |
+
+No caso concreto: o chamador **tem** `can_delegate` e escolheu um autor que não é técnico.
+Ele está autorizado a delegar — o que está errado é o valor do campo `author_id`. Devolver
+403 faz a interface dizer "você não tem permissão" a quem tem, e o operador vai pedir
+permissão que já possui.
+
+Não há vazamento em devolver 400: quem tem `can_delegate` é MEMBER do workspace e já
+enxerga a lista de membros e seus papéis.
+
+A regra final continua sendo uma linha: **403 quando o ator não tem a capacidade, 400 quando
+o payload está errado.** Trocado durante a implementação e não depois, porque status code é
+contrato de API — mudar com cliente em produção quebra consumidor.
+
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde |
+| --- | --- | --- |
+| D45 | **Sim** | `ServiceMemberPermission` novo; `resolve_capabilities` lê papel vivo; `may_reassign` compõe com `may_edit`; revogação no rebaixamento a GUEST |
+| D46 | **Sim** | `validate_closed_period_access` sem exceção para reatribuição; remediação no `PERIOD_IS_CLOSED` |
+| D47 | **Sim** | `PERMISSION_DENIED_CODES` não inclui `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN` |
+| D42 | **Reescrita** | de tarefa ("construir reabertura") para pergunta ("reabrir ou lançar ajuste?") |
