@@ -535,3 +535,185 @@ class TestTheAttentionPanelIsOneQuestion:
 
         assert "ALLOWANCE_PENDING_CLOSURE" in codes
         assert "pending_action" in severities
+
+
+
+class TestCriterion9TheCsvAndTheScreenComeFromOneDescriptor:
+    """**"O CSV contém os mesmos números da tela", proved rather than hoped about.**
+
+    Before Phase 9 the screen could filter by technician, project, hour type and route while
+    the export understood only a competency and a client, so the two could legitimately
+    disagree and the criterion was a manual comparison. Now both consume the same
+    ``ServiceLogFilterSet``, and these tests take a descriptor out of a *dashboard response*
+    and hand it to the export.
+    """
+
+    def _rows_from_csv(self, content):
+        import csv
+        import io
+
+        text = content.decode("utf-8-sig") if isinstance(content, bytes) else content
+
+        return list(csv.DictReader(io.StringIO(text)))
+
+    def _export_with(self, setup, filters):
+        """Run the export synchronously, through the real task body."""
+        from plane.bgtasks.export_task import service_log_export_task
+        from plane.db.models import ExporterHistory
+
+        history = ExporterHistory.objects.create(
+            workspace=setup["workspace"],
+            project=[str(setup["project"].id)],
+            initiated_by=setup["admin"],
+            provider="csv",
+            type="issue_worklogs",
+            filters=filters,
+        )
+
+        captured = {}
+
+        def capture(buffer, workspace_id, token_id, slug):
+            captured["uploaded"] = True
+
+        import plane.bgtasks.export_task as task_module
+
+        original_upload = task_module.upload_to_s3
+        original_zip = task_module.create_zip_file
+
+        def capture_zip(files):
+            captured["files"] = files
+            return b""
+
+        task_module.upload_to_s3 = capture
+        task_module.create_zip_file = capture_zip
+        try:
+            service_log_export_task(
+                provider="csv",
+                workspace_id=str(setup["workspace"].id),
+                project_ids=[str(setup["project"].id)],
+                token_id=history.token,
+                slug=setup["slug"],
+                filters=filters,
+            )
+        finally:
+            task_module.upload_to_s3 = original_upload
+            task_module.create_zip_file = original_zip
+
+        history.refresh_from_db()
+        assert history.status != "failed", f"the export failed: {history.reason}"
+
+        filename, content = captured["files"][0]
+        return filename, self._rows_from_csv(content)
+
+    def test_a_dashboard_bucket_descriptor_exports_exactly_that_bucket(self, setup):
+        """The whole point. A non-billable slice on screen, exported, contains one row."""
+        api = client_for(setup["admin"])
+
+        slice_filters = api.get(CONSUMPTION.format(slug=setup["slug"]), MARCH).json()[
+            "non_billable"
+        ][0]["filters"]
+
+        _filename, rows = self._export_with(setup, slice_filters)
+
+        assert len(rows) == 1
+        assert rows[0]["Tipo de atendimento"] == "Garantia"
+        assert rows[0]["Horas equivalentes"] == "2h"
+
+    def test_the_exported_hours_sum_to_the_bucket_on_screen(self, setup):
+        """Criterion 9 as arithmetic rather than as a spot check."""
+        api = client_for(setup["admin"])
+
+        bucket = api.get(OPERATIONAL.format(slug=setup["slug"]), MARCH).json()["totals"]
+
+        _filename, rows = self._export_with(setup, bucket["filters"])
+
+        assert len(rows) == int(bucket["entries"]) == 3
+
+        exported = sum(Decimal(row["Valor"].replace("R$ ", "").replace(".", "").replace(",", "."))
+                       for row in rows if row["Valor"])
+
+        assert exported == Decimal(bucket["amount"]) == Decimal("200.00")
+
+    def test_a_descriptor_the_old_export_could_not_express_now_works(self, setup):
+        """An hour-type filter. This is the case that made the criterion untestable before:
+        the screen could show it and the export could not narrow to it, so the CSV came back
+        with the whole month in it."""
+        api = client_for(setup["admin"])
+
+        billed_only = {**MARCH, "settled_routes": "bill_amount"}
+
+        on_screen = api.get(OPERATIONAL.format(slug=setup["slug"]), billed_only).json()["totals"]
+        _filename, rows = self._export_with(setup, billed_only)
+
+        assert int(on_screen["entries"]) == len(rows) == 1
+        assert rows[0]["Rota aplicada"] == "bill_amount"
+
+    def test_phase_six_legacy_filters_still_export_the_same_month(self, setup):
+        """The rows already in ``ExporterHistory`` with finished files attached. Translated
+        rather than handled by a second code path, so an old row cannot silently widen into
+        exporting everything."""
+        _filename, rows = self._export_with(setup, {"year": "2026", "month": "3"})
+
+        assert len(rows) == 3, "March's three logs, exactly as Phase 6 would have exported them"
+
+    def test_the_legacy_and_descriptor_forms_produce_identical_output(self, setup):
+        """The differential that justifies having one path: the translation must be faithful."""
+        _legacy_name, legacy_rows = self._export_with(setup, {"year": "2026", "month": "3"})
+        _new_name, new_rows = self._export_with(setup, MARCH)
+
+        assert legacy_rows == new_rows
+
+    def test_the_filename_carries_the_competency_only_when_there_is_one(self, setup):
+        single, _rows = self._export_with(setup, MARCH)
+        ranged, _rows = self._export_with(
+            setup, {"competence_from": "2026-01", "competence_to": "2026-12"}
+        )
+
+        assert "2026-03" in single
+        assert "2026-01" not in ranged and "2026-12" not in ranged, (
+            "a range must not be named after one of its ends"
+        )
+
+    def test_sending_both_a_descriptor_and_a_legacy_competency_is_refused(self, setup):
+        """Two selections in one request has no obvious winner, and picking one silently is
+        how an export comes back with the wrong month."""
+        response = client_for(setup["admin"]).post(
+            "/api/workspaces/{slug}/service-log-exports/".format(slug=setup["slug"]),
+            data=json.dumps(
+                {"provider": "csv", "year": 2026, "month": 3, "filters": MARCH}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["filters"] == ["FILTERS_AND_LEGACY_COMPETENCE_ARE_EXCLUSIVE"]
+
+    def test_a_malformed_descriptor_fails_the_request_not_the_task(self, setup):
+        """A 400 now beats a history row that says "failed" with a traceback in it minutes
+        later."""
+        response = client_for(setup["admin"]).post(
+            "/api/workspaces/{slug}/service-log-exports/".format(slug=setup["slug"]),
+            data=json.dumps({"provider": "csv", "filters": {"competence_from": "banana"}}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["filters"] == ["INVALID_COMPETENCE"]
+
+    def test_the_queued_export_persists_the_descriptor_on_its_history_row(self, setup):
+        """So the history says what a finished file covers, which is the difference between a
+        useful list and a column of identical rows."""
+        from plane.db.models import ExporterHistory
+
+        response = client_for(setup["admin"]).post(
+            "/api/workspaces/{slug}/service-log-exports/".format(slug=setup["slug"]),
+            data=json.dumps({"provider": "csv", "filters": {**MARCH, "author_ids": str(setup["member"].id)}}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+
+        history = ExporterHistory.objects.get(token=response.json()["token"])
+
+        assert history.filters["competence_from"] == "2026-03"
+        assert history.filters["author_ids"] == str(setup["member"].id)

@@ -503,6 +503,40 @@ class ServiceLogFilterSet:
         return params
 
     @classmethod
+    def from_export_filters(cls, filters):
+        """Parse ``ExporterHistory.filters``, accepting Phase 6's shape as well as this one.
+
+        **Criterion 9 is why this exists.** "O CSV contém os mesmos números da tela" stops
+        being a manual comparison the moment the export consumes the *same descriptor* the
+        screen did: one filter, two consumers, nothing to reconcile.
+
+        Phase 6 persisted ``{"year": "2026", "month": "3", "service_client_id": "..."}`` and
+        those rows are already in the database, with finished files attached. Rather than keep
+        two filtering paths -- the failure mode being an old row that silently exports
+        everything -- the legacy keys are **translated** into a descriptor and there is one
+        path afterwards. A competency of one month on the ``worked_on`` basis is exactly what
+        Phase 6 meant by it (R7).
+        """
+        filters = filters or {}
+
+        if filters.get("year") and filters.get("month"):
+            competence = format_competence(
+                (int(filters["year"]), int(filters["month"]))
+            )
+            translated = {
+                "competence_basis": CompetenceBasis.WORKED_ON,
+                "competence_from": competence,
+                "competence_to": competence,
+            }
+
+            if filters.get("service_client_id"):
+                translated["service_client_ids"] = str(filters["service_client_id"])
+
+            return cls.from_params(translated)
+
+        return cls.from_params(filters)
+
+    @classmethod
     def from_params(cls, params):
         """Parse query parameters into a descriptor. The inverse of ``to_params``.
 

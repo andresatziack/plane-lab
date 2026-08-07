@@ -464,7 +464,10 @@ class ServiceLogExportEndpoint(BaseAPIView):
                 ).values_list("id", flat=True)
             ]
 
-        filters = {
+        # A whole `ServiceLogFilterSet` when the caller sent one -- criterion 9, the export
+        # consuming the same descriptor the screen did -- and Phase 6's competency trio
+        # otherwise, which `from_export_filters` translates into the same thing.
+        filters = validated.get("filters") or {
             key: str(validated[key])
             for key in ("year", "month", "service_client_id")
             if validated.get(key) is not None
