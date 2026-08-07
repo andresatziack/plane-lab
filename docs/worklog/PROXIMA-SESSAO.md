@@ -1,11 +1,16 @@
-# Fechamento da série — não existe próxima fase
+# Fim do escopo do núcleo — falta a Fase 8b para fechar a Fase 8
 
-A Fase 8 era a última do núcleo. **Este documento não aponta para uma fase seguinte.** Ele
-registra o que as nove fases entregaram, o que existe em API sem tela, as duas perguntas que
-continuam em aberto, as melhorias que nunca tiveram prompt escrito, e as dívidas que a própria
-Fase 8 deixou.
+A Fase 8 era a última do núcleo, e **entregou 20 dos seus 22 critérios**. Os critérios **2** e
+**15** dependem de tela e não foram cumpridos (seção 5). Por isso existe **uma** fase seguinte,
+e só uma: a **8b**, que é conclusão e não escopo novo — o precedente é a própria Fase 2b.
 
-Se você abrir uma sessão nova a partir daqui, ela não tem um roteiro. Tem um inventário.
+Fora disso, este documento não aponta para fase nenhuma. Ele registra o que as nove fases
+entregaram, o que existe em API sem tela, as duas perguntas que continuam em aberto, as
+melhorias que nunca tiveram prompt escrito, e as dívidas.
+
+A versão anterior deste documento dizia que a série estava fechada e listava os dois critérios
+como dívida, chamando o dashboard de "critério 13". Estava errado nos dois pontos, e a
+correção está na seção 5.
 
 Leitura obrigatória antes de qualquer coisa continua a mesma: `.kiro/steering/worklog-contexto.md`
 (contexto mestre, com as regras R1 a R11), `DECISOES.md` (D1 a D66), `ACHADOS-DO-CODIGO.md`
@@ -181,15 +186,32 @@ do Plane (`IntakeIssue`, com `source` e `source_email` já no modelo) é onde el
 
 ---
 
-## 5. Dívidas que a Fase 8 deixou
+## 5. A Fase 8 fechou em 20 de 22 critérios
 
-Nomeadas, com o motivo de terem ficado de fora.
+**Dois critérios de aceite não foram cumpridos**, e isso é diferente de dívida. Registrado
+assim porque a versão anterior deste documento os listava como dívida e chamava o dashboard de
+"critério 13" — o que fez um critério numerado parecer item lateral. Critério 13 é
+_"usuário do cliente não consegue criar, editar nem excluir apontamento"_, que **está**
+cumprido.
+
+| Critério | Enunciado                                                                                  | Estado                                                               |
+| -------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| **2**    | "cada contexto mostra os chamados **e o dashboard de contrato do Cliente correspondente**" | ❌ a API existe e é testada; **não existe tela**                     |
+| **15**   | "Técnico abre chamado no project do Cliente **registrando o solicitante**"                 | ⚠️ API completa; **o técnico não tem onde registrar** pela interface |
+
+Os outros 20 estão cumpridos e provados por teste. A projeção do dashboard (critério 22, o
+herdado) está entregue — é a **tela** que falta, não a regra.
+
+**Consequência prática:** a Fase 8 não deve ser considerada encerrada. A conclusão é a
+**Fase 8b**, seguindo o precedente da própria série — a Fase 2b existe pelo mesmo motivo.
+
+### Dívidas propriamente ditas
+
+Estas não são critério de ninguém.
 
 | Dívida                                                    | Por que ficou                                                                                                                                         | Custo                                                                                                                                                                          |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Tela do dashboard do portal**                           | A API é o critério 13 e está completa e testada. A tela foi cortada quando o PR do backend cresceu, e não voltou.                                     | Médio. Consome `GET /service-reports/portal/`, que já devolve o payload inteiro com a projeção do cliente.                                                                     |
 | **UI das concessões da Fase 7**                           | Dívida herdada, e a primeira coisa que combinamos cortar se o PR crescesse. Cresceu.                                                                  | Baixo. Uma coluna em `useMemberColumns.tsx` ao lado do dropdown de papel, mais um `service-member-permission.service.ts`. `isAdmin` e `rowData.member.id` já estão no arquivo. |
-| **Controle do solicitante no formulário**                 | A API saiu no PR do solicitante; o controle não.                                                                                                      | Baixo. Um select de usuários GUEST do project, no formulário do work item.                                                                                                     |
 | **Sugerir `guest_view_all_features` ao vincular Project** | Dívida da Fase 1 (ver seção 2). O portal a torna visível: sem a flag, o cliente só vê o que ele mesmo abriu.                                          | Baixo, e é a de maior impacto por linha: sem ela o portal parece vazio.                                                                                                        |
 | **Filtro de estado no drill-down do portal**              | Não existe drill-down de portal. Se algum dia existir, **o descritor tem de ser reescopado na entrada** — ele é um registro, não uma permissão (D63). | —                                                                                                                                                                              |
 | **Traduções das 9 chaves novas**                          | `en` e `pt-BR` traduzidas; as outras 17 carregam inglês, seguindo o padrão que as chaves de apontamento já usavam.                                    | Baixo.                                                                                                                                                                         |
@@ -208,17 +230,20 @@ escritos lá. **Isso não é tarefa de fase: é decisão de operador.**
 
 ## 6. Se você for continuar
 
-Não existe "a próxima fase". Existem quatro caminhos independentes, e eles não têm ordem
-imposta entre si:
+**A Fase 8b vem primeiro, e é a única com ordem imposta:** ela fecha critérios de aceite em
+aberto, e sem ela a Fase 8 não está entregue. É frontend sobre APIs que já existem e já têm
+teste — sem migração, sem decisão nova, sem toque no core.
 
-1. **Fechar as dívidas de tela da seção 5.** É o menor esforço e o que faz o que já existe
-   parecer entregue. Comece por sugerir `guest_view_all_features`: sem ela o portal parece
-   vazio, e é a de melhor retorno por linha.
+Depois dela, três caminhos independentes, sem ordem entre si:
+
+1. **Fechar as dívidas de tela restantes da seção 5.** Comece por sugerir
+   `guest_view_all_features`: sem ela o portal parece vazio, e é a de melhor retorno por linha.
+   (Se a 8b a incluir, este item já sai resolvido.)
 2. **Adotar uma das duas perguntas da seção 3.** Não escreva código antes da conversa. O
    resultado é uma decisão nova na `DECISOES.md`, e só então uma tarefa.
 3. **Pegar uma melhoria da seção 4.** Timesheet semanal se o gargalo é qualidade do dado de
    apontamento; Work Item Types se é organização e é pré-requisito do SLA.
-4. **Decidir o que fazer com o achado 14.** Independente de tudo acima, e o único item com
+4. **Decidir o que fazer com o achado 15.** Independente de tudo acima, e o único item com
    consequência hoje se a instância hospedar mais de uma empresa.
 
 Qualquer um deles começa relendo o contexto mestre e a `DECISOES.md`. Sessenta e seis decisões

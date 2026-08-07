@@ -65,20 +65,22 @@ Sugestões práticas:
 | 5    | `05-bolsa-por-workitem.md`                | Bolsa de horas isolada por chamado                                       | 4          | feita  |
 | 6    | `06-avulso-precificacao.md`               | Preços por cliente, valor em R$, faturamento de excedente                | 3 e 4      | feita  |
 | 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          | feita  |
-| 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       | feita  |
+| 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       | 20/22  |
 | 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    | feita  |
 
 A Fase 6 depende da 4 apenas para o faturamento de excedente (seção 6); as seções
 1 a 5 só precisam da Fase 3. A Fase 7 é independente das 4, 5 e 6 e pode ser feita
 em paralelo.
 
-**O núcleo está completo.** As nove fases estão mescladas e a suíte fecha em 2495
-passando, 0 falhando. A ordem real de execução foi 1, 2, 2b, 3, 4, 5, 6, 7, 9, 8 —
+**O núcleo está quase completo.** As nove fases estão mescladas e a suíte fecha em 2495
+passando, 0 falhando — mas a Fase 8 entregou **20 dos seus 22 critérios**: os critérios 2 e 15
+dependem de tela e ficaram em aberto. A **Fase 8b** os fecha, e é conclusão da 8, não escopo
+novo — o precedente é a Fase 2b. A ordem real de execução foi 1, 2, 2b, 3, 4, 5, 6, 7, 9, 8 —
 a 9 saiu antes da 8 porque a 8 depende da 7 e não da 9, e a projeção GUEST que a 8
 consome foi construída e provada na 9 (D55).
 
-Não existe fase 10. `PROXIMA-SESSAO.md` fecha a série e lista quatro caminhos
-independentes, sem ordem imposta entre eles.
+Não existe fase 10. Existe a **8b**, que fecha a 8. `PROXIMA-SESSAO.md` a descreve e, depois
+dela, lista três caminhos independentes sem ordem imposta entre eles.
 
 ### Depois do núcleo — roadmap acordado
 

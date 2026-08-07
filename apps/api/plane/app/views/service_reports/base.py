@@ -462,7 +462,7 @@ class ServiceReportLogsEndpoint(ServiceReportBaseView, BasePaginator):
 
 
 class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
-    """What the client sees about their own consumption. D55, D63. Criteria 13 and 22.
+    """What the client sees about their own consumption. D55, D63. Criteria 2 and 22.
 
     **Criterion 22 is inherited, not decided here.** ``ReportViewer.guest()`` was built and
     tested at the domain layer by Phase 9 precisely so this route would not get to rediscover
