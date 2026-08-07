@@ -111,6 +111,13 @@ from .service_member_permission.base import (
     ServiceMemberPermissionEndpoint,
     ServiceMemberPermissionMeEndpoint,
 )
+from .service_reports.base import (
+    ServiceAttentionReportEndpoint,
+    ServiceBillingReportEndpoint,
+    ServiceConsumptionReportEndpoint,
+    ServiceOperationalReportEndpoint,
+    ServiceReportLogsEndpoint,
+)
 from .service_pricing.base import (
     ServiceBillingConsolidationEndpoint,
     ServiceClientHourTypeRateViewSet,
