@@ -7,7 +7,6 @@
 import { useMemo } from "react";
 import { observer } from "mobx-react";
 // plane imports
-import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setPromiseToast, setToast } from "@plane/propel/toast";
 import type { TIssue } from "@plane/types";
@@ -20,8 +19,8 @@ import { EmptyState } from "@/components/common/empty-state";
 import { useAppTheme } from "@/hooks/store/use-app-theme";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useIssues } from "@/hooks/store/use-issues";
-import { useUserPermissions } from "@/hooks/store/user";
 import { useAppRouter } from "@/hooks/use-app-router";
+import { useWorkItemEditPermissions, withArchived } from "@/hooks/use-work-item-edit-permissions";
 // local components
 import { IssuePeekOverview } from "../peek-overview";
 import { IssueMainContent } from "./main-content";
@@ -79,7 +78,6 @@ export const IssueDetailRoot = observer(function IssueDetailRoot(props: TIssueDe
   const {
     issues: { removeIssue: removeArchivedIssue },
   } = useIssues(EIssuesStoreType.ARCHIVED);
-  const { allowPermissions } = useUserPermissions();
   const { issueDetailSidebarCollapsed } = useAppTheme();
 
   const issueOperations: TIssueOperations = useMemo(
@@ -217,13 +215,10 @@ export const IssueDetailRoot = observer(function IssueDetailRoot(props: TIssueDe
 
   // issue details
   const issue = getIssueById(issueId);
-  // checking if issue is editable, based on user role
-  const isEditable = allowPermissions(
-    [EUserPermissions.ADMIN, EUserPermissions.MEMBER],
-    EUserPermissionsLevel.PROJECT,
-    workspaceSlug,
-    projectId
-  );
+  // Which fields are editable, per field and not as one boolean. A client's own user gets the
+  // state and the priority; everything else stays with admins and members. See D64 -- adding
+  // GUEST to a single `isEditable` would have enabled every control on the page.
+  const editPermissions = useWorkItemEditPermissions(workspaceSlug, projectId);
 
   return (
     <>
@@ -245,7 +240,7 @@ export const IssueDetailRoot = observer(function IssueDetailRoot(props: TIssueDe
               projectId={projectId}
               issueId={issueId}
               issueOperations={issueOperations}
-              isEditable={isEditable}
+              editPermissions={editPermissions}
               isArchived={is_archived}
             />
           </div>
@@ -258,7 +253,9 @@ export const IssueDetailRoot = observer(function IssueDetailRoot(props: TIssueDe
               projectId={projectId}
               issueId={issueId}
               issueOperations={issueOperations}
-              isEditable={!is_archived && isEditable}
+              // Pre-ANDed with `!is_archived`, as this prop always has been: the sidebar takes
+              // no `isArchived` of its own.
+              editPermissions={withArchived(editPermissions, is_archived)}
             />
           </div>
         </div>
