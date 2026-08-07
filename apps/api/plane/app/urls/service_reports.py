@@ -7,6 +7,7 @@ from django.urls import path
 from plane.app.views import (
     ServiceAttentionReportEndpoint,
     ServiceBillingReportEndpoint,
+    ServiceClientPortalReportEndpoint,
     ServiceConsumptionReportEndpoint,
     ServiceOperationalReportEndpoint,
     ServiceReportLogsEndpoint,
@@ -43,5 +44,14 @@ urlpatterns = [
         "workspaces/<str:slug>/service-reports/logs/",
         ServiceReportLogsEndpoint.as_view(),
         name="service-report-logs",
+    ),
+    # The client portal's own dashboard. The only report route that admits GUEST, and the
+    # only one whose viewer is fixed rather than resolved: it returns `ReportViewer.guest()`
+    # unconditionally, so a Member or Admin calling it sees exactly what the client sees.
+    # Scoped to the caller's own projects, resolved before the descriptor is narrowed. D63.
+    path(
+        "workspaces/<str:slug>/service-reports/portal/",
+        ServiceClientPortalReportEndpoint.as_view(),
+        name="service-report-portal",
     ),
 ]

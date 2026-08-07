@@ -114,6 +114,7 @@ from .service_member_permission.base import (
 from .service_reports.base import (
     ServiceAttentionReportEndpoint,
     ServiceBillingReportEndpoint,
+    ServiceClientPortalReportEndpoint,
     ServiceConsumptionReportEndpoint,
     ServiceOperationalReportEndpoint,
     ServiceReportLogsEndpoint,
