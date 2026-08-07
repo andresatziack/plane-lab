@@ -9,7 +9,7 @@ Se você abrir uma sessão nova a partir daqui, ela não tem um roteiro. Tem um 
 
 Leitura obrigatória antes de qualquer coisa continua a mesma: `.kiro/steering/worklog-contexto.md`
 (contexto mestre, com as regras R1 a R11), `DECISOES.md` (D1 a D66), `ACHADOS-DO-CODIGO.md`
-(inclui a seção 14, que é informação de operador e não tarefa) e `CONVENCOES-DE-TRABALHO.md`.
+(inclui a seção 15, que é informação de operador e não tarefa) e `CONVENCOES-DE-TRABALHO.md`.
 
 ---
 
@@ -17,18 +17,18 @@ Leitura obrigatória antes de qualquer coisa continua a mesma: `.kiro/steering/w
 
 Nove fases mescladas: 1, 2, 2b, 3, 4, 5, 6, 7, 9 e 8.
 
-| Fase | O que entregou | Migração |
-| ---- | -------------- | -------- |
-| 1 | Cliente (`ServiceClient`), vínculo Project → Cliente, grupo econômico sem comportamento (D18) | 0120-0122 |
-| 2 | Catálogos configuráveis: Tipo de Hora com multiplicador, Tipo de Atendimento com rota de faturamento, trilha de configuração | 0123-0125 |
-| 2b | Calendário de feriados, janelas de classificação, classificação automática de Tipo de Hora | 0126-0127 |
-| 3 | O apontamento: quatro grandezas de hora, lote por submissão, segmentação por janela, trilha R8 | 0128 |
-| 4 | Contrato, período de competência, bolsa de horas, acúmulo, teto, déficit, excedente | 0128 |
-| 5 | Bolsa por work item, concessão avulsa, alertas | 0129 |
-| 6 | Precificação, vigência de preços, rota liquidada (D33/D44), consolidado de faturamento, exportação | 0130 |
-| 7 | Três capacidades elevadas fora do core (D45), delegação, reatribuição de autor | 0131 |
-| 9 | Dashboards de consumo, agregação em SQL, um descritor de filtro (D50), projeção por papel (D51) | 0132 |
-| 8 | Portal do cliente: allowlist de campos, correção do feed, projeções do cliente, solicitante, varredura de escopo | 0133 |
+| Fase | O que entregou                                                                                                               | Migração  |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 1    | Cliente (`ServiceClient`), vínculo Project → Cliente, grupo econômico sem comportamento (D18)                                | 0120-0122 |
+| 2    | Catálogos configuráveis: Tipo de Hora com multiplicador, Tipo de Atendimento com rota de faturamento, trilha de configuração | 0123-0125 |
+| 2b   | Calendário de feriados, janelas de classificação, classificação automática de Tipo de Hora                                   | 0126-0127 |
+| 3    | O apontamento: quatro grandezas de hora, lote por submissão, segmentação por janela, trilha R8                               | 0128      |
+| 4    | Contrato, período de competência, bolsa de horas, acúmulo, teto, déficit, excedente                                          | 0128      |
+| 5    | Bolsa por work item, concessão avulsa, alertas                                                                               | 0129      |
+| 6    | Precificação, vigência de preços, rota liquidada (D33/D44), consolidado de faturamento, exportação                           | 0130      |
+| 7    | Três capacidades elevadas fora do core (D45), delegação, reatribuição de autor                                               | 0131      |
+| 9    | Dashboards de consumo, agregação em SQL, um descritor de filtro (D50), projeção por papel (D51)                              | 0132      |
+| 8    | Portal do cliente: allowlist de campos, correção do feed, projeções do cliente, solicitante, varredura de escopo             | 0133      |
 
 Suíte ao fim: **2495 passando, 0 falhando** (`RECREATE_DB=1`). A linha de base medida no
 início da Fase 8 era 2273.
@@ -48,17 +48,17 @@ início da Fase 8 era 2273.
 
 Ordem de utilidade, não de esforço.
 
-| Superfície | Estado | Onde |
-| ---------- | ------ | ---- |
-| **Dashboard do portal do cliente** | API completa e testada, **nenhuma tela** | `GET /service-reports/portal/` |
-| **Concessões da Fase 7** | API completa, nenhum serviço no frontend, nenhuma UI | `service-member-permissions/`, `/me/`, `/<member_id>/` |
-| **Solicitante do chamado** | API completa (GET/POST/DELETE), nenhum controle no formulário | `.../issues/<id>/service-requester/` |
-| Sugestão de `guest_view_all_features` ao vincular Project a Cliente | O endpoint aceita a flag e **deliberadamente nunca a infere** — a decisão é da UI, que não a oferece | `service-clients/<pk>/assign-projects/` |
+| Superfície                                                          | Estado                                                                                               | Onde                                                   |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Dashboard do portal do cliente**                                  | API completa e testada, **nenhuma tela**                                                             | `GET /service-reports/portal/`                         |
+| **Concessões da Fase 7**                                            | API completa, nenhum serviço no frontend, nenhuma UI                                                 | `service-member-permissions/`, `/me/`, `/<member_id>/` |
+| **Solicitante do chamado**                                          | API completa (GET/POST/DELETE), nenhum controle no formulário                                        | `.../issues/<id>/service-requester/`                   |
+| Sugestão de `guest_view_all_features` ao vincular Project a Cliente | O endpoint aceita a flag e **deliberadamente nunca a infere** — a decisão é da UI, que não a oferece | `service-clients/<pk>/assign-projects/`                |
 
 As três primeiras são dívidas nomeadas na seção 5. A quarta é da Fase 1 e está no docstring de
-`assign_projects` desde então: *"the master context requires that turning on
+`assign_projects` desde então: _"the master context requires that turning on
 guest_view_all_features be suggested to the admin rather than done silently, so the decision
-stays with the UI and this endpoint never infers it."* Hoje ninguém sugere, então um admin que
+stays with the UI and this endpoint never infers it."_ Hoje ninguém sugere, então um admin que
 vincula um Project a um Cliente não descobre que precisa ligar a flag para o portal funcionar.
 
 ---
@@ -85,7 +85,7 @@ O que existe no lugar: `ALLOWANCE_PENDING_CLOSURE` e `pending_closure_q`, que se
 "ativas" de bolsas **aguardando decisão**, e o painel de atenção mostra as duas listas
 separadas. Um humano vê "esta bolsa venceu a carência" e decide.
 
-**A pergunta que sobra, e é pequena:** ninguém definiu *quem* olha esse painel e com que
+**A pergunta que sobra, e é pequena:** ninguém definiu _quem_ olha esse painel e com que
 frequência. Não é código. Se a resposta for "ninguém", a lista cresce até parar de ser lida, e
 aí a decisão de fato terá sido tomada por omissão — o que é exatamente o que a revisão da D35
 tentou evitar. **Adotar isso é escolher um responsável, não escrever uma tarefa.**
@@ -101,14 +101,13 @@ foi faturado e depois se descobre que estava errado. Duas saídas, e elas são i
 2. **Lançar um ajuste na competência aberta**, deixando o período fechado intacto.
 
 O que trava a decisão não é técnico. É que **contabilidade não edita período fechado.** Se a
-sua operação segue essa regra — e a maioria segue —, a opção 1 está descartada e a resposta é a
-2. Mas isso tem consequência de produto: o extrato do cliente vai mostrar um ajuste num mês que
+sua operação segue essa regra — e a maioria segue —, a opção 1 está descartada e a resposta é a 2. Mas isso tem consequência de produto: o extrato do cliente vai mostrar um ajuste num mês que
 não é o mês do trabalho, e alguém vai ter que explicar isso ao cliente.
 
 O código hoje **não implementa nenhuma das duas**, e a D42 documenta isso como dívida nomeada
 em vez de escolher por conta própria. O comportamento atual é: `PERIOD_IS_CLOSED` recusa a
 escrita, com `remediation: RECORD_A_NEW_ENTRY_IN_THE_OPEN_COMPETENCE` — ou seja, a API já
-*sugere* a opção 2 sem a implementar como fluxo.
+_sugere_ a opção 2 sem a implementar como fluxo.
 
 **Adotar isso é uma conversa com quem responde pela contabilidade**, e o resultado dela é uma
 decisão nova na `DECISOES.md`. Só depois existe tarefa.
@@ -170,7 +169,7 @@ Depende do 4.2 para "por tipo de chamado".
 
 `Integration`, `WorkspaceIntegration` e a família Github/Slack estão modelados, com os tipos
 TypeScript correspondentes completos. Nenhuma view existe. No comparativo de planos o grupo
-`integrations` inteiro é `comingSoon`, e "Emails For Intake" é *business+*.
+`integrations` inteiro é `comingSoon`, e "Emails For Intake" é _business+_.
 
 **Por que importa mais do que parece:** para um service desk, abrir chamado por e-mail é
 básico. Hoje o cliente precisa fazer login no portal — e o portal agora existe, o que torna
@@ -186,18 +185,18 @@ do Plane (`IntakeIssue`, com `source` e `source_email` já no modelo) é onde el
 
 Nomeadas, com o motivo de terem ficado de fora.
 
-| Dívida | Por que ficou | Custo |
-| ------ | ------------- | ----- |
-| **Tela do dashboard do portal** | A API é o critério 13 e está completa e testada. A tela foi cortada quando o PR do backend cresceu, e não voltou. | Médio. Consome `GET /service-reports/portal/`, que já devolve o payload inteiro com a projeção do cliente. |
-| **UI das concessões da Fase 7** | Dívida herdada, e a primeira coisa que combinamos cortar se o PR crescesse. Cresceu. | Baixo. Uma coluna em `useMemberColumns.tsx` ao lado do dropdown de papel, mais um `service-member-permission.service.ts`. `isAdmin` e `rowData.member.id` já estão no arquivo. |
-| **Controle do solicitante no formulário** | A API saiu no PR do solicitante; o controle não. | Baixo. Um select de usuários GUEST do project, no formulário do work item. |
-| **Sugerir `guest_view_all_features` ao vincular Project** | Dívida da Fase 1 (ver seção 2). O portal a torna visível: sem a flag, o cliente só vê o que ele mesmo abriu. | Baixo, e é a de maior impacto por linha: sem ela o portal parece vazio. |
-| **Filtro de estado no drill-down do portal** | Não existe drill-down de portal. Se algum dia existir, **o descritor tem de ser reescopado na entrada** — ele é um registro, não uma permissão (D63). | — |
-| **Traduções das 9 chaves novas** | `en` e `pt-BR` traduzidas; as outras 17 carregam inglês, seguindo o padrão que as chaves de apontamento já usavam. | Baixo. |
+| Dívida                                                    | Por que ficou                                                                                                                                         | Custo                                                                                                                                                                          |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Tela do dashboard do portal**                           | A API é o critério 13 e está completa e testada. A tela foi cortada quando o PR do backend cresceu, e não voltou.                                     | Médio. Consome `GET /service-reports/portal/`, que já devolve o payload inteiro com a projeção do cliente.                                                                     |
+| **UI das concessões da Fase 7**                           | Dívida herdada, e a primeira coisa que combinamos cortar se o PR crescesse. Cresceu.                                                                  | Baixo. Uma coluna em `useMemberColumns.tsx` ao lado do dropdown de papel, mais um `service-member-permission.service.ts`. `isAdmin` e `rowData.member.id` já estão no arquivo. |
+| **Controle do solicitante no formulário**                 | A API saiu no PR do solicitante; o controle não.                                                                                                      | Baixo. Um select de usuários GUEST do project, no formulário do work item.                                                                                                     |
+| **Sugerir `guest_view_all_features` ao vincular Project** | Dívida da Fase 1 (ver seção 2). O portal a torna visível: sem a flag, o cliente só vê o que ele mesmo abriu.                                          | Baixo, e é a de maior impacto por linha: sem ela o portal parece vazio.                                                                                                        |
+| **Filtro de estado no drill-down do portal**              | Não existe drill-down de portal. Se algum dia existir, **o descritor tem de ser reescopado na entrada** — ele é um registro, não uma permissão (D63). | —                                                                                                                                                                              |
+| **Traduções das 9 chaves novas**                          | `en` e `pt-BR` traduzidas; as outras 17 carregam inglês, seguindo o padrão que as chaves de apontamento já usavam.                                    | Baixo.                                                                                                                                                                         |
 
 ### O que a Fase 8 não é dona, e não corrigiu de propósito
 
-`ACHADOS-DO-CODIGO.md` seção 14 registra **leitura e escrita cross-tenant no core do Plane**
+`ACHADOS-DO-CODIGO.md` seção 15 registra **leitura e escrita cross-tenant no core do Plane**
 (`WorkspaceViewViewSet`): um usuário membro de nenhum workspace lê e **modifica** views
 compartilhadas de qualquer workspace. Medido, não inferido.
 
