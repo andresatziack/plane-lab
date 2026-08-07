@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""Phase 9, D53. An alert dismissal may target an allowance, not only a period.
+"""Phase 9, D54. An alert dismissal may target an allowance, not only a period.
 
 Phase 5 shipped allowance alerts that could not be dismissed, and named it as debt owed
 by this phase: ``ServiceContractAlertDismissal.period`` was mandatory, so there was
@@ -20,8 +20,8 @@ it. ``RenameModel`` is a state-only operation here: the old model already declar
 ``db_table = "service_contract_alert_dismissals"`` and the new one keeps it, so Django
 skips the ``ALTER TABLE ... RENAME`` and no rows move.
 
-Numbered 0132 with 0131 deliberately left free for the delegation phase, which is in
-flight in a parallel session.
+Numbered 0132 with 0131 left free for the delegation phase, which was in flight in a
+parallel session and has since merged -- hence the dependency on it rather than on 0130.
 """
 
 import django.db.models.deletion
@@ -29,7 +29,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("db", "0130_service_pricing_and_amounts")]
+    dependencies = [("db", "0131_service_member_permission")]
 
     operations = [
         # State only -- `db_table` is unchanged, so no table is renamed and no data moves.
@@ -106,7 +106,7 @@ class Migration(migrations.Migration):
                 name="service_alert_dismissal_unique_per_allowance_when_deleted_at_null",
             ),
         ),
-        # D53. Exactly one target: never both, and never neither. "Never neither" is the
+        # D54. Exactly one target: never both, and never neither. "Never neither" is the
         # half that is easy to forget, and the one that would let an orphan dismissal
         # silence nothing while still looking like a record of somebody's decision.
         migrations.AddConstraint(

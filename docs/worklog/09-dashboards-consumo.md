@@ -13,6 +13,7 @@ Este é o objetivo final do projeto: ter tudo em um único sistema.
 ### 1. Dashboard do Cliente com contrato
 
 Comum a todos os dashboards de Cliente:
+
 - **Distribuição por Tipo de Hora** — quanto do consumo foi comercial, fora do
   expediente, domingos e feriados
 - **Distribuição por Tipo de Atendimento**
@@ -23,6 +24,7 @@ Comum a todos os dashboards de Cliente:
 - Bolsas de horas ativas por chamado, com saldo de cada
 
 Específico do Cliente com contrato:
+
 - **Consumo do contrato no mês corrente** — horas contratadas vs. consumidas vs.
   saldo
 - **Histórico mensal** — série temporal de consumo por competência, evidenciando
@@ -57,6 +59,7 @@ Se o campo Cliente pai estiver preenchido (Fase 1), oferecer ao Admin uma visão
 que soma os Clientes do mesmo grupo — ex.: Marubeni e Terlogs juntas.
 
 Restrições:
+
 - É **apenas relatório**. Não afeta contrato, pool, débito nem faturamento
 - Os contratos permanecem independentes e nunca são somados como se fossem um só
 - Não expor essa visão aos usuários do portal do cliente nesta fase
@@ -64,6 +67,7 @@ Restrições:
 ### 2. Relatório de faturamento
 
 Por Cliente e competência (mês da data do atendimento, regra R7):
+
 - lista de apontamentos faturáveis com data, chamado, técnico, tempo, tipo de
   hora, horas equivalentes, valor
 - totais consolidados
@@ -102,6 +106,7 @@ O usuário do cliente vê o dashboard de consumo do **Cliente do project ativo**
 contrato de cada uma separadamente.
 
 Restrições:
+
 - Cliente com contrato vê horas, consumo e saldo. **Não vê valores em R$**
 - Cliente avulso vê horas **e** valores, porque o valor é a própria fatura dele
 - Nenhum cliente vê multiplicadores, tabela de preços, ou dados de outro Cliente
@@ -188,3 +193,105 @@ competência se o volume exigir. Definir e documentar a estratégia.
 Desenho das agregações e da estratégia de performance primeiro. Depois
 implementação, com teste comparando cada agregado contra a soma direta dos
 apontamentos — se os dois divergirem, o relatório está errado.
+
+---
+
+## O que foi entregue
+
+Decisões em `DECISOES.md`, **D48 a D57**, mais a **revisão da D35**. Só o que não é
+óbvio a partir delas está aqui.
+
+### As agregações
+
+Tudo em `plane/utils/service_reports.py`, tudo `GROUP BY` no Postgres. Contagens de
+query fixadas por teste, não afirmadas em docstring:
+
+| Função                       | Queries       | Cresce com o range? |
+| ---------------------------- | ------------- | ------------------- |
+| `hours_series`               | 1             | não                 |
+| `distribution`               | 1             | não                 |
+| `headline_totals`            | 1             | não                 |
+| `revenue_series`             | 4             | **não**             |
+| `contract_balance_statement` | 2 (era 1 + N) | não                 |
+
+As 4 do `revenue_series` são: um scan dos apontamentos agrupado pelas entradas da
+classificação, uma leitura de contratos para os conjuntos de cobertura por competência,
+e uma por origem de excedente. **A classificação roda sobre as linhas agrupadas**, cuja
+cardinalidade é meses × clientes × um punhado — é isso que permite ter a regra de
+origem em um lugar só e ainda assim não iterar apontamento nenhum.
+
+### A superfície nova
+
+```
+GET workspaces/<slug>/service-reports/consumption/   ADMIN, MEMBER
+GET workspaces/<slug>/service-reports/operational/   ADMIN, MEMBER
+GET workspaces/<slug>/service-reports/attention/     ADMIN, MEMBER
+GET workspaces/<slug>/service-reports/billing/       ADMIN
+GET workspaces/<slug>/service-reports/logs/          ADMIN, MEMBER   <- o único drill-down
+POST workspaces/<slug>/service-issue-allowances/<pk>/dismiss-alert/  ADMIN, MEMBER
+```
+
+`consumption/` devolve `shape: "contract" | "standalone"` decidido **pelo dado**, e
+troca o `competence_basis` sozinho — um frontend não consegue errar a D48.
+
+Rota web em `/:workspaceSlug/service-reports/`, quatro abas, entrando pela de atenção.
+
+### Os critérios, e onde cada um está fixado
+
+| #     | Onde                                                                                             |
+| ----- | ------------------------------------------------------------------------------------------------ |
+| 1, 8  | `TestEveryBucketAgreesWithItsOwnDescriptor` — property test sobre o payload, nos 3 papéis        |
+| 2     | `TestCriterion2NonBillableIsNeverOneNumber` + `non_billable_breakdown`                           |
+| 3     | `TestCriterion3AllowanceAndContractStaySeparate`                                                 |
+| 4     | `contract_balance_statement`, com as parcelas por competência de origem                          |
+| 5     | herdado da Fase 6 (`close_period`), exibido na aba de consumo                                    |
+| 6, 13 | `Sum` da coluna `amount` persistida em todo lugar; sabotagem de recomputação quebra 37 testes    |
+| 7     | `TestD47TheTwoBasesDisagreeAndBothAreRight` e `TestD47OverHttp`                                  |
+| 9     | `TestCriterion9TheCsvAndTheScreenComeFromOneDescriptor`                                          |
+| 10    | `TestD50TheRoleProjectionIsAppliedAtTheAggregationBoundary` + `TestTheMemberShapeCarriesNoMoney` |
+
+### O que a §4b pediu e não foi feito, com o motivo
+
+O briefing autorizava acrescentar um wrapper ao propel se faltasse um tipo de gráfico.
+**Nenhum foi acrescentado**, e um foi recusado de propósito: **eixo Y duplo** (horas à
+esquerda, R$ à direita). Duas unidades num eixo é um gráfico que mente. A §1b pede as
+duas leituras e as recebe como gráficos irmãos com escala própria mais uma tabela
+carregando horas **e** valor na mesma linha — que é onde comparar as duas é honesto.
+
+Se depois se decidir que o eixo duplo é necessário mesmo assim, o lugar é
+`packages/propel/src/charts/`, não um Recharts direto num componente.
+
+### As três dívidas do briefing
+
+| Dívida                                                           | Estado                                                                     |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Alerta de bolsa não dispensável (`05-bolsa-por-workitem.md:191`) | **paga.** Migração 0132, D54                                               |
+| Histórico de créditos da bolsa sem tela                          | **paga.** Painel expansível na aba de consumo; a API já devolvia `credits` |
+| D35, carência de 30 dias                                         | **revisada, não implementada como varredura.** Ver a revisão da D35        |
+
+### O §3c não foi implementado, e isso é deliberado
+
+O dashboard do portal depende da Fase 8. A **projeção** GUEST foi construída e testada
+no domínio (`ReportViewer.guest()`); a **rota** é critério herdado, registrado como
+critério 22 em `08-portal-do-cliente.md`. Uma segunda projeção seria um segundo lugar
+onde a R11 pode estar errada.
+
+### Duas coisas que os testes acharam e a revisão não
+
+1. **O slice "sem cliente" de uma distribuição por cliente mentia.** Não tinha como se
+   descrever no descritor e caía no filtro não-estreitado: reportava as próprias horas
+   apontando para todas as linhas da janela. O **número** estava certo — era o
+   descritor. Nenhuma asserção sobre valores esperados pegaria isso.
+2. **Os buckets de excedente ofereciam um descritor mais uma flag** dizendo para não
+   usá-lo. Ver D56.
+
+Ambas vieram da property test, e são o argumento para tê-la escrito como propriedade em
+vez de exemplos.
+
+### Limitação nomeada
+
+**Bolsa de chamado CANCELADO nunca fica pendente de encerramento.** O Plane só marca
+`completed_at` para o grupo `completed`. Tratar cancelamento como fechamento para fins
+de faturamento é decisão comercial que a D35 não toma, e inventar uma segunda definição
+de "fechado" na camada de relatórios é a divergência que a D49 evita. Tem teste de
+caracterização, para que mudar seja deliberado.

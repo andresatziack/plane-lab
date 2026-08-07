@@ -28,7 +28,7 @@ type Props = {
  * implementation so a report, an export and a screen cannot disagree about a separator.
  *
  * `value` being `undefined` renders an em dash rather than a zero. A figure the caller was not
- * allowed to have and a figure that is genuinely zero are different facts (R11, D50), and
+ * allowed to have and a figure that is genuinely zero are different facts (R11, D51), and
  * showing both as `0` would hide the first.
  */
 export const ReportInsightCard = React.memo(function ReportInsightCard(props: Props) {

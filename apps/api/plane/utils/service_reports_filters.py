@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""One filter descriptor, three consumers. Decision D49, sections 4 and 8 of Phase 9.
+"""One filter descriptor, three consumers. Decision D50, sections 4 and 8 of Phase 9.
 
 Section 4 asks for global filters, section 8 asks that clicking any total reaches the
 work logs behind it, and criterion 1 asks that the chart agrees with the sum. Written as
@@ -22,7 +22,7 @@ descriptor lies fails immediately.
 
 ---
 
-**The competency basis is part of the descriptor, and that is D47 made structural.**
+**The competency basis is part of the descriptor, and that is D48 made structural.**
 
 There are two different meanings of "which month is this" in this domain, and picking the
 wrong one silently breaks acceptance criterion 7:
@@ -231,7 +231,7 @@ def _clients_with_a_contract_in(workspace_id, competence):
 
 @dataclass(frozen=True)
 class ServiceLogFilterSet:
-    """The selection of work logs a number was computed from. D49.
+    """The selection of work logs a number was computed from. D50.
 
     Frozen, because a bucket's descriptor is a **record of what was already summed**. A
     mutable one could be edited between producing the number and producing the list, which
@@ -243,7 +243,7 @@ class ServiceLogFilterSet:
     round-trip test (``from_params(to_params(x)) == x``) meaningful.
     """
 
-    #: Which column decides the competency. See ``CompetenceBasis`` and D47.
+    #: Which column decides the competency. See ``CompetenceBasis`` and D48.
     competence_basis: str = CompetenceBasis.WORKED_ON
 
     #: Inclusive competency window. Either end may be ``None`` for an open range.
@@ -404,7 +404,7 @@ class ServiceLogFilterSet:
         return rows
 
     def _apply_revenue_origins(self, rows, workspace_id):
-        """Filter by revenue origin, through the expression D48 proved.
+        """Filter by revenue origin, through the expression D49 proved.
 
         Imported at call time rather than at module level: ``service_billing`` imports the
         pool and pricing layers, and a top-level import here would put this module in the
@@ -423,7 +423,7 @@ class ServiceLogFilterSet:
         )
 
     def _apply_competence(self, rows):
-        """The competency window, resolved according to ``competence_basis``. D47."""
+        """The competency window, resolved according to ``competence_basis``. D48."""
         if self.competence_from is None and self.competence_to is None:
             return rows
 
@@ -438,7 +438,7 @@ class ServiceLogFilterSet:
                 rows = rows.filter(worked_on__lt=last_day)
             return rows
 
-        # D47: the period's own competency, which already carries D31's clamp. Compared as
+        # D48: the period's own competency, which already carries D31's clamp. Compared as
         # a single integer so that a window crossing a year boundary cannot be evaluated
         # differently here and in an assertion.
         rows = rows.annotate(

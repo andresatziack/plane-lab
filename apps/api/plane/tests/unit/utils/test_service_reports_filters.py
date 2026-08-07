@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""The one filter descriptor. D49, and the D47 invariant that makes it correct.
+"""The one filter descriptor. D50, and the D48 invariant that makes it correct.
 
 The descriptor exists so that a total and the list behind it cannot disagree, which means
 the tests that matter here are **invariants** rather than examples:
@@ -244,7 +244,7 @@ class TestDescriptorRoundTrip:
     def test_a_descriptor_cannot_be_edited_after_the_fact(self):
         """Frozen on purpose: a descriptor is a record of what was already summed, and one
         that could be edited between producing the number and producing the list is the
-        divergence D49 exists to prevent."""
+        divergence D50 exists to prevent."""
         descriptor = ServiceLogFilterSet()
 
         with pytest.raises(Exception):
@@ -252,7 +252,7 @@ class TestDescriptorRoundTrip:
 
 
 class TestCompetenceBasisSelectsDifferentRows:
-    """**D47 against real rows.** The two bases are not interchangeable, and D31 is why."""
+    """**D48 against real rows.** The two bases are not interchangeable, and D31 is why."""
 
     def test_the_worked_on_basis_puts_the_retroactive_log_in_february(self, scenario):
         february = ServiceLogFilterSet(

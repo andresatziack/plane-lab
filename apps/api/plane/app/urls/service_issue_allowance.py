@@ -36,7 +36,7 @@ urlpatterns = [
         ServiceIssueAllowanceOverageRateEndpoint.as_view(),
         name="service-issue-allowance-overage-rate",
     ),
-    # Dismissing an allowance alert. D53 -- the route Phase 5 could not offer, because the
+    # Dismissing an allowance alert. D54 -- the route Phase 5 could not offer, because the
     # dismissal table had a mandatory foreign key to a contract period.
     path(
         "workspaces/<str:slug>/service-issue-allowances/<uuid:pk>/dismiss-alert/",

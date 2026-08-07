@@ -18,14 +18,14 @@ route                        roles            question
 
 **The role does not decide which endpoint you reach; it decides the shape you get.** A
 Member calling ``consumption`` gets every hour figure and no money, because the money is
-never computed for them -- see D50 and ``ReportViewer``. Only ``billing`` is Admin-only, and
+never computed for them -- see D51 and ``ReportViewer``. Only ``billing`` is Admin-only, and
 that is because every number in it is money: there is no useful hours-only projection of "the
 month's revenue by client".
 
 **One drill-down endpoint, not one per chart.** Every bucket of every payload carries the
 descriptor that produced it, and ``logs`` replays that descriptor. That is what makes
 acceptance criterion 8 ("clicar em qualquer total leva à lista") and criterion 1 ("o número
-bate com a soma") the same guarantee instead of two features that might agree -- see D49.
+bate com a soma") the same guarantee instead of two features that might agree -- see D50.
 """
 
 # Third party imports
@@ -92,7 +92,7 @@ class ServiceReportBaseView(BaseAPIView):
         return Workspace.objects.filter(slug=slug).first()
 
     def _viewer(self, request, slug):
-        """Which projection this caller gets. R11, D50.
+        """Which projection this caller gets. R11, D51.
 
         Workspace ADMIN only for money, resolved from ``WorkspaceMember`` rather than from the
         ``allow_permission`` decorator -- the decorator has already let both roles through,
@@ -130,7 +130,7 @@ class ServiceConsumptionReportEndpoint(ServiceReportBaseView):
     ``shape``.
 
     The contract half groups by ``debited_period`` and the ad-hoc half by ``worked_on``,
-    which is D47 and is not a symmetry that was broken carelessly: D31 makes a work log dated
+    which is D48 and is not a symmetry that was broken carelessly: D31 makes a work log dated
     before a contract's vigency debit the **first** period, so its ``worked_on`` month has no
     period at all. Grouping contract consumption by the service date would file those hours in
     a month the contract never had, and acceptance criterion 7 exists to catch exactly that.
@@ -181,7 +181,7 @@ class ServiceConsumptionReportEndpoint(ServiceReportBaseView):
         }
 
         if contracts:
-            # D47: the contract series is keyed by the period's competency.
+            # D48: the contract series is keyed by the period's competency.
             period_basis = filterset.narrow(competence_basis=CompetenceBasis.DEBITED_PERIOD)
             payload["consumption_series"] = hours_series(workspace.id, period_basis, viewer)
             payload["contracts"] = [

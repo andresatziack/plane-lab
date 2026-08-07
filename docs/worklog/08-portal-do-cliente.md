@@ -297,6 +297,75 @@ contratos são código seu.
 O critério 19 é o mais importante da fase: ele prova que a allowlist de campos
 funciona. Sem ele, incluir GUEST no `partial_update` abre um buraco de permissão.
 
+## Critérios herdados — coisas já construídas que esta fase só precisa expor
+
+### 22. A projeção GUEST dos relatórios de consumo **já existe e já é testada**. D55
+
+A Fase 9 construiu `ReportViewer.guest()` em `plane/utils/service_reports.py` e a
+provou com testes de ausência de chave mais controle positivo. **Não a reescreva.**
+
+O motivo de ela existir antes da rota é a R11(b): a allowlist de campos é decisão de
+domínio, e deixar esta fase redescobrir quais colunas vazam é exatamente como a regra
+vira decisão tomada num template. O que a projeção garante:
+
+| Campo                                        | GUEST                                                                             |
+| -------------------------------------------- | --------------------------------------------------------------------------------- |
+| `equivalent_hours`, `debited_hours`          | vê                                                                                |
+| `logged_hours`                               | **nunca** — a diferença entre apontadas e equivalentes _é_ o multiplicador (R11c) |
+| `raw_duration_minutes`, `applied_multiplier` | **nunca**                                                                         |
+| dinheiro                                     | **nunca** por esta camada                                                         |
+
+O trabalho desta fase é **montar a rota** sobre ela: um endpoint de portal que resolve
+o Cliente pelo project do Guest e chama a camada de agregação com
+`ReportViewer.guest()`. As funções (`hours_series`, `distribution`,
+`headline_totals`, `non_billable_breakdown`) já aceitam o viewer.
+
+Critério de aceite desta fase, então: **o dashboard do portal passa por
+`ReportViewer.guest()` e não por uma projeção nova.** Uma segunda projeção seria um
+segundo lugar onde a R11 pode estar errada, e a primeira já tem os testes.
+
+Se você achar que a projeção está errada, **corrija-a** — mas corrija no domínio, onde
+o teste está, não numa view.
+
+### 23. O painel de atenção e a exportação por descritor já existem
+
+- `service-reports/attention/` (Fase 9) já unifica alertas de período, de bolsa e
+  faltas de configuração. Um portal que precise mostrar algo disso consome o endpoint,
+  com a projeção do papel.
+- A exportação consome um `ServiceLogFilterSet` (D50). Se o portal oferecer export ao
+  cliente, é o mesmo descritor com o viewer de GUEST — não um pipeline novo.
+
+## Aviso de escopo: esta é a ÚNICA e a ÚLTIMA fase que altera código do core do Plane
+
+Vale saber antes de começar, e não descobrir no meio.
+
+Todas as fases de 1 a 7, e a 9, seguiram a §6 do contexto mestre — **extensão, nunca
+modificação**: modelos novos, endpoints novos, componentes novos, e o core do Plane
+intocado. É isso que mantém o rebase com o upstream viável.
+
+Esta fase **quebra isso uma vez, deliberadamente**, e num lugar só:
+
+```
+apps/api/plane/app/views/issue/base.py  →  partial_update
+```
+
+Porque o critério 6 exige que o Guest feche e reabra chamado, e `partial_update` é
+`[ADMIN, MEMBER]` hoje (`issue/base.py:627`). Incluir GUEST ali **exige** a allowlist
+de campos do critério 19 na mesma mudança — sem ela, é um buraco de permissão, não uma
+feature.
+
+Três consequências práticas:
+
+1. **A mudança tem de ser mínima e cirúrgica.** Um `if` de papel mais a allowlist, não
+   uma refatoração da view.
+2. **Ela tem de estar documentada no lugar onde quem faz o rebase vai olhar** — um
+   comentário no ponto da alteração dizendo que é a única divergência do core nesta
+   série de fases, e por quê.
+3. **Se houver qualquer forma de conseguir o critério 6 sem tocar em `partial_update`**
+   — um endpoint próprio de transição de estado, por exemplo, que é extensão e não
+   modificação — ela é preferível, e vale gastar uma rodada avaliando isso antes de
+   editar a view do core.
+
 ## Entregar
 
 Primeiro a proposta de implementação da allowlist de campos e do gate por campo

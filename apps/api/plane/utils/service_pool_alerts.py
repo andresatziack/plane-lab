@@ -374,7 +374,7 @@ def is_alert_dismissed(dismissal, current_balance):
 
 
 def _dismissal_target_field(target):
-    """Which of the D53 pair this target occupies: ``period`` or ``allowance``.
+    """Which of the D54 pair this target occupies: ``period`` or ``allowance``.
 
     The **only** place in the dismissal code that looks at the type. Everything after it
     -- recording, matching, re-arming -- runs through one path, which is possible because
@@ -433,11 +433,11 @@ def visible_alerts_for_period(
 
 
 def visible_alerts_for_allowance(allowance, *, reference_date=None):
-    """The alerts of one work item allowance that have not been dismissed away. D53.
+    """The alerts of one work item allowance that have not been dismissed away. D54.
 
     Phase 5 could not offer this: ``period`` was a mandatory foreign key on the dismissal
     table, so there was nowhere to record the acknowledgement, and it was named as debt
-    owed by this phase. With the D53 nullable pair in place, allowance alerts become
+    owed by this phase. With the D54 nullable pair in place, allowance alerts become
     dismissible through the **same** code path as period alerts -- including B2's
     re-arming, which works unchanged because an allowance has a ``balance_hours`` too.
     """
@@ -447,7 +447,7 @@ def visible_alerts_for_allowance(allowance, *, reference_date=None):
 
 
 def dismiss_alert(target, alert_code, actor):
-    """Record that an alert has been acknowledged for a period or an allowance. B2, D53.
+    """Record that an alert has been acknowledged for a period or an allowance. B2, D54.
 
     The balance at this moment is stored, because that is what re-arming compares
     against. Re-dismissing an alert that has re-armed **updates** the recorded balance
@@ -456,7 +456,7 @@ def dismiss_alert(target, alert_code, actor):
 
     ``target`` is a ``ServiceContractPeriod`` or a ``ServiceIssueAllowance``. Which one it
     is decides a single keyword; the exclusivity between the two columns is the database's
-    job, per D53, so this function cannot produce a row with two targets even if a caller
+    job, per D54, so this function cannot produce a row with two targets even if a caller
     passes something strange.
     """
     field = _dismissal_target_field(target)
@@ -683,10 +683,10 @@ def workspace_allowance_alerts(workspace_id, *, project_id=None, reference_date=
     neither. Merging them would have meant giving every entry a nullable contract, which
     is the shape that makes a caller guess.
 
-    **These are dismissible as of D53.** Phase 5 shipped them undismissable, because
+    **These are dismissible as of D54.** Phase 5 shipped them undismissable, because
     ``ServiceAlertDismissal.period`` was mandatory and there was nowhere to record the
     acknowledgement; it was named as debt owed by this phase rather than hidden in a
-    comment. The D53 nullable pair closed it, and the dismissal now runs through the same
+    comment. The D54 nullable pair closed it, and the dismissal now runs through the same
     ``_undismissed`` path period alerts use, re-arming included.
     """
     entries = []

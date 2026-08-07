@@ -68,7 +68,7 @@ export const AttentionTab = React.memo(function AttentionTab() {
   const dismissAllowanceAlert = async (allowanceId: string, alertCode: string) => {
     if (!workspaceSlug) return;
     // The route Phase 5 could not offer: the dismissal table had a mandatory foreign key to a
-    // contract period until migration 0132 gave it the D53 nullable pair.
+    // contract period until migration 0132 gave it the D54 nullable pair.
     await allowances.dismissAlert(workspaceSlug, allowanceId, alertCode);
     await mutate();
   };

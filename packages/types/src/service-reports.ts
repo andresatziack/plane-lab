@@ -7,7 +7,7 @@
 import type { TServiceRevenueOrigin } from "./service-pricing";
 
 /**
- * Which column decided the month a quantity belongs to. Decision D47.
+ * Which column decided the month a quantity belongs to. Decision D48.
  *
  * **These are not interchangeable and the difference is not cosmetic.** Ad-hoc revenue
  * belongs to the month of `worked_on` -- the service date (R7). Contract consumption belongs
@@ -22,7 +22,7 @@ import type { TServiceRevenueOrigin } from "./service-pricing";
 export type TServiceCompetenceBasis = "worked_on" | "debited_period";
 
 /**
- * The selection a number was computed from. Decision D49.
+ * The selection a number was computed from. Decision D50.
  *
  * Query-parameter shaped because that is what it is: the server emits this inside every
  * bucket, the drill-down endpoint accepts it verbatim, and the CSV export persists it. **Send
@@ -71,7 +71,7 @@ export type TServiceReportDrillDown = {
  * parse when a chart needs an axis value.
  *
  * `amount` and `amount_display` are **absent** for anyone who is not a workspace Admin (R11,
- * D50) -- absent, not zero, because a zero is a number the caller was not allowed to have.
+ * D51) -- absent, not zero, because a zero is a number the caller was not allowed to have.
  * Branch on presence, never on `=== 0`.
  */
 export type TServiceReportBucket = {
@@ -114,7 +114,7 @@ export type TServiceReportTotals = TServiceReportBucket & {
   issues: number;
   filters: TServiceReportFilters;
   average_equivalent_hours_per_issue?: string;
-  /** Presentation only, decision D52. Never derive a total from it. */
+  /** Presentation only, decision D53. Never derive a total from it. */
   average_amount_per_issue?: string;
   average_amount_per_issue_display?: string;
 };
@@ -187,7 +187,7 @@ export type TServiceReportAllowance = {
  * client holds a contract covering the window -- not by anything the browser asked for. Do not
  * try to derive it here.
  *
- * `revenue_series` is absent for a non-Admin, per D50. Absent rather than empty: an empty
+ * `revenue_series` is absent for a non-Admin, per D51. Absent rather than empty: an empty
  * series is indistinguishable from a month with no revenue, and a technician would have no way
  * to know they were not being shown it.
  */

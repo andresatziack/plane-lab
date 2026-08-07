@@ -76,7 +76,7 @@ export const useReportFilters = (initial?: TReportFilterState) => {
    * Replace one key. Empty values are removed rather than sent blank, matching `to_params()`.
    *
    * `competence_basis` is excluded from the key type on purpose: it is not a user choice. The
-   * server picks the basis -- D47 makes it a property of what is being measured, not a
+   * server picks the basis -- D48 makes it a property of what is being measured, not a
    * preference -- and a toolbar that could set it would let somebody group contract consumption
    * by service date, which is the bug acceptance criterion 7 exists to catch.
    */

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""The revenue classification, proved over its **whole** input space. Decision D48.
+"""The revenue classification, proved over its **whole** input space. Decision D49.
 
 Phase 9 needs the origin rule in SQL, to aggregate a time series in the database instead
 of iterating work logs in Python. That means two implementations of one rule that decides
@@ -220,7 +220,7 @@ class TestTheEnumerationItself:
     that the prediction of what is representable matches the database."""
 
     def test_the_input_space_is_the_size_the_decision_claims(self):
-        """D48 rests on this number. If the space grows, the justification for having two
+        """D49 rests on this number. If the space grows, the justification for having two
         implementations has to be re-argued rather than silently inherited."""
         combinations = [
             (route, deviation, failure, has_client, has_contract)
@@ -232,7 +232,7 @@ class TestTheEnumerationItself:
         assert len(DEVIATIONS) == 5, "None plus four deviation reasons"
         assert len(FAILURES) == 4, "None plus three pricing failure reasons"
         assert len(combinations) == 66, (
-            f"the representable space changed to {len(combinations)}; D48's argument that "
+            f"the representable space changed to {len(combinations)}; D49's argument that "
             "the duplication is safe depends on this being exhaustively enumerable"
         )
 
@@ -266,7 +266,7 @@ class TestTheEnumerationItself:
 
 
 class TestTheTwoImplementationsAgreeEverywhere:
-    """**The differential, over all 66 representable combinations.** D48."""
+    """**The differential, over all 66 representable combinations.** D49."""
 
     def test_python_and_sql_classify_every_representable_row_identically(self, world):
         checked = 0
@@ -459,7 +459,7 @@ class TestTheOracleStillDrivesTheConsolidation:
 
     def test_the_consolidation_and_the_expression_agree_on_every_row(self, world):
         """Every representable row, classified by the report and by SQL, must land in the
-        same place. This is the join between D48's proof and the report a client is invoiced
+        same place. This is the join between D49's proof and the report a client is invoiced
         from."""
         from plane.utils.service_billing import consolidated_billing
 

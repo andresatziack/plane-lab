@@ -191,7 +191,7 @@ class TestRoleGating:
 
 
 class TestTheMemberShapeCarriesNoMoney:
-    """D50 across the wire: the money is never computed for a Member, so no key exists."""
+    """D51 across the wire: the money is never computed for a Member, so no key exists."""
 
     def _money_keys(self, payload, found=None):
         found = [] if found is None else found

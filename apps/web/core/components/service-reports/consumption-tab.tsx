@@ -33,7 +33,7 @@ const pricing = new ServicePricingService();
  * this component renders what arrived rather than deciding which report to ask for.
  *
  * Money appears only where the payload carries it. For a Member the keys are simply not there,
- * because the server never computed them (D50), so every money block here is behind a presence
+ * because the server never computed them (D51), so every money block here is behind a presence
  * check rather than behind a permission check duplicated in the browser.
  */
 export const ConsumptionTab = React.memo(function ConsumptionTab() {

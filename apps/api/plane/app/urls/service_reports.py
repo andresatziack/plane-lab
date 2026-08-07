@@ -15,7 +15,7 @@ from plane.app.views import (
 urlpatterns = [
     # Every report is workspace scoped and takes its selection from query parameters, which
     # are a `ServiceLogFilterSet` -- the same descriptor the drill-down and the CSV export
-    # consume. See D49.
+    # consume. See D50.
     path(
         "workspaces/<str:slug>/service-reports/consumption/",
         ServiceConsumptionReportEndpoint.as_view(),

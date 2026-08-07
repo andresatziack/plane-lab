@@ -67,7 +67,7 @@ export class ServiceIssueAllowanceService extends APIService {
   }
 
   /**
-   * Acknowledge an alert for one allowance, so it stops being noise. Decision D53.
+   * Acknowledge an alert for one allowance, so it stops being noise. Decision D54.
    *
    * **The route Phase 5 could not offer.** `ServiceAlertDismissal.period` was a mandatory
    * foreign key until migration 0132 gave it the D29 nullable pair, so there was nowhere to

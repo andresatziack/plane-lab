@@ -634,7 +634,7 @@ class TestAllowanceAlerts:
 
 
 # ---------------------------------------------------------------------------
-# D53 -- the dismissal targets a period or an allowance, never both
+# D54 -- the dismissal targets a period or an allowance, never both
 # ---------------------------------------------------------------------------
 
 
@@ -655,7 +655,7 @@ def close_issue_days_ago(issue, days):
 
 
 class TestDismissalTargetExclusivity:
-    """**The XOR, at the database.** D53, mirroring D29's shape for the ledger.
+    """**The XOR, at the database.** D54, mirroring D29's shape for the ledger.
 
     These assertions go through the constraint rather than through ``dismiss_alert``,
     because the guarantee being claimed is that the *table* cannot hold an incoherent row
@@ -758,7 +758,7 @@ class TestDismissalTargetExclusivity:
 
 
 class TestAllowanceAlertDismissal:
-    """The Phase 5 debt, closed. D53.
+    """The Phase 5 debt, closed. D54.
 
     Phase 5 shipped allowance alerts that could not be dismissed and said so in the
     docstring rather than in a comment. These are the tests that were impossible then.

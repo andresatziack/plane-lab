@@ -26,12 +26,12 @@ import { APIService } from "@/services/api.service";
  *
  * **Four of the five endpoints admit Members**, and the role decides the *shape* of the reply
  * rather than whether it arrives: a Member's payload has no monetary keys at all, because the
- * server never computes them (R11, D50). Do not treat a missing `amount` as an error or as
+ * server never computes them (R11, D51). Do not treat a missing `amount` as an error or as
  * zero -- branch on its presence. Only `fetchBilling` is Admin-only, and a 403 from it is the
  * expected answer for a Member.
  *
  * **A `TServiceReportFilters` is passed back verbatim**, never assembled here. It arrives
- * inside every bucket the server sends, and the whole guarantee of D49 is that the number and
+ * inside every bucket the server sends, and the whole guarantee of D50 is that the number and
  * the list come from the same descriptor -- rebuilding one in the browser is how they start to
  * disagree.
  */

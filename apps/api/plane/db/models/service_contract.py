@@ -1005,7 +1005,7 @@ class ServiceAlertDismissal(WorkspaceBaseModel):
     when things get worse by more than one band. The band is
     ``plane.utils.service_pool_alerts.ALERT_REARM_BAND_HOURS``.
 
-    **The target is a period or an allowance, exactly one of the two (D53).** Phase 5
+    **The target is a period or an allowance, exactly one of the two (D54).** Phase 5
     left allowance alerts undismissable and named it as debt owed by Phase 9, because
     ``period`` was mandatory. The fix follows **D29 literally**: a nullable pair with the
     exclusivity in DDL, which is the shape ``ServiceHourLedgerEntry`` already uses for the
@@ -1029,7 +1029,7 @@ class ServiceAlertDismissal(WorkspaceBaseModel):
     deliberately.
     """
 
-    # Nullable half of the D53 pair. Exactly one of `period` and `allowance` is set,
+    # Nullable half of the D54 pair. Exactly one of `period` and `allowance` is set,
     # enforced by `service_alert_dismissal_has_exactly_one_target` below rather than by
     # application code, for the same reason D29 gave for the ledger: a rule about which
     # columns may coexist is a rule the database can keep, and one it keeps against every
@@ -1098,7 +1098,7 @@ class ServiceAlertDismissal(WorkspaceBaseModel):
                 condition=Q(deleted_at__isnull=True, allowance__isnull=False),
                 name="service_alert_dismissal_unique_per_allowance_when_deleted_at_null",
             ),
-            # D53, mirroring `service_ledger_entry_has_exactly_one_target` from D29.
+            # D54, mirroring `service_ledger_entry_has_exactly_one_target` from D29.
             # Exactly one target: never both, and never neither. "Never neither" is the
             # half that is easy to forget and the one that would let an orphan dismissal
             # silence nothing while looking like a record of somebody's decision.

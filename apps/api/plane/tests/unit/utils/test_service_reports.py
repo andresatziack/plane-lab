@@ -4,7 +4,7 @@
 """The aggregation layer. Criteria 1, 2, 3, 6, 7, 8, 10 and 13.
 
 **The centre of this module is a property test, not a list of examples.** Every bucket of
-every payload carries the descriptor that produced it (D49), so the test walks the payload,
+every payload carries the descriptor that produced it (D50), so the test walks the payload,
 replays each descriptor, and asserts the direct sum equals the bucket. A bucket added later
 is covered by construction; a bucket whose descriptor lies fails immediately. That is
 criterion 1 ("o gráfico bate com a soma") and criterion 8 ("clicar no total leva à lista")
@@ -267,7 +267,7 @@ def walk_buckets(payload):
 
 
 class TestEveryBucketAgreesWithItsOwnDescriptor:
-    """**The property test.** Criteria 1 and 8, proved as one thing. D49."""
+    """**The property test.** Criteria 1 and 8, proved as one thing. D50."""
 
     @pytest.mark.parametrize("role", ["admin", "member", "guest"])
     def test_every_bucket_of_every_payload_reproduces_its_number(self, world, role):

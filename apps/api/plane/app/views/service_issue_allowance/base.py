@@ -329,7 +329,7 @@ class ServiceIssueAllowanceAlertPanelEndpoint(BaseAPIView):
 
 
 class ServiceIssueAllowanceDismissAlertEndpoint(BaseAPIView):
-    """Acknowledge an alert for one work item allowance. D53.
+    """Acknowledge an alert for one work item allowance. D54.
 
     **The endpoint Phase 5 could not offer.** ``ServiceAlertDismissal.period`` was a
     mandatory foreign key, so there was nowhere to record the acknowledgement of an

@@ -11,7 +11,7 @@ history rather than with the answer. The scans it does are covered by indexes th
 exist -- ``svc_log_ws_settled_worked_idx`` for revenue, ``service_log_ws_worked_idx`` for
 the global filters, ``svc_ledger_period_type_idx`` for overage.
 
-**No materialised view and no aggregate table (D51).** At this scale -- on the order of
+**No materialised view and no aggregate table (D52).** At this scale -- on the order of
 5.000 work log rows a month -- a 36 month range is a range scan of ~10^5 rows and takes
 tens of milliseconds. An aggregate would buy that back and charge three things for it: a
 second place where money exists, contradicting D23's "the ledger is the only place hours
@@ -39,7 +39,7 @@ scan, and no per-row Python.
 
 ---
 
-**Role projection is applied here, at the aggregation boundary (D50).**
+**Role projection is applied here, at the aggregation boundary (D51).**
 
 R11(b) makes withholding money a serializer's job, but an aggregate has no serializer -- it
 is a dict. So the barrier moves one level down: a ``ReportViewer`` that cannot see money
@@ -82,12 +82,12 @@ _MONEY_FIELD = DecimalField(max_digits=12, decimal_places=2)
 
 
 # ---------------------------------------------------------------------------
-# Who is asking -- D50
+# Who is asking -- D51
 # ---------------------------------------------------------------------------
 
 
 class ReportViewer:
-    """What one role is allowed to have computed for it. R11, D50, D57.
+    """What one role is allowed to have computed for it. R11, D51, D57.
 
     Not a boolean, because there are **three** audiences and two of them differ in the hour
     columns rather than in the money. Collapsing that into ``can_see_amounts`` is what would
@@ -189,7 +189,7 @@ def _money_aggregate():
 
 
 def bucket(*, viewer, filters, hours=None, amount=None, entries=0, drill_down=None, **extra):
-    """One reportable number, with the descriptor that produced it. D49.
+    """One reportable number, with the descriptor that produced it. D50.
 
     ``filters`` is what makes acceptance criterion 8 and criterion 1 the same guarantee
     rather than two: the drill-down replays this exact descriptor, so the list cannot
@@ -242,7 +242,7 @@ def bucket(*, viewer, filters, hours=None, amount=None, entries=0, drill_down=No
 
 
 def _competence_group(filterset):
-    """The ``values()`` keys that identify a competency, per the descriptor's basis. D47.
+    """The ``values()`` keys that identify a competency, per the descriptor's basis. D48.
 
     Two shapes, because the two bases live in different columns, and this is the function
     that keeps that difference from leaking into every caller. For contract consumption the
@@ -455,7 +455,7 @@ def _origin_bucket_target(filterset, origin, competence):
     """``(filters, drill_down)`` for one origin bucket -- exactly one of them set. D56.
 
     The two log origins narrow through ``revenue_origins``, which applies the very expression
-    D48's differential covers, so a drill-down cannot classify differently from the chart it
+    D49's differential covers, so a drill-down cannot classify differently from the chart it
     was clicked on.
 
     The two overage origins get ``None`` for the descriptor and a named destination instead,
@@ -698,7 +698,7 @@ def distribution(workspace_id, filterset, viewer, *, dimension):
 def headline_totals(workspace_id, filterset, viewer):
     """The insight cards above a dashboard. One ``aggregate()``.
 
-    ``average_amount_per_issue`` is **presentation only (D52)**: a quotient of a money total
+    ``average_amount_per_issue`` is **presentation only (D53)**: a quotient of a money total
     by a count is not representable in two decimals, so it is quantized once, here, with
     ``ROUND_HALF_UP``, and it is **never** fed back into any total. The numerator is the
     ``Sum`` of the persisted ``amount`` column, never hours times a rate -- the same rule as

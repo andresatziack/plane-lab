@@ -21,7 +21,7 @@ type Props = {
   /**
    * The descriptor the clicked bucket carried, **passed through untouched**.
    *
-   * Not rebuilt from whatever the chart happened to know: the guarantee of D49 is that the
+   * Not rebuilt from whatever the chart happened to know: the guarantee of D50 is that the
    * total and this list come from the same query, and reassembling the selection here is
    * exactly how they would start to differ.
    */
