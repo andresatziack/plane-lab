@@ -41,4 +41,16 @@ urlpatterns = [
         ServiceLogViewSet.as_view({"patch": "update_batch", "delete": "destroy_batch"}),
         name="service-log-batch",
     ),
+    # Reassignment is its own route rather than a field on the PATCH above, and the reason
+    # is structural rather than aesthetic: an edit rebuilds the batch, reversing and
+    # reapplying every pool debit, so it lands on the same balance only by cancellation and
+    # is refused outright inside a closed period. This route sets `author` in place and
+    # writes no ledger row, which is what makes acceptance criterion 6 -- "alterar o autor
+    # não altera saldo de pool" -- true by construction. See `reassign_author`.
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/"
+        "service-logs/batches/<uuid:batch_id>/author/",
+        ServiceLogViewSet.as_view({"patch": "reassign_author"}),
+        name="service-log-batch-author",
+    ),
 ]

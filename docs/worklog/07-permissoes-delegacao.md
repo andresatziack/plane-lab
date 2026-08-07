@@ -23,12 +23,25 @@ Não precisa investigar — os fatos estão em `docs/worklog/ACHADOS-DO-CODIGO.m
 
 ### Como expressar as permissões desta fase
 
-Use o mecanismo existente, não construa um paralelo:
+> **Corrigido depois da implementação.** A sugestão original abaixo era usar
+> `allow_permission(creator=True, model=...)` para "só o autor". **Não foi seguida, e o
+> motivo está duas linhas adiante no próprio briefing:** o `creator=True` libera a view
+> inteira para o criador ignorando o papel, e é o bypass que a auditoria do fork sinalizou
+> como problema de segurança existente. Reusá-lo espalharia o bug.
+>
+> Além disso ele chaveia em `created_by`, e a partir da delegação desta fase `created_by` é
+> **quem digitou**, não quem executou. A R8 faz do autor o dono do registro, então um
+> apontamento delegado ficaria sob controle de quem apenas o digitou.
+>
+> O que foi implementado: a autoridade resolve em
+> `plane.utils.service_permission.resolve_capabilities`, chaveando em `author_id`, e
+> `allow_permission` continua fazendo o que faz bem — barrar GUEST e conferir participação.
+> As duas camadas compõem; a segunda não foi substituída.
 
-- Editar/excluir apontamento próprio → `allow_permission([ROLE.ADMIN],
-  creator=True, model=Worklog)`, exatamente o padrão de `IssueComment`
-- Criar apontamento → `allow_permission([ROLE.ADMIN, ROLE.MEMBER])`
-- GUEST nunca entra em nenhuma rota de apontamento
+- Criar apontamento → `allow_permission([ROLE.ADMIN, ROLE.MEMBER])` — **mantido**
+- GUEST nunca entra em nenhuma rota de apontamento — **mantido, e reforçado**: a resolução
+  de capacidades também devolve nada para GUEST, então as duas proteções são redundantes
+- Editar/excluir → `validate_can_change(log, capabilities)`, **não** `creator=True`
 
 **Atenção ao bypass do `creator=True`** (`permissions/base.py:24-40`): ele libera
 a view inteira quando o usuário é o criador, exigindo apenas que seja
@@ -111,18 +124,36 @@ Apontamento em período fechado só é editável por Admin, com auditoria.
 
 ## Critérios de aceite
 
-1. Técnico A não consegue editar nem excluir apontamento do técnico B
-2. Técnico A edita e exclui os próprios apontamentos
-3. Admin edita e exclui apontamento de qualquer um
-4. Admin concede a permissão de gerenciar apontamentos de terceiros ao técnico
-   C, e C passa a poder editar apontamentos de qualquer técnico — sem ser Admin
-5. Usuário com permissão de delegação registra apontamento com autor = técnico
-   B, e a lista mostra ambos os nomes
-6. Alterar o autor de um apontamento é registrado na auditoria e não altera
-   saldo de pool
-7. Alterar o tempo de um apontamento é registrado na auditoria e ajusta o saldo
-8. Toda tentativa negada retorna erro de autorização adequado, na API e na UI
-9. Apontamento excluído permanece recuperável no histórico de auditoria
+| # | Critério | Status | Onde é provado |
+| --- | --- | --- | --- |
+| 1 | Técnico A não consegue editar nem excluir apontamento do técnico B | **atendido** | `TestBaseAuthority::test_a_technician_cannot_edit_another_technicians_log` e `..._delete_...` |
+| 2 | Técnico A edita e exclui os próprios apontamentos | **atendido** | `TestBaseAuthority::test_the_author_edits_their_own`, `..._deletes_their_own` |
+| 3 | Admin edita e exclui apontamento de qualquer um | **atendido** | `TestBaseAuthority::test_an_admin_edits_anybodys_log`, `..._deletes_...` |
+| 4 | Admin concede gerenciar apontamentos de terceiros ao técnico C, e C passa a poder editar de qualquer técnico — sem ser Admin | **atendido** | `TestGrantedManageOthers`, incluindo o "antes" da concessão e a asserção de que o papel de C continua 15 |
+| 5 | Usuário com permissão de delegação registra apontamento com autor = técnico B, e a lista mostra ambos os nomes | **atendido** | `TestDelegation::test_a_delegated_log_carries_both_names` |
+| 6 | Alterar o autor é registrado na auditoria e não altera saldo de pool | **atendido** | `TestReassignment::test_reassignment_is_audited_with_all_four_facts` e `TestEditsThatMoveMoney::test_reassignment_writes_no_ledger_row_even_where_a_pool_exists` |
+| 7 | Alterar o tempo é registrado na auditoria e ajusta o saldo | **atendido** | `TestEditsThatMoveMoney::test_changing_the_duration_is_audited_and_adjusts_the_pool_balance` |
+| 8 | Toda tentativa negada retorna erro de autorização adequado | **atendido, com a convenção fixada** | toda classe de recusa afirma o código; a convenção 403/400 é a **D47** |
+| 9 | Apontamento excluído permanece recuperável no histórico de auditoria | **atendido** | `TestDeletionRemainsInHistory` |
+
+### O que foi além do briefing
+
+- **GUEST não pode sustentar nenhuma das três capacidades**, em três camadas
+  (`TestGuestsCannotHoldCapabilities`). O briefing não pedia; sem isso, um usuário de
+  cliente com `can_delegate` atribuiria trabalho a um técnico. Ver **D45**.
+- **Período fechado é ADMIN-only inclusive para reatribuição**, com o limite documentado
+  (`TestClosedPeriodIsAdminOnly`). Ver **D46**.
+- **A recusa de período fechado passou a dizer o que fazer**, não só o que não pode:
+  `remediation: RECORD_A_NEW_ENTRY_IN_THE_OPEN_COMPETENCE`. Ver **D42**, reescrita como
+  pergunta.
+
+### Dívida que esta fase cria, por fase que a herda
+
+| Fase | Dívida |
+| --- | --- |
+| **8** | A UI das concessões não existe. A API está pronta (`GET`/`PATCH .../service-member-permissions/`, mais `.../me/` para o formulário decidir se mostra o campo "Autor"), e a Fase 8 já mexe na tela de membros do workspace |
+| **8** | O campo "Autor" no formulário de apontamento é backend-only até aqui. `was_delegated` e `.../me/` existem para a tela consumir |
+| **A definir** | A pergunta da **D42**: reabrir período ou lançar ajuste na competência aberta. Enquanto não respondida, um ADMIN não altera horas de apontamento em período fechado |
 
 ## Entregar
 

@@ -23,6 +23,7 @@ from plane.app.serializers import (
 from plane.app.views.base import BaseAPIView
 from plane.db.models import Project, ProjectMember, WorkspaceMember, DraftIssue
 from plane.utils.cache import invalidate_cache
+from plane.utils.service_permission import revoke_all_capabilities
 
 from .. import BaseViewSet
 
@@ -87,6 +88,26 @@ class WorkSpaceMemberViewSet(BaseViewSet):
         # If a user is moved to a guest role he can't have any other role in projects
         if "role" in request.data and int(request.data.get("role")) == 5:
             ProjectMember.objects.filter(workspace__slug=slug, member_id=workspace_member.member_id).update(role=5)
+
+            # ... and cannot hold the elevated work log capabilities either. A GUEST is a
+            # client's own user (master context, section 2b), so `can_delegate` would let
+            # them attribute work to a technician and `can_manage_others` would let them
+            # edit billing records.
+            #
+            # **This is not what closes the escalation** -- `resolve_capabilities` gates on
+            # the live role, so the demotion already made any grant ineffective. What this
+            # does is stop the stored row from claiming something untrue, because that row
+            # is what the members screen displays and what the audit trail is read against.
+            #
+            # The single deliberate touch of a core Plane file in this phase, placed inside
+            # the `if` that already exists for the identical reason one line above rather
+            # than as a new branch. Phase 7's own model and endpoints live entirely outside
+            # the core; see decision D45.
+            revoke_all_capabilities(
+                workspace_id=workspace_member.workspace_id,
+                member_id=workspace_member.member_id,
+                actor=request.user,
+            )
 
         serializer = WorkSpaceMemberSerializer(workspace_member, data=request.data, partial=True)
 

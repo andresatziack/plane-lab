@@ -455,20 +455,17 @@ def validate_time_tracking_enabled(project):
         raise ServiceLogValidationError(TIME_TRACKING_DISABLED_FOR_PROJECT)
 
 
-def validate_author_can_change(service_log, user):
-    """Only the author may edit or delete, for now.
-
-    Section 6 of the phase brief: "permissões vêm na Fase 7; por ora, apenas o
-    autor". The author, not ``created_by`` -- once Phase 7 adds delegation those
-    differ, and it is the person whose work is described who owns the record.
-
-    Checked here rather than with ``allow_permission(creator=True)``: that flag
-    hands the whole view to the row's creator and ignores their role, which the fork
-    audit flagged as an existing security problem (ACHADOS-DO-CODIGO.md, and Phase 8
-    section 4b). Reusing it would spread the bug.
-    """
-    if str(service_log.author_id) != str(user.id):
-        raise ServiceLogValidationError(ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG)
+# ``validate_author_can_change`` used to live here, implementing Phase 3's interim rule
+# ("permissões vêm na Fase 7; por ora, apenas o autor"). **Phase 7 arrived and replaced
+# it** with ``plane.utils.service_permission.validate_can_change``, which asks the same
+# question plus "or does this member hold a grant".
+#
+# It was removed rather than kept as a wrapper: two functions answering "may this person
+# edit this work log" is how one of them ends up being called from a path that needed the
+# other, and the one that ignores grants is the one that silently refuses legitimate
+# work. The error code ``ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG`` above is unchanged
+# and still exported from here, because the frontend already translates it and its
+# meaning only widened.
 
 
 # ---------------------------------------------------------------------------
