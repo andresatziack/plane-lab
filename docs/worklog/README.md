@@ -18,10 +18,11 @@ resolvidas e o código do fork foi auditado.
 Leia docs/worklog/PROXIMA-SESSAO.md e siga.
 ```
 
-`PROXIMA-SESSAO.md` é reescrito ao fim de cada fase e sempre descreve a próxima:
-o que ler, o estado do repositório, a última migração, o baseline da suíte e as
-dívidas que vencem naquela fase. O caminho nunca muda, então é o único que vale
-memorizar — útil especialmente quando não se pode copiar um prompt longo.
+`PROXIMA-SESSAO.md` era reescrito ao fim de cada fase e descrevia a próxima. **O
+núcleo está fechado**, então hoje ele não descreve fase nenhuma: descreve o estado
+final, o que existe em API sem tela, as duas perguntas em aberto, as melhorias sem
+prompt escrito e as dívidas. O caminho nunca muda, então continua sendo o único que
+vale memorizar.
 
 Ele aponta para `CONVENCOES-DE-TRABALHO.md`, que reúne o que vale para **todas**
 as fases: filosofia de teste, regras de modelagem, convenções de PR e o mecanismo
@@ -42,9 +43,9 @@ Sugestões práticas:
 - **Não pule a validação do modelo de dados.** É o passo que evita retrabalho
   caro, e está pedido explicitamente na seção 7 do contexto mestre.
 - Na Fase 4 (ou antes), leia a **D18** em `DECISOES.md`.
-- Antes da Fase 8, leia `ACHADOS-DO-CODIGO.md` por inteiro. É a única fase que
-  altera código do core do Plane e a única com risco real de abrir buraco de
-  permissão.
+- `ACHADOS-DO-CODIGO.md` vale por inteiro antes de mexer em permissão. A **seção
+  14** é a mais importante e não é tarefa: registra leitura e escrita cross-tenant
+  no core do Plane, medida e não corrigida, para decisão de operador.
 - Ao retomar uma fase já começada, informe o que já foi feito — o Kiro não tem
   memória entre sessões além do que está no repositório.
 
@@ -63,17 +64,21 @@ Sugestões práticas:
 | 4    | `04-contratos-e-pools.md`                 | Contratos, pool mensal, acúmulo, excedente, renovação, alertas           | 3          | feita  |
 | 5    | `05-bolsa-por-workitem.md`                | Bolsa de horas isolada por chamado                                       | 4          | feita  |
 | 6    | `06-avulso-precificacao.md`               | Preços por cliente, valor em R$, faturamento de excedente                | 3 e 4      | feita  |
-| 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          | —      |
-| 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       | —      |
-| 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    | —      |
+| 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          | feita  |
+| 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       | feita  |
+| 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    | feita  |
 
 A Fase 6 depende da 4 apenas para o faturamento de excedente (seção 6); as seções
 1 a 5 só precisam da Fase 3. A Fase 7 é independente das 4, 5 e 6 e pode ser feita
 em paralelo.
 
-**Restam a 7, a 8 e a 9.** A 7 e a 9 estão ambas desbloqueadas; a 8 depende da 7.
-`PROXIMA-SESSAO.md` aponta para a **7**, porque é a única que ainda bloqueia outra
-fase — mas explica o que muda se você preferir a 9.
+**O núcleo está completo.** As nove fases estão mescladas e a suíte fecha em 2495
+passando, 0 falhando. A ordem real de execução foi 1, 2, 2b, 3, 4, 5, 6, 7, 9, 8 —
+a 9 saiu antes da 8 porque a 8 depende da 7 e não da 9, e a projeção GUEST que a 8
+consome foi construída e provada na 9 (D55).
+
+Não existe fase 10. `PROXIMA-SESSAO.md` fecha a série e lista quatro caminhos
+independentes, sem ordem imposta entre eles.
 
 ### Depois do núcleo — roadmap acordado
 
