@@ -237,3 +237,105 @@ def client_may_reach_issue(user, issue):
     which is not a reason to leave it open.
     """
     return bool(issue.project.guest_view_all_features) or issue.created_by_id == user.id
+
+
+
+#: Activity feed ``field`` values a client's own user must not receive. D61.
+#:
+#: **This phase creates the exposure, so this phase owns the fix.** Before the portal, no
+#: GUEST was a member of a Cliente's project, so ``IssueActivityEndpoint`` -- which has
+#: admitted GUEST all along -- had no client reading it. Shipping the portal without this
+#: would be shipping a known leak in the same change that makes it reachable.
+#:
+#: The leak is concrete. ``_service_log_batch_summary`` persists
+#: ``f"{sum(logged_hours)} h ({hour type labels})"`` into ``IssueActivity.new_value``, and
+#: ``logged_hours`` is the one hour quantity R11 keeps from the client. A client who sees
+#: ``equivalent_hours`` in the portal and ``logged_hours`` in the feed divides one by the
+#: other and has the multiplier -- exactly the derivation R11(c) exists to prevent, and
+#: exactly what D55 refuses to compute for ``ReportViewer.guest()``.
+#:
+#: Why no test caught it: ``test_the_activity_trail_carries_no_money`` asserts money
+#: absence and uses ``logged_hours == "1.0000"`` as its *positive control*. Correct for a
+#: feed read by a Member. It is the leak for a feed read by a Guest. The test was never
+#: wrong; it was never asked the Guest question.
+#:
+#: **Excluded rather than re-projected**, for the reason D51 gives about aggregation
+#: boundaries: a second rendering of the same work log is a second place R11 can be wrong,
+#: and the first one already has tests. Here the argument is stronger still, because the
+#: entire informational content of the ``service_log`` row *is* the logged hours -- there
+#: is no client-safe remainder left to show once the number is gone.
+#:
+#: All four values, not only ``service_log``. Each of the other three answers a question
+#: about how the work was recorded and priced internally -- R8's audit trail, R10's
+#: override record -- and none answers a question the client asked:
+#:
+#: * ``service_log_author`` -- an internal correction of who is credited
+#: * ``service_log_delegation`` -- "João, registrado por Maria", internal bookkeeping
+#: * ``service_log_hour_type_override`` -- suggested against applied hour type, which
+#:   hands the client the multiplier structure and an accusation to make with it
+#:
+#: The client's own questions -- what was done, when, by whom, how many hours count
+#: against the contract -- are all answered by the portal work log endpoint, projected
+#: once, through ``ServiceLogClientSerializer``.
+CLIENT_HIDDEN_ACTIVITY_FIELDS = frozenset(
+    {
+        "service_log",
+        "service_log_author",
+        "service_log_delegation",
+        "service_log_hour_type_override",
+    }
+)
+
+
+
+def is_client_portal_workspace_member(user, *, slug):
+    """Whether this caller is a client's own user at the workspace level.
+
+    The workspace-level twin of :func:`is_client_portal_member`, for the activity readers
+    that are not scoped to a project.
+
+    Needed because ``WorkspaceEntityPermission`` and ``ProjectEntityPermission`` both
+    admit *any* active member on a safe method, with no role filter at all -- so a client's
+    user reaches several activity readers that were written when no client had a login.
+    ``GET /api/workspaces/<slug>/user-activity/<user_id>/`` is the sharpest of them: it
+    takes the actor's id straight from the URL, so a client can ask for a named
+    technician's activity directly.
+    """
+    from plane.db.models import WorkspaceMember
+
+    membership = (
+        WorkspaceMember.objects.filter(workspace__slug=slug, member=user, is_active=True)
+        .values_list("role", flat=True)
+        .first()
+    )
+
+    return membership is not None and membership <= ROLE_GUEST
+
+
+def activity_fields_hidden_from(user, *, slug, project_id=None):
+    """The ``field`` values to exclude from an activity feed for this caller. D61.
+
+    One function for every activity reader, because the leak this closes had **three**
+    doors and patching the obvious one would have left two open:
+
+    * ``IssueActivityEndpoint`` -- the work item feed, ``allow_permission`` already listed
+      GUEST explicitly
+    * ``WorkspaceUserActivityEndpoint`` -- another user's activity, actor id from the URL,
+      admitted by ``WorkspaceEntityPermission`` on any safe method
+    * ``IssueActivityListAPIEndpoint`` -- the external token API, admitted by
+      ``ProjectEntityPermission`` on any safe method
+
+    Returns the base exclusions unchanged for everybody else, so a caller can use it
+    unconditionally and there is no second list of the four core values to keep in step.
+    """
+    base = ["comment", "vote", "reaction", "draft"]
+
+    if project_id is not None:
+        is_client = is_client_portal_member(user, slug=slug, project_id=project_id)
+    else:
+        is_client = is_client_portal_workspace_member(user, slug=slug)
+
+    if is_client:
+        return base + sorted(CLIENT_HIDDEN_ACTIVITY_FIELDS)
+
+    return base
