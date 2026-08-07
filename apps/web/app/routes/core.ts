@@ -72,6 +72,17 @@ export const coreRoutes: RouteConfigEntry[] = [
           route(":workspaceSlug/analytics/:tabId", "./(all)/[workspaceSlug]/(projects)/analytics/[tabId]/page.tsx"),
         ]),
 
+        // Service reports -- consumption dashboards and billing (Phase 9). A route of its own
+        // rather than tabs inside analytics: the two answer different questions for different
+        // audiences, and folding them together would put a technician one click from a tab R11
+        // keeps from them.
+        layout("./(all)/[workspaceSlug]/(projects)/service-reports/[tabId]/layout.tsx", [
+          route(
+            ":workspaceSlug/service-reports/:tabId",
+            "./(all)/[workspaceSlug]/(projects)/service-reports/[tabId]/page.tsx"
+          ),
+        ]),
+
         // Browse
         layout("./(all)/[workspaceSlug]/(projects)/browse/[workItem]/layout.tsx", [
           route(":workspaceSlug/browse/:workItem", "./(all)/[workspaceSlug]/(projects)/browse/[workItem]/page.tsx"),
@@ -385,6 +396,8 @@ export const coreRoutes: RouteConfigEntry[] = [
 
   // Analytics redirect: /:workspaceSlug/analytics → /:workspaceSlug/analytics/overview
   route(":workspaceSlug/analytics", "routes/redirects/core/analytics.tsx"),
+  // Service reports redirect: /:workspaceSlug/service-reports → .../service-reports/attention
+  route(":workspaceSlug/service-reports", "routes/redirects/core/service-reports.tsx"),
   // Work log settings redirect: /settings/worklog → /settings/worklog/hour-types
   route(":workspaceSlug/settings/worklog", "routes/redirects/core/worklog-settings.tsx"),
 

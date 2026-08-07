@@ -1,0 +1,149 @@
+{
+  "service_reports": {
+    "label": "Service reports",
+    "page_label": "{workspace} - Service reports",
+    "tabs": {
+      "attention": "Needs attention",
+      "consumption": "Consumption",
+      "operational": "Operational",
+      "billing": "Billing"
+    },
+    "toolbar": {
+      "window": "Period",
+      "clients": "Clients",
+      "scope": "Scope",
+      "export": "Export CSV"
+    },
+    "totals": {
+      "logged_hours": "Logged hours",
+      "equivalent_hours": "Equivalent hours",
+      "debited_hours": "Debited hours",
+      "debited_hint": "Excludes non-billable work",
+      "entries": "Work logs",
+      "issues": "Work items",
+      "amount": "Value",
+      "average_per_issue": "Average of {value} per work item",
+      "average_hours_per_issue": "Average hours per work item"
+    },
+    "series": {
+      "logged": "Logged",
+      "equivalent": "Equivalent"
+    },
+    "consumption": {
+      "contract_series": "Contract consumption",
+      "contract_series_hint": "By the competency of the debited period, so a retroactive work log appears in the month it was charged to.",
+      "standalone_series": "Hours worked",
+      "standalone_series_hint": "By service date.",
+      "consumed": "Consumed",
+      "overage": "Overage"
+    },
+    "statement": {
+      "competence": "Competency",
+      "granted": "Granted",
+      "consumed": "Consumed",
+      "balance": "Balance",
+      "parcels": "Carried parcels by origin"
+    },
+    "distribution": {
+      "hour_type": "By hour type",
+      "billing_type": "By service type",
+      "author": "By technician",
+      "project": "By project",
+      "service_client": "By client"
+    },
+    "non_billable": {
+      "title": "Non-billable work",
+      "hint": "Always broken down by service type: warranty honoured and courtesy given are different conversations."
+    },
+    "revenue": {
+      "title": "Revenue by origin",
+      "hint": "Four origins, each with its own competency rule.",
+      "standalone": "Ad-hoc",
+      "out_of_scope": "Out of scope",
+      "contract_overage": "Contract overage",
+      "allowance_overage": "Allowance overage",
+      "standalone_log": "Ad-hoc",
+      "out_of_scope_log": "Out of scope",
+      "no_log_list": "An overage settles a deficit, so there is no work log list that sums to it. Open the period statement instead."
+    },
+    "allowances": {
+      "active": "Active work item allowances",
+      "none": "No active allowances.",
+      "credit_history": "Credit history",
+      "from_competence": "from {value}",
+      "balance": "Balance",
+      "pending_closure": "Allowances awaiting closure",
+      "pending_closure_hint": "The work item closed more than 30 days ago. The remaining balance is forfeit under the contract, but nothing is written off until somebody closes the allowance."
+    },
+    "billing": {
+      "admin_only": "The billing report is available to workspace admins only.",
+      "total": "Total",
+      "competence": "Competency",
+      "client": "Client",
+      "consolidation": "Consolidation for {competence}",
+      "internal_work": "Internal work",
+      "internal_work_hint": "Projects with no client. Outside revenue.",
+      "commercial_pendencies": "Commercial pendencies",
+      "commercial_pendencies_hint": "Already counted in the revenue above. Shown here as a lens, not as an extra line: these are billable and have a deadline.",
+      "registration_pendencies": "Registration pendencies",
+      "registration_pendencies_hint": "Cannot be invoiced yet: no price sheet applies. Deliberately absent from the total."
+    },
+    "drill_down": {
+      "entries": "work logs",
+      "worked_on": "Date",
+      "author": "Technician",
+      "description": "Description",
+      "hour_type": "Hour type",
+      "equivalent_hours": "Equivalent",
+      "amount": "Value",
+      "empty": "No work logs for this selection."
+    },
+    "alerts": {
+      "count": "{count} items need attention",
+      "dismiss": "Dismiss",
+      "balance": "Balance",
+      "close_allowance": "Close allowance",
+      "empty": "Nothing needs attention.",
+      "severity": {
+        "high_consumption": "High consumption",
+        "low_consumption": "Low consumption",
+        "contract": "Contract",
+        "pending_action": "Awaiting a decision"
+      },
+      "severity_hint": {
+        "high_consumption": "Risk of work that never gets paid for.",
+        "low_consumption": "Churn signal: the client is paying for a pool they do not use.",
+        "contract": "The agreement itself needs attention.",
+        "pending_action": "Somebody has to decide. Nothing happens automatically."
+      },
+      "no_default": {
+        "title": "Clients with several contracts and no default",
+        "hint": "The first work log on a project with no pinned contract will fail in front of a technician who cannot fix it.",
+        "clients": "clients"
+      },
+      "HIGH_CONSUMPTION_BEFORE_MIDMONTH": "Consumption past the threshold before mid-month",
+      "NEGATIVE_BALANCE": "Negative balance",
+      "PROJECTED_OVERRUN": "Projected to exhaust the pool before month end",
+      "LOW_CONSUMPTION_AT_MONTH_END": "Low consumption near month end",
+      "ACCRUED_BALANCE_ABOVE_THRESHOLD": "Accrued balance above the threshold",
+      "HOURS_DISCARDED_BY_CAP": "Hours discarded by the accrual cap",
+      "NO_SERVICE_LOGS_IN_MONTH": "No work logs against the contract this month",
+      "ALLOWANCE_NEGATIVE_BALANCE": "Allowance overrun",
+      "ALLOWANCE_HIGH_CONSUMPTION": "Allowance near its limit",
+      "ALLOWANCE_PENDING_CLOSURE": "Grace period elapsed, awaiting closure",
+      "CONTRACT_OUT_OF_VIGENCY": "Contract outside its vigency",
+      "CONTRACT_SUSPENDED": "Contract suspended"
+    },
+    "deviation": {
+      "no_contract_for_client": "No contract for the client",
+      "contract_suspended": "Contract suspended",
+      "contract_ended": "Contract ended",
+      "contract_expired": "Contract expired"
+    },
+    "pricing_failure": {
+      "internal_project_no_client": "Internal project with no client",
+      "no_price_sheet_for_client": "No price sheet for the client",
+      "no_price_sheet_in_force": "No price sheet in force on the service date"
+    }
+  }
+}
