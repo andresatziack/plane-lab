@@ -25,7 +25,7 @@ import useSize from "@/hooks/use-window-size";
 // services
 import { WorkItemVersionService } from "@/services/issue";
 // components
-import { ServiceLogSection } from "@/components/service-logs";
+import { ServiceLogClientSection, ServiceLogSection } from "@/components/service-logs";
 // local imports
 import { IssueDetailWidgets } from "../issue-detail-widgets";
 import { NameDescriptionUpdateStatus } from "../issue-update-status";
@@ -195,12 +195,25 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
         the feed below records changes made to it -- including, per rule R8, the work
         log activity this section produces.
       */}
-      <ServiceLogSection
-        workspaceSlug={workspaceSlug}
-        projectId={projectId}
-        issueId={issueId}
-        disabled={!editPermissions.restrictedFields || isArchived}
-      />
+      {/*
+        Two components, not one with a mode. A client's own user gets the R11 projection from
+        its own endpoint; everybody else gets the full section. The same split the server
+        makes, and for the same reason: a single component with a role branch has one render
+        path that can reach either shape, and the branch that forgets is the leak.
+
+        `restrictedFields` is the right discriminator rather than a role check, because it is
+        already the answer to "may this person do technician things here".
+      */}
+      {editPermissions.restrictedFields ? (
+        <ServiceLogSection
+          workspaceSlug={workspaceSlug}
+          projectId={projectId}
+          issueId={issueId}
+          disabled={isArchived}
+        />
+      ) : (
+        <ServiceLogClientSection workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} />
+      )}
 
       <IssueActivity workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} disabled={isArchived} />
     </>
