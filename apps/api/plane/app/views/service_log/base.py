@@ -36,8 +36,22 @@ from plane.utils.service_log import (
     issue_service_log_amount,
     issue_service_log_totals,
     replace_service_log_batch,
-    validate_author_can_change,
     validate_time_tracking_enabled,
+)
+from plane.utils.service_permission import (
+    CLOSED_PERIOD_IS_ADMIN_ONLY,
+    ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG,
+    SERVICE_LOG_AUTHOR_IS_REASSIGNED_SEPARATELY,
+    SERVICE_LOG_AUTHOR_IS_REQUIRED,
+    SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN,
+    SERVICE_LOG_DELEGATION_NOT_PERMITTED,
+    SERVICE_LOG_REASSIGNMENT_NOT_PERMITTED,
+    resolve_capabilities,
+    validate_can_change,
+    validate_can_delegate,
+    validate_can_reassign,
+    validate_closed_period_access,
+    validate_delegated_author,
 )
 from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours
 from plane.utils.service_money import ZERO_MONEY, format_money
@@ -45,6 +59,24 @@ from plane.utils.service_pool import ServicePoolValidationError, issue_pool_snap
 from plane.utils.service_pricing import ServicePricingValidationError
 
 from ..base import BaseViewSet
+
+#: Refusals of *authority*, which are 403. Every other domain error code is a refusal of
+#: *input*, which is 400. Kept as a set at module level so the mapping is stated once and
+#: a new permission code cannot be added without deciding which kind it is.
+PERMISSION_DENIED_CODES = {
+    ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG,
+    SERVICE_LOG_DELEGATION_NOT_PERMITTED,
+    SERVICE_LOG_REASSIGNMENT_NOT_PERMITTED,
+    CLOSED_PERIOD_IS_ADMIN_ONLY,
+    # "That person may not be credited with work here" is a **policy** refusal, not a
+    # malformed payload: the id is a valid UUID of a real user, and what stops it is a
+    # rule about roles. 403 is the code for "understood, and refused to authorise".
+    #
+    # It also keeps criterion 8 coherent -- every refusal on a work log write route is a
+    # 403, and the only 400s left are genuinely about the shape of the request (a missing
+    # author, an author sent to the edit route instead of the reassignment route).
+    SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN,
+}
 
 
 class ServiceLogViewSet(BaseViewSet):
@@ -167,6 +199,30 @@ class ServiceLogViewSet(BaseViewSet):
 
         return {"code": "SERVICE_LOG_EXCEEDS_24_HOURS", "raw_duration_minutes": total_raw}
 
+    def _capabilities(self, request, slug):
+        """What this caller may do with work logs here. Phase 7.
+
+        Resolved once per request and passed down, rather than re-queried by each guard:
+        the three capabilities plus the role are one question, and asking it twice in one
+        view invites the two answers to be used inconsistently.
+        """
+        return resolve_capabilities(request.user, slug=slug)
+
+    def _permission_error(self, code):
+        """403 for a refusal of authority, 400 for a refusal of input. Criterion 8.
+
+        The distinction matters to the frontend: a 403 means "you may not", which is a
+        message about the user, and a 400 means "this payload is wrong", which is a
+        message about the form. Returning 400 for a denied permission would make the UI
+        show a field error for something no field can fix.
+        """
+        return Response(
+            {"error": code},
+            status=(
+                status.HTTP_403_FORBIDDEN if code in PERMISSION_DENIED_CODES else status.HTTP_400_BAD_REQUEST
+            ),
+        )
+
     def _can_see_amounts(self, request, slug):
         """Whether this caller may see the value in reais. Rule R11.
 
@@ -268,6 +324,42 @@ class ServiceLogViewSet(BaseViewSet):
             epoch=int(timezone.now().timestamp()),
             notification=False,
             origin=base_host(request=request, is_app=True),
+        )
+
+    def _display_name(self, user):
+        """How a user is named in the activity feed.
+
+        ``display_name`` is what Plane shows everywhere else; email is the fallback
+        because a member invited but never onboarded can have it blank, and an audit entry
+        reading "reassigned from  to " is an audit entry that failed.
+        """
+        return getattr(user, "display_name", None) or getattr(user, "email", "") or str(user.id)
+
+    def _record_delegation_activity(self, request, issue, project_id, author):
+        """R8's second fact, when it differs from the first.
+
+        Emits nothing when somebody logs their own work, which is the overwhelming
+        majority of writes -- a feed entry saying "Maria logged work on behalf of Maria"
+        is noise, and noise in a trail is what teaches people to stop reading it.
+        """
+        if str(author.id) == str(request.user.id):
+            return
+
+        self._record_activity(
+            "service_log.activity.delegated",
+            request,
+            issue,
+            project_id,
+            requested_data=json.dumps(
+                {
+                    "author_id": str(author.id),
+                    "author_name": self._display_name(author),
+                    "created_by_id": str(request.user.id),
+                    "created_by_name": self._display_name(request.user),
+                },
+                cls=DjangoJSONEncoder,
+            ),
+            current_instance=None,
         )
 
     def _record_override_activity(self, request, issue, project_id, payload):
@@ -412,18 +504,32 @@ class ServiceLogViewSet(BaseViewSet):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Delegation is Phase 7. Until the permission that authorises it exists, an
-        # author other than the caller would let anyone attribute work to a colleague.
-        if serializer.validated_data.get("author_id") and str(
-            serializer.validated_data["author_id"]
-        ) != str(request.user.id):
-            return Response(
-                {"error": "SERVICE_LOG_DELEGATION_NOT_AVAILABLE"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Delegation. Section 3 of the Phase 7 brief: whoever holds the grant may name
+        # another member as the author, and R8's two facts -- who did the work and who
+        # typed it in -- then genuinely differ. `author` is the declared technician and
+        # `created_by`, set by BaseModel.save() from crum, is the caller.
+        #
+        # Two checks, deliberately separate. The first asks whether the CALLER may
+        # delegate at all; the second asks whether the DECLARED AUTHOR is somebody who
+        # can perform work here. Collapsing them would let a grant holder attribute work
+        # to a GUEST -- a client's own user -- which would put the client's name on the
+        # labour side of an invoice.
+        capabilities = self._capabilities(request, slug)
+        author = request.user
+        requested_author_id = serializer.validated_data.get("author_id")
 
         try:
-            rows, error_code = self._build_rows(issue, serializer.validated_data, request.user)
+            validate_can_delegate(requested_author_id, capabilities)
+
+            if requested_author_id and str(requested_author_id) != str(request.user.id):
+                author = validate_delegated_author(
+                    requested_author_id, workspace_id=issue.project.workspace_id
+                ).member
+        except ServiceLogValidationError as error:
+            return self._permission_error(error.code)
+
+        try:
+            rows, error_code = self._build_rows(issue, serializer.validated_data, author)
         except ServiceLogValidationError as error:
             return Response({"error": error.code}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -459,11 +565,17 @@ class ServiceLogViewSet(BaseViewSet):
             current_instance=None,
         )
         self._record_override_activity(request, issue, project_id, payload)
+        self._record_delegation_activity(request, issue, project_id, author)
 
         return Response(
             {
                 "service_logs": payload,
                 "batch_id": str(rows[0].batch_id),
+                # Section 3: the response states the delegation explicitly rather than
+                # leaving the client to compare two ids. Criterion 5 wants the list to
+                # show both names, and a flag it can trust is cheaper than that comparison
+                # repeated in every consumer.
+                "was_delegated": str(author.id) != str(request.user.id),
                 "totals": self._totals(issue_id, can_see_amounts=context["can_see_amounts"]),
                 "warning": self._long_entry_warning(rows),
                 # Section 7: the work item shows the pool it just debited, so the panel
@@ -494,19 +606,20 @@ class ServiceLogViewSet(BaseViewSet):
         if not existing:
             return self._not_found()
 
+        capabilities = self._capabilities(request, slug)
+
         try:
             validate_time_tracking_enabled(issue.project)
-            validate_author_can_change(existing[0], request.user)
+            # Phase 7: the author may edit their own, and a holder of
+            # `can_manage_others` may edit anybody's. Replaces Phase 3's author-only rule.
+            validate_can_change(existing[0], capabilities)
+            # A CLOSED competency period is ADMIN only, and no grant unlocks it. See
+            # `validate_closed_period_access` -- what the lock protects is the
+            # reproducibility of a consolidation that has already been sent to the client,
+            # which is broader than "no balance may move".
+            validate_closed_period_access(existing, capabilities)
         except ServiceLogValidationError as error:
-            code = error.code
-            return Response(
-                {"error": code},
-                status=(
-                    status.HTTP_403_FORBIDDEN
-                    if code == "ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG"
-                    else status.HTTP_400_BAD_REQUEST
-                ),
-            )
+            return self._permission_error(error.code)
 
         serializer = ServiceLogWriteSerializer(
             data=request.data, context={"workspace": issue.project.workspace}
@@ -514,6 +627,22 @@ class ServiceLogViewSet(BaseViewSet):
 
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # An edit does NOT move the author, and refusing is better than ignoring.
+        #
+        # Reassignment has its own route because it must not touch the ledger: this path
+        # rebuilds the batch, which soft deletes the old rows and reverses each debit
+        # before reapplying it. That leaves the balance where it started only by
+        # cancellation, and it cannot run at all in a closed period, where the pool layer
+        # refuses the reversal. Setting `author` in place -- what `reassign_author` does --
+        # makes "changing the author moves no balance" true by construction instead.
+        if serializer.validated_data.get("author_id") and str(
+            serializer.validated_data["author_id"]
+        ) != str(existing[0].author_id):
+            return Response(
+                {"error": SERVICE_LOG_AUTHOR_IS_REASSIGNED_SEPARATELY},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Captured before the swap so the activity generator can diff against it.
         current_instance = json.dumps(
@@ -579,6 +708,115 @@ class ServiceLogViewSet(BaseViewSet):
         )
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
+    def reassign_author(self, request, slug, project_id, issue_id, batch_id):
+        """Change who a work log is credited to. Section 4, acceptance criterion 6.
+
+        **Its own route, and it does not go through the batch rebuild.** ``author`` is set
+        in place on every segment, so no ledger row is written and no debit is reversed --
+        which is what makes "reassigning the author does not change the pool balance" true
+        *structurally* rather than as the arithmetic coincidence of a reversal followed by
+        an identical debit. It is also what lets a workspace ADMIN reassign inside a closed
+        period: nothing moves, so the pool layer is never asked.
+
+        Three guards, in order of what they protect:
+
+        1. ``validate_can_reassign`` -- the **scoped** grant of D45. ``can_reassign_author``
+           composes with edit rights instead of granting them, so holding it alone
+           reassigns only your own logs;
+        2. ``validate_closed_period_access`` -- ADMIN only once the competency is closed,
+           because the technician's name is on the consolidation the client already
+           received;
+        3. ``validate_delegated_author`` -- the incoming author must be a technician of
+           this workspace, never a GUEST.
+        """
+        issue = self._issue(slug, project_id, issue_id)
+
+        if issue is None:
+            return self._not_found()
+
+        existing = list(self.get_queryset().filter(batch_id=batch_id))
+
+        if not existing:
+            return self._not_found()
+
+        new_author_id = request.data.get("author_id")
+
+        if not new_author_id:
+            return Response(
+                {"error": SERVICE_LOG_AUTHOR_IS_REQUIRED}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        capabilities = self._capabilities(request, slug)
+
+        try:
+            validate_can_reassign(existing[0], capabilities)
+            validate_closed_period_access(existing, capabilities)
+            membership = validate_delegated_author(
+                new_author_id, workspace_id=issue.project.workspace_id
+            )
+        except ServiceLogValidationError as error:
+            return self._permission_error(error.code)
+
+        previous_author = existing[0].author
+
+        # A reassignment to the incumbent is not an event. Returning 200 without writing
+        # keeps the endpoint idempotent and keeps the trail free of entries recording that
+        # nothing happened.
+        if str(previous_author.id) == str(membership.member_id):
+            context = self._serializer_context(request)
+            return Response(
+                {
+                    "service_logs": ServiceLogSerializer(existing, many=True, context=context).data,
+                    "batch_id": str(batch_id),
+                    "was_reassigned": False,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # Saved row by row rather than through `queryset.update()`, for the reason
+        # `create_service_log_batch` gives: `update()` skips `BaseModel.save()`, which is
+        # what stamps `updated_by` from crum -- and "quem alterou" is one of the four facts
+        # section 4 requires the trail to carry. A batch is one to three rows.
+        with transaction.atomic():
+            for row in existing:
+                row.author = membership.member
+                row.save()
+
+        self._record_activity(
+            "service_log.activity.reassigned",
+            request,
+            issue,
+            project_id,
+            requested_data=json.dumps(
+                {
+                    "batch_id": str(batch_id),
+                    "previous_author_id": str(previous_author.id),
+                    "previous_author_name": self._display_name(previous_author),
+                    "new_author_id": str(membership.member_id),
+                    "new_author_name": self._display_name(membership.member),
+                },
+                cls=DjangoJSONEncoder,
+            ),
+            current_instance=None,
+        )
+
+        context = self._serializer_context(request)
+        refreshed = list(self.get_queryset().filter(batch_id=batch_id))
+
+        return Response(
+            {
+                "service_logs": ServiceLogSerializer(refreshed, many=True, context=context).data,
+                "batch_id": str(batch_id),
+                "was_reassigned": True,
+                # The totals are returned unchanged on purpose, and a caller comparing them
+                # across the call is asserting criterion 6: the pool balance did not move.
+                "totals": self._totals(issue_id, can_see_amounts=context["can_see_amounts"]),
+                "pool": issue_pool_snapshot(issue),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def destroy_batch(self, request, slug, project_id, issue_id, batch_id):
         """Delete a whole entry, every segment of it. Acceptance criterion 11."""
         issue = self._issue(slug, project_id, issue_id)
@@ -591,10 +829,13 @@ class ServiceLogViewSet(BaseViewSet):
         if not existing:
             return self._not_found()
 
+        capabilities = self._capabilities(request, slug)
+
         try:
-            validate_author_can_change(existing[0], request.user)
+            validate_can_change(existing[0], capabilities)
+            validate_closed_period_access(existing, capabilities)
         except ServiceLogValidationError as error:
-            return Response({"error": error.code}, status=status.HTTP_403_FORBIDDEN)
+            return self._permission_error(error.code)
 
         current_instance = json.dumps(
             self._activity_payload(existing), cls=DjangoJSONEncoder

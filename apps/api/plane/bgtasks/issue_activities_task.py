@@ -1162,6 +1162,102 @@ def delete_service_log_activity(
     )
 
 
+def create_service_log_reassignment_activity(
+    requested_data,
+    current_instance,
+    issue_id,
+    project_id,
+    workspace_id,
+    actor_id,
+    issue_activities,
+    epoch,
+):
+    """Phase 7's acceptance criterion 6: an author change is recorded in the trail.
+
+    Section 4 of the phase brief asks for four facts -- the previous author, the new
+    author, who made the change and when. ``old_value`` / ``new_value`` carry the two
+    names for a human reading the feed, ``old_identifier`` / ``new_identifier`` carry the
+    two user ids for anything querying it, ``actor_id`` is who did it and ``epoch`` is
+    when.
+
+    **Its own activity type and its own ``field``, not a variant of
+    ``service_log.activity.updated``.** The two answer different questions: an update
+    changed what the client is charged, a reassignment changed who is credited with the
+    work and charges nothing differently. Folding them together would make "did anybody
+    re-attribute this hour" require diffing every recorded payload, which is precisely
+    the "trilha completa" R8 asks to be readable directly.
+
+    Names, never money: this feed is readable by every Member of the project, so the
+    payload comes from ``_reassignment_payload``, which carries two names and two ids and
+    nothing else. See ``_activity_payload`` for the leak this shape avoids.
+    """
+    requested_data = json.loads(requested_data) if requested_data is not None else None
+
+    if not requested_data:
+        return
+
+    issue_activities.append(
+        IssueActivity(
+            issue_id=issue_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            comment="reassigned the author of a work log",
+            verb="updated",
+            actor_id=actor_id,
+            field="service_log_author",
+            old_value=requested_data.get("previous_author_name") or "",
+            old_identifier=requested_data.get("previous_author_id"),
+            new_value=requested_data.get("new_author_name") or "",
+            new_identifier=requested_data.get("new_author_id"),
+            epoch=epoch,
+        )
+    )
+
+
+def create_service_log_delegation_activity(
+    requested_data,
+    current_instance,
+    issue_id,
+    project_id,
+    workspace_id,
+    actor_id,
+    issue_activities,
+    epoch,
+):
+    """Records that a work log was entered on somebody else's behalf. Rule R8.
+
+    R8 makes "autor" and "criador" two separate facts, and Phase 7 is where they can
+    finally differ. The creation entry alone does not state that they did: a reader would
+    have to compare the log's author against the activity's actor and know to look.
+
+    Emitted only when the two actually differ, so logging for oneself adds nothing to the
+    feed. ``old_value`` is the author the work is credited to and ``new_value`` the person
+    who typed it, mirroring how section 3 of the brief wants it displayed -- "João,
+    registrado por Maria".
+    """
+    requested_data = json.loads(requested_data) if requested_data is not None else None
+
+    if not requested_data:
+        return
+
+    issue_activities.append(
+        IssueActivity(
+            issue_id=issue_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            comment="logged work on behalf of another member",
+            verb="created",
+            actor_id=actor_id,
+            field="service_log_delegation",
+            old_value=requested_data.get("author_name") or "",
+            old_identifier=requested_data.get("author_id"),
+            new_value=requested_data.get("created_by_name") or "",
+            new_identifier=requested_data.get("created_by_id"),
+            epoch=epoch,
+        )
+    )
+
+
 def create_service_log_override_activity(
     requested_data,
     current_instance,
@@ -1755,6 +1851,11 @@ def issue_activity(
             "service_log.activity.updated": update_service_log_activity,
             "service_log.activity.deleted": delete_service_log_activity,
             "service_log.activity.overridden": create_service_log_override_activity,
+            # Phase 7. Registered here alongside the generators for the reason the
+            # comment above gives: an unregistered type is looked up, found missing, and
+            # records nothing -- an audit trail that silently does not exist.
+            "service_log.activity.reassigned": create_service_log_reassignment_activity,
+            "service_log.activity.delegated": create_service_log_delegation_activity,
             "issue_relation.activity.created": create_issue_relation_activity,
             "issue_relation.activity.deleted": delete_issue_relation_activity,
             "issue_reaction.activity.created": create_issue_reaction_activity,

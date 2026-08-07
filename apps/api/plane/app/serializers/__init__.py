@@ -77,6 +77,10 @@ from .service_pricing import (
     ServiceLogExportHistorySerializer,
     ServiceLogExportRequestSerializer,
 )
+from .service_member_permission import (
+    ServiceMemberPermissionSerializer,
+    ServiceMemberPermissionWriteSerializer,
+)
 from .service_log import (
     ServiceLogClientSerializer,
     ServiceLogSerializer,

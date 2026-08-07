@@ -51,12 +51,12 @@ from plane.utils.service_log import (
     replace_service_log_batch,
     resolve_segment_hour_type,
     service_client_change_alert,
-    validate_author_can_change,
     validate_service_client_change,
     validate_time_tracking_enabled,
     validate_worked_on,
     workspace_today,
 )
+from plane.utils.service_permission import ServiceLogCapabilities, validate_can_change
 
 pytestmark = pytest.mark.unit
 
@@ -1033,15 +1033,22 @@ class TestValidation:
         log = ServiceLogFactory(
             issue=issue, author=author, billing_type=contract_billing, hour_type=commercial_hours
         )
-        validate_author_can_change(log, author)
+        validate_can_change(log, ServiceLogCapabilities(user_id=author.id, is_member=True))
 
     def test_another_user_may_not(self, issue, author, contract_billing, commercial_hours):
-        """Section 6: "por ora, apenas o autor". Real permissions arrive in Phase 7."""
+        """Not the author and holding no grant.
+
+        Phase 3's rule was "apenas o autor" with permissions deferred to Phase 7. **Phase 7
+        arrived**, and the rule is now "the author, or a holder of ``can_manage_others``" --
+        so this asserts the case where neither applies. The grant side is covered in
+        ``test_service_permission.py``; the error code did not change, because its meaning
+        only widened.
+        """
         log = ServiceLogFactory(
             issue=issue, author=author, billing_type=contract_billing, hour_type=commercial_hours
         )
         with pytest.raises(ServiceLogValidationError) as excinfo:
-            validate_author_can_change(log, UserFactory())
+            validate_can_change(log, ServiceLogCapabilities(user_id=UserFactory().id, is_member=True))
         assert excinfo.value.code == ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG
 
 

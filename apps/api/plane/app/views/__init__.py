@@ -106,6 +106,10 @@ from .service_issue_allowance.base import (
     ServiceIssueAllowanceOverageRateEndpoint,
 )
 from .service_log.base import ServiceLogViewSet
+from .service_member_permission.base import (
+    ServiceMemberPermissionEndpoint,
+    ServiceMemberPermissionMeEndpoint,
+)
 from .service_pricing.base import (
     ServiceBillingConsolidationEndpoint,
     ServiceClientHourTypeRateViewSet,

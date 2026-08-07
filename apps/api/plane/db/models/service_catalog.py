@@ -45,6 +45,12 @@ class ServiceConfigEntity:
     CLIENT_PRICE = "service_client_price"
     CLIENT_HOUR_TYPE_RATE = "service_client_hour_type_rate"
     ISSUE_ALLOWANCE = "service_issue_allowance"
+    # The permissions phase. Audits the grant and revocation of the three elevated work
+    # log capabilities. It is the one audited entity here that is not itself a number in
+    # a calculation -- what it records is who was given the authority to CHANGE those
+    # numbers, which is the question "quem deu essa permissão, e quando?" that becomes
+    # first-order the moment a work log turns up wrongly edited. See decision D45.
+    MEMBER_PERMISSION = "service_member_permission"
 
 
 class ServiceCatalogBaseModel(ChangeTrackerMixin, WorkspaceBaseModel):
