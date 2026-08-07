@@ -15,7 +15,7 @@ is a silent widening of authority: it would hand out a slice of ``can_manage_oth
 anybody holding the reassignment grant, and nothing about the response would say so.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 

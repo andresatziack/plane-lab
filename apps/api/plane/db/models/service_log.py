@@ -205,9 +205,15 @@ class ServiceLog(ProjectBaseModel):
     issue = models.ForeignKey("db.Issue", on_delete=models.CASCADE, related_name="service_logs")
 
     # Who did the work, which is not necessarily who typed it in -- rule R8 requires
-    # both, and Phase 7 adds delegation so a coordinator can log on a technician's
-    # behalf. The other half of the pair is `created_by`, inherited from
-    # UserAuditModel.
+    # both. Phase 7 delivered the delegation that makes the two differ, so a coordinator
+    # can log on a technician's behalf; the other half of the pair is `created_by`,
+    # inherited from UserAuditModel.
+    #
+    # **Authority over this row keys on THIS column, never on `created_by`** -- the record
+    # belongs to the person whose work it describes. That is also why
+    # `allow_permission(creator=True)` is not used on the work log routes: it keys on
+    # `created_by` and would hand a delegated log to whoever typed it. See
+    # `plane.utils.service_permission`.
     #
     # DO_NOTHING rather than the SET_NULL that `IssueActivity.actor` and `created_by`
     # use. This is a deliberate departure: those are traces, this is a billing

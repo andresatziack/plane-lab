@@ -332,9 +332,14 @@ class ServiceLogWriteSerializer(serializers.Serializer):
     hour_type_id = serializers.UUIDField(required=False, allow_null=True)
     billing_type_id = serializers.UUIDField()
 
-    # Delegation is Phase 7. Accepted here so the field exists at the boundary, but
-    # the view refuses any value other than the requesting user until that phase adds
-    # the permission that makes delegating legitimate.
+    # The declared author, which Phase 7 made genuinely usable: a caller holding
+    # ``can_delegate`` may name another technician, and ``created_by`` then records who
+    # actually typed it (R8's two facts).
+    #
+    # Validated in the view rather than here, because the answer depends on the caller's
+    # capabilities and on the target's workspace role -- neither of which a serializer field
+    # can see. On the **edit** route a change of author is refused outright: reassignment
+    # has its own route so that it writes no ledger row. See ``reassign_author``.
     author_id = serializers.UUIDField(required=False, allow_null=True)
 
     def validate(self, attrs):

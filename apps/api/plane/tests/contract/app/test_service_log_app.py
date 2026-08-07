@@ -537,9 +537,21 @@ class TestValidationRules:
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_delegating_to_another_author_is_refused_until_phase_seven(
+    def test_delegating_to_somebody_outside_the_workspace_is_refused(
         self, session_client, issue, commercial_hours, contract_billing
     ):
+        """**Phase 7 replaced what this test used to assert, and the reason changed with it.**
+
+        Until Phase 7 every ``author_id`` other than the caller was refused outright with
+        ``SERVICE_LOG_DELEGATION_NOT_AVAILABLE``, because no permission existed to authorise
+        one. Delegation now exists, so the caller here -- a workspace Admin, who holds all
+        three capabilities implicitly -- *may* delegate.
+
+        What still refuses this request is the **target**: ``other`` is not a member of the
+        workspace at all, so it cannot be credited with work. The full delegation matrix,
+        including the grant that authorises a non-Admin, lives in
+        ``test_service_log_permissions_app.py``.
+        """
         other = User.objects.create(email="other@plane.so", username="other")
 
         response = session_client.post(
@@ -548,8 +560,9 @@ class TestValidationRules:
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "SERVICE_LOG_DELEGATION_NOT_AVAILABLE"
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data["error"] == "SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN"
+        assert ServiceLog.objects.filter(issue=issue).exists() is False
 
 
 @pytest.mark.contract
@@ -611,15 +624,29 @@ class TestBatchEditingAndDeletion:
 
         assert ServiceLog.objects.filter(issue=issue).count() == 1
 
-    def test_only_the_author_may_edit(
+    def test_another_technician_may_not_edit(
         self, session_client, issue, project, workspace, commercial_hours, contract_billing
     ):
-        """Section 6: "por ora, apenas o autor". Real permissions arrive in Phase 7."""
+        """Another technician, holding no grant, cannot edit somebody else's log.
+
+        **The intruder is a MEMBER, and in Phase 7 that is load-bearing rather than
+        incidental.** This test used to create them at ``role=20`` -- a workspace Admin --
+        because in Phase 3 only authorship was checked and the role merely had to clear the
+        permission decorator. Phase 7 made the role decide: an Admin legitimately holds
+        ``can_manage_others`` and *would* succeed here, which is acceptance criterion 3, so
+        leaving the role at 20 would have turned this into a test asserting the opposite of
+        its own name.
+
+        Corrected to 15, which is what "another technician" always meant. The Admin's
+        ability to edit anybody's log is asserted deliberately in
+        ``test_service_log_permissions_app.py``, alongside the grant that gives a non-Admin
+        the same reach.
+        """
         batch_id = self._create(session_client, issue, commercial_hours, contract_billing)
 
         intruder = User.objects.create(email="intruder@plane.so", username="intruder")
-        WorkspaceMember.objects.create(workspace=workspace, member=intruder, role=20)
-        ProjectMember.objects.create(project=project, member=intruder, role=20, is_active=True)
+        WorkspaceMember.objects.create(workspace=workspace, member=intruder, role=15)
+        ProjectMember.objects.create(project=project, member=intruder, role=15, is_active=True)
         intruder_client = APIClient()
         intruder_client.force_authenticate(user=intruder)
 
@@ -632,14 +659,15 @@ class TestBatchEditingAndDeletion:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.data["error"] == "ONLY_THE_AUTHOR_CAN_CHANGE_A_SERVICE_LOG"
 
-    def test_only_the_author_may_delete(
+    def test_another_technician_may_not_delete(
         self, session_client, issue, project, workspace, commercial_hours, contract_billing
     ):
+        """Same correction as the edit case above: MEMBER, not ADMIN. See its docstring."""
         batch_id = self._create(session_client, issue, commercial_hours, contract_billing)
 
         intruder = User.objects.create(email="intruder2@plane.so", username="intruder2")
-        WorkspaceMember.objects.create(workspace=workspace, member=intruder, role=20)
-        ProjectMember.objects.create(project=project, member=intruder, role=20, is_active=True)
+        WorkspaceMember.objects.create(workspace=workspace, member=intruder, role=15)
+        ProjectMember.objects.create(project=project, member=intruder, role=15, is_active=True)
         intruder_client = APIClient()
         intruder_client.force_authenticate(user=intruder)
 

@@ -89,8 +89,14 @@ class ServiceLogViewSet(BaseViewSet):
     ``ServiceLogClientSerializer`` is already written to that allowlist.
 
     Reads are open to project admins and members. Writes additionally require the
-    project to have switched the feature on, and editing or deleting is restricted to
-    the log's author until Phase 7 brings real permissions.
+    project to have switched the feature on.
+
+    **Authority over an existing log is Phase 7's** and resolves through
+    ``plane.utils.service_permission``: the author may edit and delete their own, a holder
+    of ``can_manage_others`` may edit anybody's, and a workspace ADMIN holds all three
+    capabilities implicitly. A CLOSED competency period narrows that to ADMIN alone, and no
+    grant opens it. Delegation and reassignment are separate capabilities again -- see
+    ``create`` and ``reassign_author``.
     """
 
     serializer_class = ServiceLogSerializer
