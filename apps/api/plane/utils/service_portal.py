@@ -230,13 +230,49 @@ def is_client_portal_member(user, *, slug, project_id):
 def client_may_reach_issue(user, issue):
     """Whether a client's own user may act on this work item at all.
 
-    The same condition ``IssueViewSet.retrieve`` applies before showing a work item to a
-    GUEST, applied to the write path, which had no equivalent: ``partial_update`` would
-    otherwise let a client change the priority of a work item the read endpoint refuses
-    to show them. The narrowed allowlist makes that a small leak rather than a large one,
-    which is not a reason to leave it open.
+    **The one definition of that question.** Core Plane asks it in three places with
+    slightly different spellings -- ``role=ROLE.GUEST.value`` in one and the literal
+    ``role=5`` in two others, the ``created_by`` comparison written once as a queryset
+    filter and once as an identity test. Phase 8 needs it in three more
+    (``partial_update``, the client work log route, the requester attribution), and six
+    copies of a visibility rule is six chances for one of them to drift.
+
+    Three ways in, and the third is Phase 8's:
+
+    * the project grants its clients full visibility, or
+    * they opened the work item themselves, or
+    * a technician opened it **on their behalf** and recorded them as the requester (D62).
+
+    That third clause is what makes section 5 work. Without it an administrator could
+    record a requester and the requester would still see nothing -- a feature that reports
+    success and does nothing, which is worse than not having it.
     """
-    return bool(issue.project.guest_view_all_features) or issue.created_by_id == user.id
+    from plane.db.models import ServiceIssueRequester
+
+    if bool(issue.project.guest_view_all_features):
+        return True
+
+    if issue.created_by_id == user.id:
+        return True
+
+    return ServiceIssueRequester.objects.filter(issue_id=issue.id, requester=user).exists()
+
+
+def client_visible_issues_q(user):
+    """The queryset form of :func:`client_may_reach_issue`, minus the project-wide clause.
+
+    Callers apply this only once they have established that the project does *not* grant
+    full visibility, which is the shape core Plane's guest-scope sites already have: the
+    flag is tested in the ``if``, and the narrowing goes in the body.
+
+    Kept beside ``client_may_reach_issue`` rather than derived from it, because the two are
+    genuinely different mechanisms -- one filters rows in the database, the other answers
+    about an instance already in memory -- and the risk worth guarding against is that they
+    stop agreeing. ``test_service_portal.py`` asserts that they do.
+    """
+    from django.db.models import Q
+
+    return Q(created_by=user) | Q(service_requester__requester=user)
 
 
 

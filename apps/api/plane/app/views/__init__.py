@@ -106,6 +106,7 @@ from .service_issue_allowance.base import (
     ServiceIssueAllowanceDismissAlertEndpoint,
     ServiceIssueAllowanceOverageRateEndpoint,
 )
+from .service_issue_requester.base import ServiceIssueRequesterEndpoint
 from .service_log.base import ServiceLogClientEndpoint, ServiceLogViewSet
 from .service_member_permission.base import (
     ServiceMemberPermissionEndpoint,

@@ -75,6 +75,7 @@ from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPagina
 from plane.utils.service_log import ServiceLogValidationError
 from plane.utils.service_portal import (
     client_may_reach_issue,
+    client_visible_issues_q,
     filter_issue_payload_for_client,
     is_client_portal_member,
     validate_client_state_transition,
@@ -101,7 +102,8 @@ class IssueListEndpoint(BaseAPIView):
         queryset = Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id, pk__in=issue_ids)
 
         # Restrict guests without full feature access to issues they created,
-        # mirroring IssueViewSet.list.
+        # mirroring IssueViewSet.list -- plus the ones a technician opened on their behalf
+        # and recorded them as the requester of. See `client_visible_issues_q`, D62.
         if ProjectMember.objects.filter(
             workspace__slug=slug,
             project_id=project_id,
@@ -110,7 +112,7 @@ class IssueListEndpoint(BaseAPIView):
             is_active=True,
             project__guest_view_all_features=False,
         ).exists():
-            queryset = queryset.filter(created_by=request.user)
+            queryset = queryset.filter(client_visible_issues_q(request.user))
 
         # Apply filtering from filterset
         queryset = self.filter_queryset(queryset)
@@ -327,8 +329,12 @@ class IssueViewSet(BaseViewSet):
             ).exists()
             and not project.guest_view_all_features
         ):
-            issue_queryset = issue_queryset.filter(created_by=request.user)
-            filtered_issue_queryset = filtered_issue_queryset.filter(created_by=request.user)
+            # ... plus the ones opened on their behalf, D62. `.distinct()` because the
+            # requester clause traverses a reverse relation and would otherwise be able to
+            # duplicate a row.
+            visible = client_visible_issues_q(request.user)
+            issue_queryset = issue_queryset.filter(visible).distinct()
+            filtered_issue_queryset = filtered_issue_queryset.filter(visible).distinct()
 
         if group_by:
             if sub_group_by:
@@ -618,8 +624,10 @@ class IssueViewSet(BaseViewSet):
                 role=5,
                 is_active=True,
             ).exists()
-            and not project.guest_view_all_features
-            and not issue.created_by == request.user
+            # `client_may_reach_issue` carries the `guest_view_all_features` test and the
+            # `created_by` test that used to be written out here, plus Phase 8's third way
+            # in: recorded as the requester (D62). One definition, six call sites.
+            and not client_may_reach_issue(request.user, issue)
         ):
             return Response(
                 {"error": "You are not allowed to view this issue"},

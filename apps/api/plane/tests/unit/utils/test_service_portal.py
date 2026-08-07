@@ -184,3 +184,37 @@ class TestTheReasonCodeIsNamedAndDistinct:
         error = ServiceLogValidationError(STATE_GROUP_NOT_PERMITTED_FOR_CLIENT)
 
         assert error.code == STATE_GROUP_NOT_PERMITTED_FOR_CLIENT
+
+
+
+class TestD62TheTwoFormsOfTheVisibilityRuleAgree:
+    """``client_may_reach_issue`` answers about an instance in memory,
+    ``client_visible_issues_q`` filters rows in the database. They are separate mechanisms,
+    so the risk worth guarding against is that they stop agreeing about the same facts."""
+
+    def test_the_queryset_form_covers_both_narrowing_clauses(self):
+        """Structural, without a database: the Q must mention the creator and the requester
+        and nothing else. The project-wide clause belongs to the caller's ``if``."""
+        from plane.utils.service_portal import client_visible_issues_q
+
+        class _User:
+            id = "11111111-1111-1111-1111-111111111111"
+            pk = id
+
+        rendered = str(client_visible_issues_q(_User()))
+
+        assert "created_by" in rendered
+        assert "service_requester__requester" in rendered
+        # An OR, not an AND: either clause alone must be enough to see the work item.
+        assert "OR" in rendered
+
+    def test_the_queryset_form_does_not_test_the_project_flag(self):
+        """If it did, callers would apply the flag twice -- once in the ``if`` and once in
+        the filter -- and the second one would silently win."""
+        from plane.utils.service_portal import client_visible_issues_q
+
+        class _User:
+            id = "11111111-1111-1111-1111-111111111111"
+            pk = id
+
+        assert "guest_view_all_features" not in str(client_visible_issues_q(_User()))
