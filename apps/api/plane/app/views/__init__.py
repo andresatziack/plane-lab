@@ -103,12 +103,20 @@ from .service_issue_allowance.base import (
     IssueServiceAllowanceEndpoint,
     ServiceIssueAllowanceAlertPanelEndpoint,
     ServiceIssueAllowanceCloseEndpoint,
+    ServiceIssueAllowanceDismissAlertEndpoint,
     ServiceIssueAllowanceOverageRateEndpoint,
 )
 from .service_log.base import ServiceLogViewSet
 from .service_member_permission.base import (
     ServiceMemberPermissionEndpoint,
     ServiceMemberPermissionMeEndpoint,
+)
+from .service_reports.base import (
+    ServiceAttentionReportEndpoint,
+    ServiceBillingReportEndpoint,
+    ServiceConsumptionReportEndpoint,
+    ServiceOperationalReportEndpoint,
+    ServiceReportLogsEndpoint,
 )
 from .service_pricing.base import (
     ServiceBillingConsolidationEndpoint,

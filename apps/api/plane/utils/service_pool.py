@@ -825,27 +825,53 @@ def period_parcels(period):
     not by ``created_at``: a backdated carry-in must sort by where the hours came from,
     not by when the row happened to be written.
     """
+    return period_parcels_bulk([period])[period.pk]
+
+
+def period_parcels_bulk(periods):
+    """``period_parcels`` for several periods in **one** query. Phase 9.
+
+    ``{period_id: [(origin_period, hours)]}``, every requested period present even when it
+    has no parcels, so a caller never has to distinguish "no entry" from "not asked".
+
+    Added because ``contract_balance_statement`` walked a contract's periods calling
+    ``period_parcels`` on each: a 36-month contract cost 37 queries, and the statement is
+    the spine of Phase 9's contract dashboard. ``period_parcels`` now delegates here with a
+    list of one, so the grouping rule -- several rows may share an origin, per decision B1's
+    grant correction -- exists once rather than in a fast path and a slow path that can
+    drift.
+    """
+    by_id = {period.pk: period for period in periods}
+
+    if not by_id:
+        return {}
+
     entries = (
         ServiceHourLedgerEntry.objects.filter(
-            period_id=period.pk,
+            period_id__in=list(by_id),
             entry_type__in=[ServiceLedgerEntryType.GRANT, ServiceLedgerEntryType.CARRY_IN],
         )
         .select_related("origin_period")
         .order_by("origin_period__competence_year", "origin_period__competence_month", "created_at")
     )
 
-    parcels = {}
+    parcels = {period_id: {} for period_id in by_id}
 
     for entry in entries:
+        period = by_id[entry.period_id]
         origin = entry.origin_period or period
         # Several rows can share an origin: a `GRANT` correction under decision B1 adds
         # a second grant row for the same month.
-        parcels[origin.pk] = (origin, parcels.get(origin.pk, (origin, ZERO_HOURS))[1] + entry.hours)
+        bucket = parcels[entry.period_id]
+        bucket[origin.pk] = (origin, bucket.get(origin.pk, (origin, ZERO_HOURS))[1] + entry.hours)
 
-    return sorted(parcels.values(), key=lambda parcel: parcel[0].competence_index)
+    return {
+        period_id: sorted(found.values(), key=lambda parcel: parcel[0].competence_index)
+        for period_id, found in parcels.items()
+    }
 
 
-def remaining_parcels(period):
+def remaining_parcels(period, parcels=None):
     """What is left of each parcel after consumption, oldest first. Decision D6.
 
     **FIFO: consumption eats the oldest parcel first.** The brief never states this, and
@@ -863,8 +889,14 @@ def remaining_parcels(period):
     A negative parcel is a carried deficit. It is not something consumption can eat, so
     it is folded into the amount to be absorbed by the positive parcels: an obligation
     reduces the pool exactly as consumption does.
+
+    ``parcels`` may be supplied by a caller that already read them in bulk. The FIFO
+    allocation itself stays here either way -- ``contract_balance_statement`` passes them in
+    to avoid one query per period, and passing the *logic* around instead would be how a
+    dashboard and a close come to disagree about which hours were spent.
     """
-    parcels = period_parcels(period)
+    if parcels is None:
+        parcels = period_parcels(period)
 
     outstanding = _quantize(period.consumed_hours) + sum(
         (-hours for _origin, hours in parcels if hours < 0), ZERO_HOURS
@@ -1727,12 +1759,20 @@ def contract_balance_statement(contract):
     Section 7 asks for the accumulated balance "com a competência de origem de cada
     parcela", which is the part a scalar total cannot answer and the reason the parcels
     are reconstructed here rather than summed.
+
+    **Two queries regardless of how many periods the contract has.** This used to be one
+    per period, which was invisible while the only caller was a single contract's detail
+    page and became the spine of Phase 9's dashboard: a 36-month contract cost 37 round
+    trips. ``period_parcels_bulk`` reads them all at once and the FIFO allocation is applied
+    per period from memory.
     """
     periods = list(
         ServiceContractPeriod.objects.filter(contract_id=contract.pk).order_by(
             "competence_year", "competence_month"
         )
     )
+
+    parcels_by_period = period_parcels_bulk(periods)
 
     return [
         {
@@ -1749,7 +1789,9 @@ def contract_balance_statement(contract):
             "overage_settlement": period.overage_settlement,
             "parcels": [
                 {"origin_competence": origin.competence_label, "hours": str(_quantize(hours))}
-                for origin, hours in remaining_parcels(period)
+                for origin, hours in remaining_parcels(
+                    period, parcels=parcels_by_period.get(period.pk, [])
+                )
             ],
         }
         for period in periods

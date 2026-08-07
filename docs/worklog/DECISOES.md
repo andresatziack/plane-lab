@@ -524,7 +524,6 @@ Para a falha ser acionável, a migração 0129 roda um `RunPython` **antes** dos
 que conta as linhas violadoras e levanta erro **nomeando os IDs**. Validado à mão: com uma
 linha corrompida de propósito, a migração para e diz qual.
 
-
 ---
 
 # As cláusulas contratuais: a dívida de processo, paga
@@ -577,11 +576,11 @@ Confirma o default assumido pela Fase 4. Nenhuma mudança.
 Três situações distintas têm a mesma resposta comercial, e por isso passam a ter
 **um mecanismo único**:
 
-| Situação | Antes | Agora |
-|---|---|---|
-| Cliente **sem contrato** nenhum | não bloqueia (D27), destino do dinheiro indefinido | **fatura avulso** |
-| Contrato **suspenso** | apenas um código de alerta distinto (decisão B4) | continua aceitando apontamento, **com alerta**, e o tempo **vira avulso** |
-| Contrato **vencido** e não renovado | permitido e sinalizado (D9), destino indefinido | **fatura avulso** |
+| Situação                            | Antes                                              | Agora                                                                     |
+| ----------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------- |
+| Cliente **sem contrato** nenhum     | não bloqueia (D27), destino do dinheiro indefinido | **fatura avulso**                                                         |
+| Contrato **suspenso**               | apenas um código de alerta distinto (decisão B4)   | continua aceitando apontamento, **com alerta**, e o tempo **vira avulso** |
+| Contrato **vencido** e não renovado | permitido e sinalizado (D9), destino indefinido    | **fatura avulso**                                                         |
 
 A exceção única é o contrato com **vigência futura**, que debita o primeiro
 período (D31). Ou seja: contrato que ainda vai começar debita; contrato que
@@ -653,6 +652,54 @@ com o ciclo do suporte.
 periódica de expiração de bolsa ali é invasão de escopo. Fica registrado como
 dívida nomeada, a ser feita em fase própria ou junto da Fase 9.
 
+### Revisão da D35, feita na Fase 9 — a varredura automática deixa de ser desejada
+
+A consequência 2 acima **foi recusada**, e não por escopo. A Fase 9 ia implementá-la
+e o desenho foi vetado por um motivo que nem a D35 nem a proposta da Fase 9 tinham
+levantado:
+
+> **Fechar uma bolsa com saldo POSITIVO destrói horas que o cliente pagou.** Se ele
+> comprou 40h e usou 30h, a varredura baixa 10h de crédito dele num timer, sem
+> ninguém decidir. No dia em que ele disser "eu ainda tenho 10h lá", a resposta é
+> que o sistema apagou automaticamente.
+
+E há um argumento de propósito que fecha a questão: **a carência de 30 dias existe
+para permitir negociação.** Fechar automaticamente no dia 31 remove exatamente a
+decisão que a carência foi criada para possibilitar.
+
+O que muda, então:
+
+|                           | Desenho original                          | O que a Fase 9 fez                                                |
+| ------------------------- | ----------------------------------------- | ----------------------------------------------------------------- |
+| Gatilho                   | tarefa periódica varre e fecha            | alerta `ALLOWANCE_PENDING_CLOSURE` no painel da §3b               |
+| Quem baixa o saldo        | o timer                                   | um humano, pelo endpoint de encerramento que a Fase 5 já entregou |
+| Bolsa vencida na §1       | continuaria em "bolsas ativas"            | sai das ativas e entra em `pending_closure`                       |
+| Escritores do livro-caixa | ganharia o primeiro escritor não atendido | nenhum. A Fase 9 é read-only                                      |
+
+**A cláusula continua valendo**: o saldo _é_ perdido após 30 dias. O que muda é que
+o sistema **informa e um humano confirma**, em vez de o timer executar.
+
+Duas coisas que caíram de graça e uma limitação nomeada:
+
+- **"Reabrir cancela a contagem" não precisou de código.**
+  `Issue._sync_completed_at` zera `completed_at` em qualquer saída do grupo
+  `completed`, então um chamado reaberto para de casar com o alerta sozinho. Fixado
+  por `test_reopening_the_work_item_cancels_the_countdown`, que passa por uma
+  troca de estado de verdade e não por `update()`.
+- **O painel não apodrece.** Sem isto nenhuma bolsa jamais sai de `OPEN`, e a §1 e
+  a §3b iriam acumulando bolsas de chamados fechados há meses até deixarem de ser
+  lidas — que é a falha que a §3b existe para evitar. A Fase 9 é o primeiro
+  consumidor que torna a ausência visível.
+- **Limitação nomeada: chamado CANCELADO não fica pendente.** O Plane só marca
+  `completed_at` para o grupo `completed`, então a bolsa de um chamado cancelado
+  nunca vence por esta regra. Tratar cancelamento como fechamento para fins de
+  faturamento é decisão comercial que a D35 não toma, e inventar uma segunda
+  definição de "fechado" dentro da camada de relatórios é a divergência que a D48
+  existe para evitar. Fixado por teste de caracterização, para que mudar isso seja
+  deliberado.
+
+A varredura automática **não é mais dívida pendente**. Ela deixou de ser desejada.
+
 ## D36 — Excedente de bolsa é uma origem de receita própria
 
 O consolidado mensal da §5 da Fase 6 pedia três origens separadas. Passam a ser
@@ -685,15 +732,14 @@ implementada na Fase 5:
 
 ## Resumo do que muda no código
 
-| Decisão | Muda código? | Onde |
-|---|---|---|
-| D31 | **Sim** | resolução de competência: não materializar período fora da vigência; data anterior debita o primeiro período |
-| D32 | Não | confirma o default |
-| D33 | **Sim** | fallback para avulso nos três casos, com motivo persistido e distinção entre rota escolhida e aplicada — Fase 6 |
-| D34 | Não, é cadastro | `accrual_cap_mode = NONE`, `carryover_months = NULL`. Requisito: garantir que o alerta de saldo acumulado alto exista |
-| D35 | **Sim, fora da Fase 6** | carência de 30 dias e tarefa periódica de baixa — dívida nomeada |
-| D36 | **Sim** | quarta origem no consolidado — Fase 6 |
-
+| Decisão | Muda código?            | Onde                                                                                                                  |
+| ------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| D31     | **Sim**                 | resolução de competência: não materializar período fora da vigência; data anterior debita o primeiro período          |
+| D32     | Não                     | confirma o default                                                                                                    |
+| D33     | **Sim**                 | fallback para avulso nos três casos, com motivo persistido e distinção entre rota escolhida e aplicada — Fase 6       |
+| D34     | Não, é cadastro         | `accrual_cap_mode = NONE`, `carryover_months = NULL`. Requisito: garantir que o alerta de saldo acumulado alto exista |
+| D35     | **Sim, fora da Fase 6** | carência de 30 dias e tarefa periódica de baixa — dívida nomeada                                                      |
+| D36     | **Sim**                 | quarta origem no consolidado — Fase 6                                                                                 |
 
 ---
 
@@ -736,7 +782,7 @@ um Tipo de Hora é uma linha **filha dela** (`ServiceClientHourTypeRate`).
 O override pendurado no Cliente sobreviveria intacto a um reajuste e, sendo valor
 absoluto, **deixaria de ser reajustado em silêncio**: a base vai de R$ 200 para R$ 220 e
 o valor de domingo fica no número do ano passado para sempre. Também não haveria como
-*remover* um override num reajuste, nem tê-lo em 2026 e não em 2027.
+_remover_ um override num reajuste, nem tê-lo em 2026 e não em 2027.
 
 Sendo filha da folha, **cada vigência é uma folha de preço completa e autossuficiente**:
 base mais suas exceções. Reajustar é copiar para frente e editar. Ler um preço é uma
@@ -902,11 +948,11 @@ passa batida. Ruído em painel financeiro custa a credibilidade do painel.
 
 Os códigos de motivo separam **três coisas** que colapsariam numa:
 
-| Classe | Códigos | Alguém precisa agir? |
-|---|---|---|
-| Pendência **comercial** | `route_deviation_reason` — contrato ausente, suspenso, encerrado, vencido | Sim, com prazo. É receita |
-| Pendência de **cadastro** | `NO_PRICE_SHEET_FOR_CLIENT`, `NO_PRICE_SHEET_IN_FORCE` | Sim. **Não** é receita ainda |
-| Trabalho **interno** | `INTERNAL_PROJECT_NO_CLIENT` | **Não.** Fora da receita |
+| Classe                    | Códigos                                                                   | Alguém precisa agir?         |
+| ------------------------- | ------------------------------------------------------------------------- | ---------------------------- |
+| Pendência **comercial**   | `route_deviation_reason` — contrato ausente, suspenso, encerrado, vencido | Sim, com prazo. É receita    |
+| Pendência de **cadastro** | `NO_PRICE_SHEET_FOR_CLIENT`, `NO_PRICE_SHEET_IN_FORCE`                    | Sim. **Não** é receita ainda |
+| Trabalho **interno**      | `INTERNAL_PROJECT_NO_CLIENT`                                              | **Não.** Fora da receita     |
 
 Expostas em `PRICING_PENDENCY_FAILURES` e `INTERNAL_WORK_FAILURES`, no nível do módulo,
 para que as constraints e o consolidado não possam divergir sobre quais são quais.
@@ -936,7 +982,7 @@ concorrente atravessa.
 
 **1. Um apontamento debita um pool OU é faturado em R$. Nunca os dois.**
 `service_log_billed_debits_no_pool` e `service_log_pool_route_carries_no_amount`. É o
-análogo monetário do que a D29 conseguiu para horas: cobrar em reais *e* consumir as horas
+análogo monetário do que a D29 conseguiu para horas: cobrar em reais _e_ consumir as horas
 contratadas pelo mesmo apontamento passa a ser recusado pelo banco. Espelha
 `service_log_debits_at_most_one_origin`, que já existia.
 
@@ -1118,3 +1164,329 @@ contrato de API — mudar com cliente em produção quebra consumidor.
 | D46 | **Sim** | `validate_closed_period_access` sem exceção para reatribuição; remediação no `PERIOD_IS_CLOSED` |
 | D47 | **Sim** | `PERMISSION_DENIED_CODES` não inclui `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN` |
 | D42 | **Reescrita** | de tarefa ("construir reabertura") para pergunta ("reabrir ou lançar ajuste?") |
+
+
+---
+
+# Decisões da Fase 9 — dashboards de consumo e relatórios de faturamento
+
+Dez decisões, **D48 a D57**, e duas delas corrigem fases anteriores em vez de
+acrescentar coisa nova: a **D54** fecha a dívida que a Fase 5 nomeou, e a **D57**
+conserta uma classificação da Fase 6 que já estava em contradição com o que estava no ar.
+
+> **Nota de numeração.** A proposta desta fase começava em D47, porque a coordenação
+> dizia que a Fase 7 estava usando D45 e D46. A Fase 7 acabou precisando de uma terceira
+> e tomou a D47, então este bloco foi deslocado no rebase. Os commits desta branch
+> anteriores ao rebase citam a numeração antiga — o código e os documentos estão na
+> nova, que é a que vale.
+
+## D48 — Consumo de contrato agrega por `debited_period`, nunca por `TruncMonth(worked_on)`
+
+Existem **duas** noções de "que mês é este" neste domínio, e escolher a errada quebra
+o critério 7 em silêncio:
+
+| Grandeza              | Competência vem de             | Por quê                                              |
+| --------------------- | ------------------------------ | ---------------------------------------------------- |
+| Consumo de contrato   | `debited_period`               | o período **é** a competência, já com o clamp da D31 |
+| Receita avulsa        | `worked_on`                    | R7; não existe período                               |
+| Excedente de contrato | competência do **período**     | Fase 6                                               |
+| Excedente de bolsa    | mês do **fechamento** da bolsa | Fase 6                                               |
+
+A D31 faz um apontamento anterior ao início da vigência debitar o **primeiro**
+período. Logo o mês de `worked_on` dele **não tem período nenhum**. Agrupar consumo
+de contrato pela data de atendimento jogaria essas horas num mês que o contrato nunca
+teve — exatamente o caso que a D31 criou.
+
+Por isso `competence_basis` é **campo do descritor** e não argumento solto de cada
+query: um bucket não pode ser construído sem que alguém tenha escolhido, e a escolha
+viaja com o bucket até o drill-down, onde tem de bater ou os números divergem. O
+endpoint de consumo troca o basis **sozinho** quando devolve o shape de contrato, para
+que um frontend não possa errar mandando o parâmetro errado.
+
+Fixado por `test_the_period_basis_finds_nothing_in_february` e
+`test_contract_consumption_puts_the_retroactive_hours_in_march`. Sabotagem verificada:
+agrupar sempre por `worked_on` quebra **5** testes.
+
+## D49 — A regra de origem tem um enunciado e um caminho rápido, reconciliados por diferencial exaustivo
+
+A Fase 9 precisa da classificação de origem em SQL, para agregar séries no banco em
+vez de iterar apontamentos. Isso significa **duas implementações de uma regra que
+decide dinheiro** — normalmente indefensável, e é o "quatro relatórios, quatro regras"
+que o `revenue_origin_of` foi escrito para evitar.
+
+É defensável aqui por um motivo que precisou ser **verificado, não presumido**: o
+espaço de entrada é finito e pequeno.
+
+- `settled_billing_route` — 3 valores
+- `route_deviation_reason` — `None` + 4
+- `pricing_failure_reason` — `None` + 3
+- projeto tem cliente — 2
+- esse cliente tem contrato cobrindo a competência — 2
+
+As check constraints do `ServiceLog` então cortam o produto: desvio e falha de preço
+só existem com `settled=bill_amount`, e `(sem cliente, com contrato)` é impossível.
+Sobram **66 combinações representáveis** — não 80, que era a estimativa da proposta.
+O teste enumera **todas as 66**, constrói cada linha, e afirma que as duas
+implementações concordam. **E afirma a contagem**, para que um valor novo em
+`ServiceRouteDeviation` fique vermelho por aritmética, não por sorte.
+
+O teste também afirma que a sua própria leitura das constraints (`is_representable`)
+casa com o que o banco aceita de fato — então uma constraint que alguém afrouxar
+aparece como teste vermelho em vez de alargar em silêncio o espaço que o diferencial
+cobre.
+
+Sabotagem verificada: inverter a precedência da D33 no `Case/When` — checar o contrato
+antes do desvio — quebra 3 testes, incluindo o diferencial. É uma inversão que um
+conjunto de exemplos escritos à mão dificilmente cobriria.
+
+Consequência de refatoração: `report_bucket_from` passou a aceitar **escalares** em vez
+de um `ServiceLog`, porque a série classifica linhas **agrupadas** e não instâncias. E
+`_origin_from` é agora a única declaração da metade standalone-vs-out-of-scope, usada
+por `revenue_origin_of` **e** por `report_bucket_from`.
+
+## D50 — Um descritor de filtro alimenta o agregado, o drill-down e a exportação
+
+A §4 pede filtros globais, a §8 pede que todo total seja clicável até a lista, e o
+critério 1 pede que o gráfico bata com a soma. Escritos como três features, são três
+chances de divergir. Escritos como **um objeto**, são zero — porque o número e a lista
+são literalmente a mesma query.
+
+`ServiceLogFilterSet` é `frozen`, e isso não é estilo: um descritor é o **registro do
+que já foi somado**, e um que pudesse ser editado entre produzir o número e produzir a
+lista é a divergência que ele existe para impedir.
+
+Três consequências que valem registro:
+
+- **`workspace_id` é argumento, nunca campo.** Um descritor viaja até o browser e
+  volta; um workspace que chegasse por query param seria fronteira de tenancy decidida
+  pelo chamador.
+- **`narrow(debited_period_ids=...)` limpa a janela de competência** e troca o basis.
+  Sem isso, o drill-down de um bucket de período excluiria os apontamentos retroativos
+  que o agregado contou, e a lista viria com menos horas que o número acima dela.
+  Fixado pelo par `test_narrowing_to_a_period...` +
+  `test_the_unnarrowed_window_would_have_missed_it`.
+- **O tri-state de "não faturável" da §4 é expresso via `settled_routes`**, não como
+  flag própria. Uma flag separada poderia contradizer o campo de rotas sem forma de
+  resolver quem ganha.
+
+O teste que essa estrutura habilita é uma **property test**, não um punhado de
+asserções: percorrer todo bucket de todo payload, replicar o descritor e afirmar que a
+soma direta é igual ao bucket. Um bucket novo entra coberto por construção.
+
+**Ela achou dois bugs que a revisão não achou** — ver a seção no fim.
+
+## D51 — A barreira da R11 fica na fronteira de agregação, e não computa em vez de remover
+
+A R11(b) diz que a restrição é trabalho do serializer. Num agregado não há serializer,
+há um `dict`. Então a barreira desce um nível: um `ReportViewer` que não vê dinheiro
+significa que o dinheiro **nunca é computado**, não computado e depois removido.
+
+A Fase 6 já pagou por essa diferença: o payload serializado do Admin alimentava
+`IssueActivity` e vazava o valor para qualquer Member do project. Um dict que passou
+por uma etapa de remoção é indistinguível de um que nunca teve a chave — até alguém
+logar.
+
+**Três projeções, não um booleano**, porque duas das três audiências diferem nas
+colunas de **hora** e não no dinheiro:
+
+| Papel  | Vê                                                                        |
+| ------ | ------------------------------------------------------------------------- |
+| ADMIN  | tudo, dinheiro incluído                                                   |
+| MEMBER | as três quantidades de hora, sem dinheiro; **com** estado comercial (D57) |
+| GUEST  | `equivalent_hours` e `debited_hours` só. Nunca `logged_hours`             |
+
+O GUEST nunca recebe `logged_hours` porque **a diferença entre apontadas e
+equivalentes é o multiplicador**, e a R11(c) avisa que mostrar isso com o rótulo errado
+transforma uma regra contratual em acusação de hora inflada.
+
+A defesa acabou tendo **duas camadas** — a agregação não computa, e `bucket()` também
+recusa — e a verificação por sabotagem mostrou que cada camada tem teste próprio:
+remover só a segunda quebra 1 teste, remover as duas quebra 3.
+
+## D52 — Sem visão materializada e sem tabela de agregados, com gatilho nomeado
+
+Na ordem de grandeza deste produto — ~5.000 linhas de apontamento por mês, ~300.000 em
+cinco anos — uma janela de 36 competências é um range scan de ~10⁵ linhas em índices
+que **já existem** (`svc_log_ws_settled_worked_idx`, `service_log_ws_worked_idx`,
+`svc_ledger_period_type_idx`). Dezenas de milissegundos.
+
+Um agregado materializado compraria isso e cobraria três coisas:
+
+1. **Um segundo lugar onde o dinheiro existe.** A D23 diz que o livro-caixa é o único
+   lugar onde saldo se move; um agregado de receita persistido é a mesma classe de erro
+   no eixo do R$.
+2. **Um caminho de invalidação com quatro portas.** `ServiceLog.delete()` existe porque
+   um apontamento é excluído por quatro caminhos. A porta esquecida é uma fatura errada
+   silenciosa.
+3. **Defasagem no único relatório que é lido _antes_ de emitir a nota.**
+
+**Gatilho para revisitar, nomeado para não virar "otimizamos quando doer":** 500.000
+linhas numa única competência, ou p95 acima de 500 ms com `EXPLAIN ANALYZE` mostrando
+scan sequencial.
+
+**Zero índices novos.** E a afirmação de performance é medida, não declarada:
+`TestThePerformanceClaimIsMeasuredNotAsserted` usa `django_assert_num_queries` e fixa
+que uma série custa **1 query** e o consolidado de receita **4**, independente de
+quantos meses forem pedidos.
+
+## D53 — Médias são figura de apresentação, quantizadas uma vez, e nunca realimentam total
+
+Um total de dinheiro dividido por uma contagem não é representável em duas decimais.
+`average_amount_per_issue` é quantizado **uma vez**, com `ROUND_HALF_UP`, e nenhum
+total é derivado dele. O numerador é `Sum` da coluna `amount` persistida — nunca horas
+× taxa.
+
+Uma seleção vazia devolve **ausência de média**, não `0,00`: dividir por nenhum chamado
+não tem resposta, e zero seria uma.
+
+A média em **horas** fica disponível a quem vê horas, porque é carga de trabalho e não
+preço — um técnico planejando capacidade precisa dela.
+
+## D54 — Dispensa de alerta por par nullable + XOR, seguindo a D29 literalmente
+
+A Fase 5 entregou alertas de bolsa que não podiam ser dispensados e **disse isso no
+docstring** em vez de esconder num comentário: `ServiceContractAlertDismissal.period`
+era FK obrigatória.
+
+A correção segue a **D29 literalmente** — par nullable com a exclusividade em DDL —
+porque `ServiceHourLedgerEntry` já resolveu o problema idêntico "período ou bolsa,
+nunca os dois" desse jeito, no mesmo módulo. Uma tabela irmã agora seriam duas soluções
+para um problema.
+
+O que tornou o par barato: `balance_at_dismissal` **já era genérico**.
+`ServiceContractPeriod` e `ServiceIssueAllowance` **ambos** expõem `balance_hours`,
+então o re-arme da decisão B2 funciona para qualquer alvo por **um** caminho de código,
+sem `if` de tipo. `_dismissal_target_field` é o único lugar que olha o tipo, e levanta
+`TypeError` para um alvo não suportado em vez de virar no-op silencioso.
+
+Renomeado para `ServiceAlertDismissal`, **preservando `db_table`**: a tabela passa a
+guardar linhas sem contrato nenhum, e um nome dizendo "Contract" mandaria o próximo
+leitor procurar uma FK que não está lá.
+
+**Dois uniques parciais, não um**, e as metades `__isnull=False` importam: no Postgres
+NULLs são distintos dentro de um índice único, então um único unique em
+`(period, alert_code)` deixaria de proteger qualquer coisa no instante em que `period`
+ficasse nullable — toda dispensa de bolsa tem period NULL, logo todas seriam
+mutuamente distintas.
+
+A migração **0132 foi escrita à mão**, e isso é o ponto: o autodetector não infere
+rename não-interativamente e propôs `CreateModel` + `DeleteModel`, que **dropa a tabela
+e toda dispensa nela**. `RenameModel` aqui é operação só de estado, provado
+estruturalmente — o `sqlmigrate` não contém `CREATE TABLE` nem `DROP TABLE`.
+
+## D55 — A projeção GUEST é construída e provada no domínio; a rota é critério herdado pela Fase 8
+
+O §3c pede o dashboard do portal, que depende da Fase 8. A Fase 9 **não monta rota
+nenhuma** para GUEST.
+
+Mas a projeção existe e é testada: `ReportViewer.guest()`, com os testes de ausência de
+chave (`logged_hours`, dinheiro) e o controle positivo. O motivo é a R11(b) — a
+allowlist de campos é decisão de domínio, e deixar a Fase 8 redescobrir quais colunas
+vazam é como a regra vira decisão tomada num template.
+
+Registrado como **critério herdado** em `08-portal-do-cliente.md`. A Fase 8 só precisa
+expor.
+
+## D56 — O drill-down de excedente leva ao extrato, e o bucket não carrega descritor nenhum
+
+Duas das quatro origens da D36 **não são compostas de apontamentos**. Um excedente
+faturado é a **liquidação de um déficit**: os apontamentos que geraram o déficit
+debitaram o pool e carregam `amount = 0` por check constraint. **Não existe lista de
+apontamentos que some o excedente.**
+
+A primeira versão disto devolvia um descritor **mais** uma flag
+`is_drillable_to_work_logs: false`. A property test pegou um bucket reportando zero
+horas enquanto o descritor dele selecionava todas as linhas do mês. Uma flag é algo que
+um frontend pode esquecer de ler; uma chave ausente não é.
+
+Então: um bucket carrega **exatamente um** de `filters` ou `drill_down`, e `bucket()`
+levanta `ValueError` para os dois ou nenhum. A D56 passou de convenção a invariante
+estrutural.
+
+## D57 — Dinheiro e estado comercial são dois conjuntos, e só o primeiro é restrito
+
+A Fase 6 pôs sete chaves num único `AMOUNT_FIELDS` e restringiu todas. A classificação
+ficou **larga**: `settled_billing_route`, `route_deviation_reason` e
+`pricing_failure_reason` **não revelam valor, taxa nem multiplicador** — dizem em que
+_situação comercial_ a linha caiu.
+
+Três evidências de que a classificação estava errada:
+
+1. **A Fase 4 §9 define o painel de atenção como visível aos técnicos**, e ele já
+   mostra saldo negativo e status de contrato. Se rota fosse classe-dinheiro, aquele
+   painel estaria violando a R11 desde a Fase 4.
+2. **A R11 diz que até o CLIENTE vê o Tipo de Atendimento**, e a rota é propriedade do
+   Tipo de Atendimento. Logo a rota nunca foi secreta. O que a D33 acrescentou foi o
+   **desvio**, que é estado comercial, não preço.
+3. **A R11 lista nominalmente o que o técnico não vê: "Valor em R$".** Não lista rota.
+
+E operacionalmente esconder é pior: um técnico que não sabe que o contrato do cliente
+venceu não pode avisar antes de gastar mais dez horas que vão para avulso.
+
+| Conjunto                  | Campos                                                                      | Quem vê            |
+| ------------------------- | --------------------------------------------------------------------------- | ------------------ |
+| `MONEY_FIELDS`            | `amount`, `amount_display`, `applied_hour_rate`, `applied_rate_basis`       | ADMIN de workspace |
+| `COMMERCIAL_STATE_FIELDS` | `settled_billing_route`, `route_deviation_reason`, `pricing_failure_reason` | ADMIN **e** MEMBER |
+
+Consequência: o §1b deixou de ser ADMIN-só. O técnico vê a metade em horas e a quebra
+por origem de receita; o Admin vê adicionalmente o R$.
+
+Os testes de contrato da Fase 6 foram ajustados e ganharam
+`test_a_member_does_receive_the_commercial_state`, que afirma a **presença** contra um
+conjunto nomeado e que os dois conjuntos são disjuntos. Afirmar só a ausência deixaria
+uma fase futura re-alargar a restrição sem teste nenhum notar.
+
+`ServiceIssueAllowanceSerializer.AMOUNT_FIELDS` virou `MONEY_FIELDS` por consistência
+de nome — ali o conjunto inteiro é dinheiro de verdade (uma taxa/hora), então o split
+muda o nome e nada mais.
+
+---
+
+## O que a Fase 9 ganhou de estrutural, além do briefing
+
+**1. A property test achou dois bugs que a revisão de código não achou.**
+
+- O slice "sem cliente" de uma distribuição por cliente **não tinha como se
+  descrever** e caía no descritor não-estreitado: o bucket reportava as próprias horas
+  apontando para todas as linhas da janela. Corrigido com `without_service_client` no
+  descritor, e `_slice_descriptor` levanta erro nomeado em vez de alargar em silêncio.
+- Os buckets de excedente carregavam descritor + flag (ver D56).
+
+Nenhum dos dois teria sido pego por asserções escritas à mão sobre valores esperados,
+porque em ambos o **número** estava certo — era o descritor que mentia.
+
+**2. Um N+1 herdado, corrigido.** `contract_balance_statement` chamava
+`period_parcels` por período: um contrato de 36 meses custava **37 queries**. Era
+invisível enquanto o único consumidor era a tela de detalhe de um contrato, e virou a
+espinha do dashboard desta fase. `period_parcels_bulk` lê tudo numa query e a alocação
+FIFO continua em **um** lugar — passar a _lógica_ adiante em vez das parcelas é como um
+dashboard e um fechamento passam a discordar sobre quais horas foram gastas. Fixado com
+`django_assert_num_queries(2)`.
+
+**3. O critério 9 deixou de ser conferência manual.** "O CSV contém os mesmos números
+da tela" era comparação que alguém fazia à mão, porque a tela podia filtrar por
+técnico, projeto e tipo de hora e o export só entendia competência e cliente — os dois
+**legitimamente** discordavam. Agora os dois consomem o mesmo `ServiceLogFilterSet`.
+A forma legada da Fase 6 é **traduzida** por `from_export_filters` em vez de tratada
+por um segundo caminho, e um teste afirma que as duas formas produzem CSV idêntico.
+
+**4. A Fase 9 é read-only, e existe teste que a mantém assim.**
+`test_nothing_in_this_module_writes_a_ledger_entry` afirma que avaliar alertas não move
+nada. É o guardrail da revisão da D35: o desenho recusado teria feito deste módulo o
+primeiro escritor não atendido do livro-caixa.
+
+## Resumo do que muda no código
+
+| Decisão     | Muda código? | Onde                                                                                     |
+| ----------- | ------------ | ---------------------------------------------------------------------------------------- |
+| D48         | **Sim**      | `CompetenceBasis` no descritor; `_competence_group` alterna as chaves de `values()`      |
+| D49         | **Sim**      | `report_bucket_from` com escalares, `report_bucket_expression`, `_origin_from`           |
+| D50         | **Sim**      | módulo `service_reports_filters.py`; `consolidated_billing` passa por `report_bucket_of` |
+| D51         | **Sim**      | `ReportViewer` com três projeções; agregação recebe o viewer                             |
+| D52         | Não          | nada materializado. Gatilho no docstring do módulo + testes de contagem de query         |
+| D53         | **Sim**      | `headline_totals` quantiza a média uma vez; ausência em vez de zero                      |
+| D54         | **Sim**      | migração 0132, `ServiceAlertDismissal`, `dismiss_alert` polimórfico, endpoint de bolsa   |
+| D55         | **Sim**      | `ReportViewer.guest()` provado; rota herdada pela Fase 8                                 |
+| D56         | **Sim**      | `bucket()` exige exatamente um de `filters`/`drill_down`                                 |
+| D57         | **Sim**      | `MONEY_FIELDS` + `COMMERCIAL_STATE_FIELDS`; testes da Fase 6 ajustados                   |
+| Revisão D35 | **Sim**      | `ALLOWANCE_PENDING_CLOSURE`, `pending_closure_q`, sem tarefa periódica                   |

@@ -25,6 +25,7 @@ from rest_framework.response import Response
 # Module imports
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import (
+    ServiceAlertDismissalSerializer,
     ServiceAllowanceOverageRateSerializer,
     ServiceHourLedgerEntrySerializer,
     ServiceIssueAllowanceCreditSerializer,
@@ -43,7 +44,11 @@ from plane.utils.service_allowance import (
 )
 from plane.utils.service_pool import ServicePoolValidationError
 from plane.utils.service_pricing import ServicePricingValidationError
-from plane.utils.service_pool_alerts import evaluate_allowance, workspace_allowance_alerts
+from plane.utils.service_pool_alerts import (
+    dismiss_alert,
+    visible_alerts_for_allowance,
+    workspace_allowance_alerts,
+)
 
 from ..base import BaseAPIView
 
@@ -108,7 +113,7 @@ class IssueServiceAllowanceEndpoint(BaseAPIView):
                     allowance, context={"can_see_amounts": _can_see_amounts(request, slug)}
                 ).data,
                 "summary": issue_allowance_snapshot(issue),
-                "alerts": evaluate_allowance(allowance),
+                "alerts": visible_alerts_for_allowance(allowance),
                 "credits": allowance_credits(allowance),
             },
             status=status.HTTP_200_OK,
@@ -166,7 +171,7 @@ class IssueServiceAllowanceEndpoint(BaseAPIView):
                     allowance, context={"can_see_amounts": _can_see_amounts(request, slug)}
                 ).data,
                 "summary": issue_allowance_snapshot(issue),
-                "alerts": evaluate_allowance(allowance),
+                "alerts": visible_alerts_for_allowance(allowance),
                 "credits": allowance_credits(allowance),
             },
             status=status.HTTP_200_OK,
@@ -319,5 +324,57 @@ class ServiceIssueAllowanceAlertPanelEndpoint(BaseAPIView):
 
         return Response(
             {"entries": entries, "count": len(entries)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ServiceIssueAllowanceDismissAlertEndpoint(BaseAPIView):
+    """Acknowledge an alert for one work item allowance. D54.
+
+    **The endpoint Phase 5 could not offer.** ``ServiceAlertDismissal.period`` was a
+    mandatory foreign key, so there was nowhere to record the acknowledgement of an
+    allowance alert; migration 0132 made the target a nullable pair with the exclusivity in
+    DDL, following D29, and the dismissal now travels the same code path as a period's --
+    including decision B2's re-arming, which needed no new code because an allowance has a
+    ``balance_hours`` too.
+
+    Open to members as well as admins, matching the period endpoint and for the same
+    reason: section 9 puts the panel in front of technicians, and an alert nobody present
+    can quiet is an alert everybody learns to ignore.
+
+    **Dismissing ``ALLOWANCE_PENDING_CLOSURE`` is legitimate and does not forfeit
+    anything.** It silences the reminder while the negotiation D35's grace period exists
+    for is still happening. B2's band brings it back if the balance moves materially, and
+    the hours are only ever written off by the close endpoint, which is a separate,
+    deliberate, ADMIN-only act.
+    """
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def post(self, request, slug, pk):
+        allowance = (
+            ServiceIssueAllowance.objects.filter(workspace__slug=slug, pk=pk)
+            .select_related("issue", "project")
+            .first()
+        )
+
+        if allowance is None:
+            return _not_found()
+
+        serializer = ServiceAlertDismissalSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        dismissal, created = dismiss_alert(
+            allowance, serializer.validated_data["alert_code"], actor=request.user
+        )
+
+        return Response(
+            {
+                "alert_code": dismissal.alert_code,
+                "balance_at_dismissal": str(dismissal.balance_at_dismissal),
+                "created": created,
+                "alerts": visible_alerts_for_allowance(allowance),
+            },
             status=status.HTTP_200_OK,
         )

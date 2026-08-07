@@ -18,16 +18,16 @@ internalizá-las por completo em um único sistema.
 
 ## 2. Glossário e mapeamento para o Plane
 
-| Meu domínio | Equivalente no Plane |
-|---|---|
-| Chamado / atendimento | Work item (issue) |
-| Técnico / atendente | Workspace Member |
-| Cliente (empresa) | **Entidade nova** — não existe no Plane |
-| Usuário do cliente (end user) | **Papel novo**, escopado por Cliente (Fase 8) |
-| Apontamento / work log | **Entidade nova** vinculada ao work item |
-| Contrato de suporte | **Entidade nova** vinculada ao Cliente |
-| Bolsa de horas do chamado | **Entidade nova** vinculada ao work item |
-| Feriados / janelas de classificação | **Entidades novas** de parametrização |
+| Meu domínio                         | Equivalente no Plane                          |
+| ----------------------------------- | --------------------------------------------- |
+| Chamado / atendimento               | Work item (issue)                             |
+| Técnico / atendente                 | Workspace Member                              |
+| Cliente (empresa)                   | **Entidade nova** — não existe no Plane       |
+| Usuário do cliente (end user)       | **Papel novo**, escopado por Cliente (Fase 8) |
+| Apontamento / work log              | **Entidade nova** vinculada ao work item      |
+| Contrato de suporte                 | **Entidade nova** vinculada ao Cliente        |
+| Bolsa de horas do chamado           | **Entidade nova** vinculada ao work item      |
+| Feriados / janelas de classificação | **Entidades novas** de parametrização         |
 
 ## 2b. Arquitetura de Cliente e isolamento
 
@@ -55,6 +55,7 @@ colegas dele nem os abertos pelos técnicos em nome da Marubeni. Ver
 `ACHADOS-DO-CODIGO.md`, seção 2.
 
 Consequências que valem para todas as fases:
+
 - O vínculo usuário↔Cliente é **derivado** da participação nos projects. Não
   criar tabela de associação própria para isso
 - A troca de "portal" pelo usuário do cliente é o **seletor de project nativo**
@@ -69,10 +70,10 @@ Consequências que valem para todas as fases:
 
 Usar para validar o modelo em todas as fases:
 
-| Cliente | Project | Contrato | Usuários do portal |
-|---|---|---|---|
-| Marubeni (matriz) | `Marubeni` | 10h/mês, 12 meses | Marcel (gerente de TI) |
-| Terlogs (adquirida pela Marubeni) | `Terlogs` | 30h/mês, 36 meses | Adriano (coordenador de TI) |
+| Cliente                           | Project    | Contrato          | Usuários do portal          |
+| --------------------------------- | ---------- | ----------------- | --------------------------- |
+| Marubeni (matriz)                 | `Marubeni` | 10h/mês, 12 meses | Marcel (gerente de TI)      |
+| Terlogs (adquirida pela Marubeni) | `Terlogs`  | 30h/mês, 36 meses | Adriano (coordenador de TI) |
 
 - Marcel é workspace Guest nos projects `Marubeni` e `Terlogs`.
   Alterna entre os dois pelo seletor nativo, vê o dashboard de contrato de cada
@@ -92,6 +93,7 @@ contrato recebendo um serviço fora de escopo, faturado à parte).
 **Contrato** — o cliente compra um pool de horas mensais (ex.: 30h/mês) por um
 período contratado (ex.: 12 meses ou mais). Os apontamentos debitam desse pool.
 A tela do chamado mostra consumo de horas, não valores em R$.
+
 - **Saldo não utilizado acumula** para os meses seguintes.
 - **Saldo pode ficar negativo.** Não bloquear apontamento de trabalho já
   executado. Ao fechar o mês com déficit, há duas saídas: transportar o déficit
@@ -128,15 +130,15 @@ podem divergir.
 
 Especificação fechada. Não redecidir por fase.
 
-| Campo | Tipo |
-|---|---|
-| `duracao_bruta_minutos` | `IntegerField` |
-| `horas_apontadas` | `DecimalField(max_digits=10, decimal_places=4)` |
-| `horas_equivalentes` | `DecimalField(max_digits=10, decimal_places=4)` |
-| `horas_debitadas` | `DecimalField(max_digits=10, decimal_places=4)` |
-| `multiplicador_aplicado` e o multiplicador do catálogo | `DecimalField(max_digits=4, decimal_places=2)` |
+| Campo                                                                                             | Tipo                                            |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `duracao_bruta_minutos`                                                                           | `IntegerField`                                  |
+| `horas_apontadas`                                                                                 | `DecimalField(max_digits=10, decimal_places=4)` |
+| `horas_equivalentes`                                                                              | `DecimalField(max_digits=10, decimal_places=4)` |
+| `horas_debitadas`                                                                                 | `DecimalField(max_digits=10, decimal_places=4)` |
+| `multiplicador_aplicado` e o multiplicador do catálogo                                            | `DecimalField(max_digits=4, decimal_places=2)`  |
 | Pool: `horas_contratadas`, `horas_transportadas`, `horas_concedidas`, `horas_consumidas`, `saldo` | `DecimalField(max_digits=10, decimal_places=4)` |
-| `valor_hora_base`, `valor_hora_aplicado`, `valor` | `DecimalField(max_digits=12, decimal_places=2)` |
+| `valor_hora_base`, `valor_hora_aplicado`, `valor`                                                 | `DecimalField(max_digits=12, decimal_places=2)` |
 
 **Por que 4 casas para horas, e por que exatamente 4.** Não é margem de
 segurança, é o mínimo comprovadamente suficiente: `horas_apontadas` é sempre
@@ -150,7 +152,7 @@ dia passar a 3 casas, serão necessárias 5 (`0.25 × 1.001 = 0.25025`). Registr
 esse comentário no modelo, para ninguém ampliar o multiplicador e truncar o
 cálculo sem perceber.
 
-**Uniformidade proposital.** `horas_apontadas` só *precisa* de 2 casas — é exata
+**Uniformidade proposital.** `horas_apontadas` só _precisa_ de 2 casas — é exata
 por construção. Usa 4 de qualquer forma: todo campo de hora com a mesma escala
 elimina truncamento acidental quando valores são copiados ou somados entre
 entidades.
@@ -175,6 +177,7 @@ arredonda hora.
 ## 5. Regras invioláveis
 
 ### R1 — Parser de tempo
+
 Entrada em texto livre. Deve aceitar `1h`, `30m`, `30min`, `1h15m`,
 `1h 15min`, `1,5h`, `1.5h`, `90min`, `2 horas`. Case-insensitive, com ou sem
 espaço entre unidades. Entrada inválida gera erro de validação claro no
@@ -183,6 +186,7 @@ A UI mostra preview da conversão em tempo real, já com o arredondamento
 aplicado (ex.: usuário digita `1h 08min`, UI mostra "= 1h 15min (1,25h)").
 
 ### R2 — Arredondamento em blocos de 15 minutos
+
 O projeto trabalha com apontamento mínimo de 15 minutos.
 
 Regra conceitual: arredondar para o **múltiplo de 15 minutos mais próximo**.
@@ -195,28 +199,30 @@ minutos se `bruto > 0`.
 
 Casos de referência — usar exatamente como suíte de testes:
 
-| Entrada | Bruto (min) | Resto | Apontado (min) | Decimal |
-|---|---|---|---|---|
-| `1h` | 60 | 0 | 60 | 1.0 |
-| `1h 05min` | 65 | 5 | 60 | 1.0 |
-| `1h 07min` | 67 | 7 | 60 | 1.0 |
-| `1h 08min` | 68 | 8 | 75 | 1.25 |
-| `1h 15min` | 75 | 0 | 75 | 1.25 |
-| `1h 20min` | 80 | 5 | 75 | 1.25 |
-| `1h 23min` | 83 | 8 | 90 | 1.5 |
-| `45min` | 45 | 0 | 45 | 0.75 |
-| `22min` | 22 | 7 | 15 | 0.25 |
-| `23min` | 23 | 8 | 30 | 0.5 |
-| `8min` | 8 | 8 | 15 | 0.25 |
-| `3min` | 3 | 3 | 15 (piso) | 0.25 |
-| `30h` | 1800 | 0 | 1800 | 30.0 |
+| Entrada    | Bruto (min) | Resto | Apontado (min) | Decimal |
+| ---------- | ----------- | ----- | -------------- | ------- |
+| `1h`       | 60          | 0     | 60             | 1.0     |
+| `1h 05min` | 65          | 5     | 60             | 1.0     |
+| `1h 07min` | 67          | 7     | 60             | 1.0     |
+| `1h 08min` | 68          | 8     | 75             | 1.25    |
+| `1h 15min` | 75          | 0     | 75             | 1.25    |
+| `1h 20min` | 80          | 5     | 75             | 1.25    |
+| `1h 23min` | 83          | 8     | 90             | 1.5     |
+| `45min`    | 45          | 0     | 45             | 0.75    |
+| `22min`    | 22          | 7     | 15             | 0.25    |
+| `23min`    | 23          | 8     | 30             | 0.5     |
+| `8min`     | 8           | 8     | 15             | 0.25    |
+| `3min`     | 3           | 3     | 15 (piso)      | 0.25    |
+| `30h`      | 1800        | 0     | 1800           | 30.0    |
 
 ### R3 — Persistência decimal, exibição legível
+
 Persistir sempre em decimal com ponto (`1.25`). Exibir sempre em formato
 legível pt-BR: `1h 15min` nas listas de apontamento, `1,25h` quando o contexto
 exigir o número. Nunca persistir string formatada como fonte da verdade.
 
 ### R4 — Snapshot histórico
+
 Todo apontamento persiste, no momento da criação: o multiplicador aplicado, o
 valor/hora vigente, e a referência do pool/contrato debitado. Alterar
 configuração de tipos, multiplicadores, janelas, feriados ou preços depois
@@ -229,6 +235,7 @@ mecanismo: a rota de faturamento do Tipo de Atendimento
 (`ServiceBillingType.billing_route == NON_BILLABLE`).
 
 Apontamento cuja rota é `NON_BILLABLE`:
+
 - aparece normalmente na lista e soma no **total de horas apontadas**
 - tem `horas_equivalentes` calculadas normalmente (multiplicador aplicado)
 - tem `horas_debitadas = 0`
@@ -238,10 +245,10 @@ Apontamento cuja rota é `NON_BILLABLE`:
 O seed traz dois tipos distintos com essa rota, e a distinção entre eles é de
 gestão, não de mecanismo:
 
-| Tipo | Significado | O que um volume alto indica |
-|---|---|---|
+| Tipo         | Significado                                                               | O que um volume alto indica          |
+| ------------ | ------------------------------------------------------------------------- | ------------------------------------ |
 | **Garantia** | retrabalho sob garantia — o serviço já foi cobrado e você está corrigindo | problema de qualidade na sua entrega |
-| **Cortesia** | decisão comercial discricionária de não cobrar | desconto concedido |
+| **Cortesia** | decisão comercial discricionária de não cobrar                            | desconto concedido                   |
 
 Relatórios e dashboards agrupam por **Tipo de Atendimento**, então os dois
 permanecem separados sem campo extra. Nunca somar Garantia e Cortesia num único
@@ -251,6 +258,7 @@ O admin pode criar outros tipos com a mesma rota (ex.: "Erro interno",
 "Pré-venda") pelo painel, sem código.
 
 ### R6 — Hierarquia de débito
+
 1. Se o work item tem bolsa de horas própria → debita da bolsa do work item
 2. Senão, se a rota de faturamento é Contrato → debita do pool mensal do
    contrato do cliente
@@ -262,18 +270,22 @@ fechou um projeto específico e não quer que aquele projeto consuma as horas de
 suporte.
 
 ### R7 — Competência pela data do trabalho
+
 O pool debitado é o do mês da **data do atendimento** informada no
 apontamento, não a data de criação do registro. Apontamento retroativo debita
 o mês retroativo.
 
 ### R8 — Auditoria
+
 Todo apontamento registra: autor (quem executou o trabalho), criador (quem
 registrou — podem diferir, ver delegação na Fase 7), data/hora de criação, e
 histórico completo de alterações e exclusões.
 
 ### R9 — Dois modos de entrada de tempo
+
 O técnico escolhe como informar o tempo, e as duas formas convergem para a
 mesma duração bruta em minutos:
+
 - **Duração** — texto livre, conforme R1
 - **Intervalo** — hora de início e hora de fim (ex.: 14:00 às 15:30 = 90 min)
 
@@ -286,18 +298,18 @@ informa em que horário o trabalho ocorreu.
 técnico.** O técnico vê e edita o seu apontamento original e também vê o valor
 final que o cliente verá.
 
-| Informação | Técnico (autor) | Técnico (outros) | Admin | Cliente |
-|---|---|---|---|---|
-| Duração bruta digitada | vê e edita | vê | vê | **não vê** |
-| Horas apontadas (pós-arredondamento) | vê | vê | vê | **não vê** |
-| Horas equivalentes (pós-multiplicador) | vê | vê | vê | **vê** |
-| Horas debitadas | vê | vê | vê | vê |
-| Multiplicador numérico | vê | vê | vê | não vê |
-| Tipo de Hora (rótulo) | vê | vê | vê | vê |
-| Tipo de Atendimento (rótulo, ex.: "Garantia") | vê | vê | vê | vê |
-| Descrição do apontamento | vê | vê | vê | vê |
-| Autor do apontamento | vê | vê | vê | vê |
-| Valor em R$ | não vê | não vê | vê | só se avulso |
+| Informação                                    | Técnico (autor) | Técnico (outros) | Admin | Cliente      |
+| --------------------------------------------- | --------------- | ---------------- | ----- | ------------ |
+| Duração bruta digitada                        | vê e edita      | vê               | vê    | **não vê**   |
+| Horas apontadas (pós-arredondamento)          | vê              | vê               | vê    | **não vê**   |
+| Horas equivalentes (pós-multiplicador)        | vê              | vê               | vê    | **vê**       |
+| Horas debitadas                               | vê              | vê               | vê    | vê           |
+| Multiplicador numérico                        | vê              | vê               | vê    | não vê       |
+| Tipo de Hora (rótulo)                         | vê              | vê               | vê    | vê           |
+| Tipo de Atendimento (rótulo, ex.: "Garantia") | vê              | vê               | vê    | vê           |
+| Descrição do apontamento                      | vê              | vê               | vê    | vê           |
+| Autor do apontamento                          | vê              | vê               | vê    | vê           |
+| Valor em R$                                   | não vê          | não vê           | vê    | só se avulso |
 
 Consequências obrigatórias:
 
@@ -324,13 +336,13 @@ legítima em suspeita de inflação de horas.
 Regras de negócio vigentes nos contratos com os clientes — devem ser
 configuração, não código:
 
-| Quando | Tipo de Hora | Multiplicador |
-|---|---|---|
-| Seg a sex, 08:00–18:00 | Horário comercial | 1.0 |
-| Seg a sex, 18:00 até 08:00 do dia seguinte | Fora do expediente | 1.5 |
-| Sábado, dia inteiro | Fora do expediente | 1.5 |
-| Domingo, dia inteiro | Domingos e feriados | 2.0 |
-| Feriado, dia inteiro | Domingos e feriados | 2.0 |
+| Quando                                     | Tipo de Hora        | Multiplicador |
+| ------------------------------------------ | ------------------- | ------------- |
+| Seg a sex, 08:00–18:00                     | Horário comercial   | 1.0           |
+| Seg a sex, 18:00 até 08:00 do dia seguinte | Fora do expediente  | 1.5           |
+| Sábado, dia inteiro                        | Fora do expediente  | 1.5           |
+| Domingo, dia inteiro                       | Domingos e feriados | 2.0           |
+| Feriado, dia inteiro                       | Domingos e feriados | 2.0           |
 
 Note que "Fora do expediente" é uma janela contínua que **atravessa a
 meia-noite**, e que sábado (1.5) e domingo (2.0) são diferentes — a
@@ -338,6 +350,7 @@ classificação não é derivável de "dia trabalhado / não trabalhado". O mode
 de janelas por dia da semana e faixa horária, com prioridade (ver Fase 2b).
 
 Comportamento por modo de entrada (R9):
+
 - **Modo Intervalo** — classificação automática completa. Quando o intervalo
   atravessa faixas diferentes, o lançamento é **dividido em segmentos**, um
   apontamento por faixa, agrupados por um identificador de lançamento comum.
@@ -394,7 +407,7 @@ estrutura**. Detalhes com arquivo e linha em `ACHADOS-DO-CODIGO.md`.
   - **Atividade do apontamento** (regra R8): trilha por work item, seguindo o
     padrão `IssueActivity` + task `issue_activity.delay(...)`. Não usar
     `ServiceConfigActivity` para isso.
-  Não inventar mecanismo próprio em nenhum dos dois casos.
+    Não inventar mecanismo próprio em nenhum dos dois casos.
 - API em duas camadas: `plane.app` em `/api/` (sessão) e `plane.api` em
   `/api/v1/` (API key). `BaseViewSet` / `BaseAPIView` em
   `plane/app/views/base.py`; `BaseSerializer` / `DynamicBaseSerializer` em
@@ -439,8 +452,25 @@ O único mecanismo de granularidade para papéis baixos é o boolean por project
 ### Frontend
 
 - Monorepo pnpm + turbo. App principal em `apps/web`.
-- **Estado: MobX**, não Zustand. Root store em `apps/web/core/store/root.store.ts`;
-  store modelo a copiar: `core/store/state.store.ts`.
+- **Estado: MobX para estado de domínio mutável**, não Zustand. Root store em
+  `apps/web/core/store/root.store.ts`; store modelo a copiar:
+  `core/store/state.store.ts`.
+
+  **Nuance fixada na Fase 9, para não ser rediscutida a cada fase:** MobX é para
+  estado de domínio **mutável e compartilhado entre telas** — o que é editado, o que
+  precisa de invalidação coordenada, o que várias partes da UI têm de ver mudar
+  juntas. Para **leitura**, o padrão é **`useSWR` + uma service class** em
+  `apps/web/core/services/`.
+
+  Não é preferência: é o que **toda** tela `service_*` fez desde a Fase 1, e não
+  existe nenhuma store MobX para este domínio. Um dashboard read-only não tem estado
+  mutável de domínio para uma store possuir — criar uma seria uma camada de
+  indireção em volta de um `GET`, com invalidação escrita à mão em cima de algo que o
+  SWR já faz.
+
+  Na prática: mutação de contrato, de bolsa, de apontamento ou de catálogo → store.
+  Relatório, dashboard, painel de alertas, extrato → SWR + service class.
+
 - HTTP em `packages/services/src/`; tipos em `packages/types`; constantes em
   `packages/constants`; i18n em `packages/i18n`; UI em `packages/ui` e
   `packages/propel`.

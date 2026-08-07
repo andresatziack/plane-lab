@@ -32,7 +32,10 @@ from plane.utils.exporters.exporter import Exporter
 from plane.utils.exporters.schemas import ServiceLogExportSchema
 from plane.utils.porters.exporter import DataExporter
 from plane.utils.porters.serializers.issue import IssueExportSerializer
-from plane.utils.service_pool import month_bounds
+from plane.utils.service_reports_filters import (
+    ServiceLogFilterSet,
+    format_competence,
+)
 
 
 def create_zip_file(files: List[tuple[str, str | bytes]]) -> io.BytesIO:
@@ -254,11 +257,20 @@ def service_log_export_task(
     presigned URL and ``exporter_expired_task``'s eight-day purge all come from the
     pipeline ``issue_export_task`` already uses. Only the queryset and the schema differ.
 
-    ``filters`` carries the competency and the client, persisted on
-    ``ExporterHistory.filters`` -- a column that has been on the model unused since before
-    this feature. A monthly billing consolidation is always *of* something, and putting the
-    selection on the row rather than only in the task arguments is what lets the history
-    say which month a finished file covers.
+    ``filters`` carries the selection, persisted on ``ExporterHistory.filters`` -- a column
+    that has been on the model unused since before this feature. A monthly billing
+    consolidation is always *of* something, and putting the selection on the row rather than
+    only in the task arguments is what lets the history say which month a finished file
+    covers.
+
+    **Phase 9 made that selection a full ``ServiceLogFilterSet``, and that is what closes
+    acceptance criterion 9.** "O CSV contém os mesmos números da tela" was previously a
+    comparison somebody had to do by hand, because the screen could filter by technician,
+    project, hour type and route while the export only understood a competency and a client --
+    so the two legitimately disagreed. Now both consume the same descriptor and there is
+    nothing left to reconcile. Phase 6's ``{year, month, service_client_id}`` rows are
+    translated by ``from_export_filters`` rather than handled separately, so there is one
+    filtering path and an old history row cannot quietly export everything.
 
     **The membership re-check inside the task is deliberate and is copied from
     ``issue_export_task``.** A queued task can run long after the request that queued it,
@@ -295,19 +307,12 @@ def service_log_export_task(
         # historical rows an export exists to preserve. The schema reads them through
         # `all_objects` instead.
         filters = filters or {}
-        year = filters.get("year")
-        month = filters.get("month")
+        filterset = ServiceLogFilterSet.from_export_filters(filters)
 
-        if year and month:
-            # R7: the competency of a work log is the month of the SERVICE DATE, never of the
-            # date it was typed. A retroactive entry belongs to the month it was worked.
-            first_day, last_day = month_bounds(int(year), int(month))
-            service_logs = service_logs.filter(worked_on__gte=first_day, worked_on__lte=last_day)
-
-        if filters.get("service_client_id"):
-            service_logs = service_logs.filter(
-                project__service_client_id=filters["service_client_id"]
-            )
+        # The membership and archive constraints above stay outside the descriptor: they are
+        # about who may see what, and a descriptor arrives from a browser. The descriptor
+        # narrows what was asked for, within what is allowed.
+        service_logs = filterset.queryset(workspace_id, queryset=service_logs)
 
         try:
             exporter = Exporter(format_type=provider, schema_class=ServiceLogExportSchema)
@@ -318,7 +323,15 @@ def service_log_export_task(
             exporter_instance.save(update_fields=["status", "reason"])
             return
 
-        competence = f"-{int(year):04d}-{int(month):02d}" if year and month else ""
+        # Named after the competency when there is a single one, which is the common case and
+        # the one somebody files next to an invoice. A range or an open selection gets no
+        # suffix rather than a misleading one.
+        competence = (
+            f"-{format_competence(filterset.competence_from)}"
+            if filterset.competence_from is not None
+            and filterset.competence_from == filterset.competence_to
+            else ""
+        )
         filename, content = exporter.export(f"{slug}-apontamentos{competence}", service_logs)
 
         zip_buffer = create_zip_file([(filename, content)])

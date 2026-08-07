@@ -50,6 +50,7 @@ export * from "./service-client";
 export * from "./service-issue-allowance";
 export * from "./service-log";
 export * from "./service-pricing";
+export * from "./service-reports";
 export * from "./settings";
 export * from "./state";
 export * from "./stickies";

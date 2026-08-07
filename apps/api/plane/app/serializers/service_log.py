@@ -43,20 +43,46 @@ class ServiceLogSerializer(BaseSerializer):
 
     **The money is removed for anyone who is not a workspace Admin.** R11 puts the value
     in reais out of a technician's reach, and R11(b) makes that the serializer's job
-    rather than the interface's -- so the seven monetary keys are *deleted from the
-    payload*, not merely hidden by the frontend. The caller passes
-    ``context["can_see_amounts"]``; the default is ``False``, because the safe direction
-    for a money field is to be absent unless somebody proved otherwise.
+    rather than the interface's -- so the monetary keys are *deleted from the payload*,
+    not merely hidden by the frontend. The caller passes ``context["can_see_amounts"]``;
+    the default is ``False``, because the safe direction for a money field is to be
+    absent unless somebody proved otherwise.
+
+    **Money and commercial state are two different sets, and only the first is
+    restricted (D57).** Phase 6 put them in one bucket and that classification was too
+    wide. ``settled_billing_route``, ``route_deviation_reason`` and
+    ``pricing_failure_reason`` do not reveal a value, a rate or a multiplier -- they say
+    *which commercial situation* the row landed in. Three things show the wide version
+    was wrong:
+
+    * Phase 4 section 9 defines the attention panel as visible **to technicians**, and it
+      already shows negative balance and contract status. If the route were money-class,
+      that panel would have been violating R11 since Phase 4.
+    * R11 lets even the **client** see the Tipo de Atendimento, and the route is a
+      property of the Tipo de Atendimento. So the route was never secret. What D33 added
+      was the *deviation*, which is commercial state, not price.
+    * R11 names what a technician does not see: "Valor em R$". It does not name the route.
+
+    Operationally, hiding it is worse than showing it: a technician who cannot see that
+    the client's contract has expired cannot warn anybody before spending another ten
+    hours that will land as ad-hoc billing.
     """
 
-    #: The keys removed for a non-Admin. Kept as a class attribute so the contract test
-    #: can assert against the same list the code uses, instead of restating it and
-    #: drifting.
-    AMOUNT_FIELDS = (
+    #: Value, rate, rate basis. **Removed for a non-Admin.** Kept as a class attribute so
+    #: the contract test can assert against the same list the code uses, instead of
+    #: restating it and drifting.
+    MONEY_FIELDS = (
         "amount",
         "amount_display",
         "applied_hour_rate",
         "applied_rate_basis",
+    )
+
+    #: Commercial state. **Visible to a Member** (D57). Not removed by anything; listed
+    #: as a class attribute anyway so the contract test can assert their *presence* for a
+    #: Member against a named set, which is what stops a future phase from quietly
+    #: folding them back into ``MONEY_FIELDS``.
+    COMMERCIAL_STATE_FIELDS = (
         "settled_billing_route",
         "route_deviation_reason",
         "pricing_failure_reason",
@@ -95,7 +121,7 @@ class ServiceLogSerializer(BaseSerializer):
         super().__init__(*args, **kwargs)
 
         if not self.context.get("can_see_amounts", False):
-            for field in self.AMOUNT_FIELDS:
+            for field in self.MONEY_FIELDS:
                 self.fields.pop(field, None)
 
     class Meta:
@@ -121,15 +147,17 @@ class ServiceLogSerializer(BaseSerializer):
             # R4 snapshots.
             "applied_multiplier",
             "applied_billing_route",
-            # The money, Phase 6. Removed from the payload for a non-Admin by `__init__`
-            # -- see AMOUNT_FIELDS and the class docstring.
+            # Commercial state, Phase 6 + D33. Stays for a Member -- see
+            # COMMERCIAL_STATE_FIELDS and D57 in the class docstring.
             "settled_billing_route",
             "route_deviation_reason",
+            "pricing_failure_reason",
+            # The money, Phase 6. Removed from the payload for a non-Admin by `__init__`
+            # -- see MONEY_FIELDS.
             "applied_hour_rate",
             "applied_rate_basis",
             "amount",
             "amount_display",
-            "pricing_failure_reason",
             "hour_type",
             "hour_type_name",
             "hour_type_color",

@@ -1,0 +1,149 @@
+{
+  "service_reports": {
+    "label": "Relatórios de atendimento",
+    "page_label": "{workspace} - Relatórios de atendimento",
+    "tabs": {
+      "attention": "Precisa de atenção",
+      "consumption": "Consumo",
+      "operational": "Operacional",
+      "billing": "Faturamento"
+    },
+    "toolbar": {
+      "window": "Período",
+      "clients": "Clientes",
+      "scope": "Escopo",
+      "export": "Exportar CSV"
+    },
+    "totals": {
+      "logged_hours": "Horas apontadas",
+      "equivalent_hours": "Horas equivalentes",
+      "debited_hours": "Horas debitadas",
+      "debited_hint": "Exclui trabalho não faturável",
+      "entries": "Apontamentos",
+      "issues": "Chamados",
+      "amount": "Valor",
+      "average_per_issue": "Média de {value} por chamado",
+      "average_hours_per_issue": "Média de horas por chamado"
+    },
+    "series": {
+      "logged": "Apontadas",
+      "equivalent": "Equivalentes"
+    },
+    "consumption": {
+      "contract_series": "Consumo do contrato",
+      "contract_series_hint": "Pela competência do período debitado, para que um apontamento retroativo apareça no mês em que foi cobrado.",
+      "standalone_series": "Horas trabalhadas",
+      "standalone_series_hint": "Pela data do atendimento.",
+      "consumed": "Consumido",
+      "overage": "Excedente"
+    },
+    "statement": {
+      "competence": "Competência",
+      "granted": "Concedidas",
+      "consumed": "Consumidas",
+      "balance": "Saldo",
+      "parcels": "Parcelas acumuladas por origem"
+    },
+    "distribution": {
+      "hour_type": "Por tipo de hora",
+      "billing_type": "Por tipo de atendimento",
+      "author": "Por técnico",
+      "project": "Por projeto",
+      "service_client": "Por cliente"
+    },
+    "non_billable": {
+      "title": "Trabalho não faturável",
+      "hint": "Sempre aberto por tipo de atendimento: garantia honrada e cortesia concedida são conversas diferentes."
+    },
+    "revenue": {
+      "title": "Receita por origem",
+      "hint": "Quatro origens, cada uma com a sua própria regra de competência.",
+      "standalone": "Avulso",
+      "out_of_scope": "Fora de escopo",
+      "contract_overage": "Excedente de contrato",
+      "allowance_overage": "Excedente de bolsa",
+      "standalone_log": "Avulso",
+      "out_of_scope_log": "Fora de escopo",
+      "no_log_list": "Um excedente liquida um déficit, então não existe lista de apontamentos que some esse valor. Abra o extrato do período."
+    },
+    "allowances": {
+      "active": "Bolsas de horas ativas",
+      "none": "Nenhuma bolsa ativa.",
+      "credit_history": "Histórico de créditos",
+      "from_competence": "da competência {value}",
+      "balance": "Saldo",
+      "pending_closure": "Bolsas pendentes de encerramento",
+      "pending_closure_hint": "O chamado fechou há mais de 30 dias. O saldo restante é perdido pela cláusula, mas nada é baixado até alguém encerrar a bolsa."
+    },
+    "billing": {
+      "admin_only": "O relatório de faturamento é restrito a administradores do workspace.",
+      "total": "Total",
+      "competence": "Competência",
+      "client": "Cliente",
+      "consolidation": "Consolidado de {competence}",
+      "internal_work": "Trabalho interno",
+      "internal_work_hint": "Projetos sem cliente. Fora da receita.",
+      "commercial_pendencies": "Pendências comerciais",
+      "commercial_pendencies_hint": "Já contadas na receita acima. Mostradas aqui como lente, não como parcela extra: são faturáveis e têm prazo.",
+      "registration_pendencies": "Pendências de cadastro",
+      "registration_pendencies_hint": "Ainda não faturáveis: nenhuma tabela de preços se aplica. Deliberadamente ausentes do total."
+    },
+    "drill_down": {
+      "entries": "apontamentos",
+      "worked_on": "Data",
+      "author": "Técnico",
+      "description": "Descrição",
+      "hour_type": "Tipo de hora",
+      "equivalent_hours": "Equivalentes",
+      "amount": "Valor",
+      "empty": "Nenhum apontamento nesta seleção."
+    },
+    "alerts": {
+      "count": "{count} itens precisam de atenção",
+      "dismiss": "Dispensar",
+      "balance": "Saldo",
+      "close_allowance": "Encerrar bolsa",
+      "empty": "Nada precisa de atenção.",
+      "severity": {
+        "high_consumption": "Alto consumo",
+        "low_consumption": "Baixo consumo",
+        "contract": "Contrato",
+        "pending_action": "Aguardando decisão"
+      },
+      "severity_hint": {
+        "high_consumption": "Risco de trabalho que não será remunerado.",
+        "low_consumption": "Sinal de churn: o cliente paga por um pool que não usa.",
+        "contract": "O próprio contrato precisa de atenção.",
+        "pending_action": "Alguém precisa decidir. Nada acontece automaticamente."
+      },
+      "no_default": {
+        "title": "Clientes com vários contratos e nenhum padrão",
+        "hint": "O primeiro apontamento num projeto sem contrato fixado vai falhar na frente de um técnico que não pode resolver.",
+        "clients": "clientes"
+      },
+      "HIGH_CONSUMPTION_BEFORE_MIDMONTH": "Consumo acima do limite antes do meio do mês",
+      "NEGATIVE_BALANCE": "Saldo negativo",
+      "PROJECTED_OVERRUN": "Projeção de estouro antes do fim do mês",
+      "LOW_CONSUMPTION_AT_MONTH_END": "Baixo consumo perto do fim do mês",
+      "ACCRUED_BALANCE_ABOVE_THRESHOLD": "Saldo acumulado acima do limite",
+      "HOURS_DISCARDED_BY_CAP": "Horas descartadas pelo teto de acúmulo",
+      "NO_SERVICE_LOGS_IN_MONTH": "Nenhum apontamento no contrato neste mês",
+      "ALLOWANCE_NEGATIVE_BALANCE": "Bolsa estourada",
+      "ALLOWANCE_HIGH_CONSUMPTION": "Bolsa próxima do limite",
+      "ALLOWANCE_PENDING_CLOSURE": "Carência vencida, pendente de encerramento",
+      "CONTRACT_OUT_OF_VIGENCY": "Contrato fora da vigência",
+      "CONTRACT_SUSPENDED": "Contrato suspenso"
+    },
+    "deviation": {
+      "no_contract_for_client": "Cliente sem contrato",
+      "contract_suspended": "Contrato suspenso",
+      "contract_ended": "Contrato encerrado",
+      "contract_expired": "Contrato vencido"
+    },
+    "pricing_failure": {
+      "internal_project_no_client": "Projeto interno sem cliente",
+      "no_price_sheet_for_client": "Cliente sem tabela de preços",
+      "no_price_sheet_in_force": "Nenhuma tabela vigente na data do atendimento"
+    }
+  }
+}

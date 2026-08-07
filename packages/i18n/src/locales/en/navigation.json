@@ -17,6 +17,7 @@
     "workspace": "Workspace",
     "views": "Views",
     "analytics": "Analytics",
+    "service_reports": "Service reports",
     "work_items": "Work items",
     "cycles": "Cycles",
     "modules": "Modules",

@@ -113,6 +113,19 @@ class ServiceLogExportRequestSerializer(serializers.Serializer):
     ``year`` and ``month`` are optional and travel together -- ``validate`` refuses one
     without the other, because a "month" with no year is not a competency and exporting
     every March ever recorded is not what anyone asking for March meant.
+
+    **``filters`` was added by Phase 9 and is what closes acceptance criterion 9.** It takes a
+    whole ``ServiceLogFilterSet`` as query-parameter shaped keys, so an export can be the
+    *same selection the screen was showing* -- technician, project, hour type, route, a range
+    of competencies. Before it, the screen could filter by things the export could not
+    express, and "o CSV contém os mesmos números da tela" was a comparison somebody did by
+    hand and hoped about.
+
+    The Phase 6 ``year``/``month``/``service_client_id`` trio is kept rather than removed:
+    those keys are in ``ExporterHistory.filters`` rows that already exist with finished files
+    attached, and ``ServiceLogFilterSet.from_export_filters`` translates them so there is one
+    filtering path. Sending both is refused -- two selections in one request has no obvious
+    winner, and picking one silently is how an export comes back with the wrong month.
     """
 
     provider = serializers.ChoiceField(choices=["csv", "xlsx", "json"], default="csv")
@@ -121,11 +134,33 @@ class ServiceLogExportRequestSerializer(serializers.Serializer):
     service_client_id = serializers.UUIDField(required=False, allow_null=True)
     project = serializers.ListField(child=serializers.UUIDField(), required=False)
 
+    #: A `ServiceLogFilterSet` in its query-parameter form, exactly as `to_params()` emits it.
+    filters = serializers.DictField(required=False)
+
     def validate(self, attrs):
         if ("year" in attrs) != ("month" in attrs):
             raise serializers.ValidationError(
                 {"month": "COMPETENCE_REQUIRES_BOTH_YEAR_AND_MONTH"}
             )
+
+        if attrs.get("filters") and ("year" in attrs or "service_client_id" in attrs):
+            raise serializers.ValidationError(
+                {"filters": "FILTERS_AND_LEGACY_COMPETENCE_ARE_EXCLUSIVE"}
+            )
+
+        if attrs.get("filters"):
+            # Parsed here so a malformed descriptor is a 400 on the request that sent it,
+            # rather than a task that fails minutes later with a status of "failed" and a
+            # traceback in the reason column.
+            from plane.utils.service_reports_filters import (
+                ServiceLogFilterSet,
+                ServiceReportFilterError,
+            )
+
+            try:
+                ServiceLogFilterSet.from_params(attrs["filters"])
+            except ServiceReportFilterError as error:
+                raise serializers.ValidationError({"filters": error.code}) from error
 
         return attrs
 

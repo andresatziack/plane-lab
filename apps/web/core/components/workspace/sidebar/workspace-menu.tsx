@@ -54,6 +54,17 @@ export const SidebarWorkspaceMenu = observer(function SidebarWorkspaceMenu() {
       access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
       Icon: AnalyticsIcon,
     },
+    {
+      // Consumption dashboards and billing (Phase 9). ADMIN and MEMBER, deliberately not GUEST:
+      // the payload carries debited hours and pool totals, and the client's own view is the
+      // portal phase with its own projection. Hiding a link while the route still answers would
+      // be the leak R11(b) names, so the route refuses GUEST too.
+      key: "service-reports",
+      labelTranslationKey: "sidebar.service_reports",
+      href: `/${workspaceSlug}/service-reports/`,
+      access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+      Icon: AnalyticsIcon,
+    },
   ];
 
   return (

@@ -17,16 +17,19 @@ this is "tão acionável quanto o alerta de estouro". They are returned in one l
 """
 
 # Python imports
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 # Django imports
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 
 # Module imports
 from plane.db.models import (
+    ServiceAlertDismissal,
     ServiceContract,
-    ServiceContractAlertDismissal,
+    ServiceContractPeriod,
+    ServiceIssueAllowance,
     ServiceLog,
 )
 from plane.utils.service_allowance import (
@@ -94,10 +97,41 @@ ALLOWANCE_NEGATIVE_BALANCE = "ALLOWANCE_NEGATIVE_BALANCE"
 #: rather than after the hours are gone.
 ALLOWANCE_HIGH_CONSUMPTION = "ALLOWANCE_HIGH_CONSUMPTION"
 
+#: **The read-only form of D35.** The work item closed more than ``ALLOWANCE_GRACE_DAYS``
+#: ago and its allowance is still open, so the grace period has run out and somebody has
+#: to decide what happens to the remaining balance.
+#:
+#: D35 was originally going to be a periodic task that closed these automatically. That
+#: was **refused**, and the reason is worth keeping next to the code that replaced it:
+#: closing an allowance with a **positive** balance writes off hours the client *paid
+#: for*. A client who bought 40h and used 30h would have 10h of credit deleted by a
+#: timer, and the answer to "I still have 10 hours there" would be that the system
+#: removed them unattended. The grace period exists precisely **to allow a negotiation**;
+#: executing it automatically removes the decision it was created to make possible.
+#:
+#: So the clause still holds -- the balance *is* forfeit after 30 days -- but the system
+#: **informs and a human confirms**, through the close endpoint Phase 5 already shipped.
+#: That keeps this whole phase read-only and keeps the write-off a deliberate act.
+#:
+#: This alert is what stops the panel rotting. Without it no allowance ever leaves
+#: ``OPEN``, so section 1's "bolsas ativas" and section 3b's attention list would fill
+#: with allowances from tickets closed months ago, and the panel that exists to surface
+#: what needs action would become the noise it was built to prevent.
+ALLOWANCE_PENDING_CLOSURE = "ALLOWANCE_PENDING_CLOSURE"
+
 #: Severities, so a caller cannot render one extreme and silently drop the other.
 SEVERITY_HIGH_CONSUMPTION = "high_consumption"
 SEVERITY_LOW_CONSUMPTION = "low_consumption"
 SEVERITY_CONTRACT = "contract"
+
+#: Something an operator has to *do*, as opposed to a consumption reading to interpret.
+#:
+#: A fourth severity rather than folding pending closure into ``SEVERITY_CONTRACT``,
+#: because the frontend groups by severity and the two call for different responses: a
+#: contract alert says "this client's agreement has a problem", and this one says "there
+#: is a decision waiting on you, here is the button". Reusing the contract severity would
+#: have put an action item in a column of readings.
+SEVERITY_PENDING_ACTION = "pending_action"
 
 _SEVERITY_BY_CODE = {
     HIGH_CONSUMPTION_BEFORE_MIDMONTH: SEVERITY_HIGH_CONSUMPTION,
@@ -111,7 +145,17 @@ _SEVERITY_BY_CODE = {
     CONTRACT_SUSPENDED: SEVERITY_CONTRACT,
     ALLOWANCE_NEGATIVE_BALANCE: SEVERITY_HIGH_CONSUMPTION,
     ALLOWANCE_HIGH_CONSUMPTION: SEVERITY_HIGH_CONSUMPTION,
+    ALLOWANCE_PENDING_CLOSURE: SEVERITY_PENDING_ACTION,
 }
+
+#: D35's grace period, in days from the closure of the work item.
+#:
+#: A module constant rather than a column, for the same reason
+#: ``ALLOWANCE_HIGH_CONSUMPTION_PCT`` is: the clause is the same for every allowance
+#: because it comes from the commercial policy, not from an individual negotiation. A
+#: per-allowance field would be a setting nobody fills in, and a per-allowance grace
+#: period is not something D35 contemplates.
+ALLOWANCE_GRACE_DAYS = 30
 
 #: When a work item allowance starts warning, as a percentage of what was credited.
 #:
@@ -329,27 +373,38 @@ def is_alert_dismissed(dismissal, current_balance):
     return Decimal(current_balance) >= (Decimal(dismissal.balance_at_dismissal) - ALERT_REARM_BAND_HOURS)
 
 
-def visible_alerts_for_period(
-    period, *, reference_date=None, service_log_count=None, allowance_hours=None
-):
-    """The alerts of one period that have not been dismissed away.
+def _dismissal_target_field(target):
+    """Which of the D54 pair this target occupies: ``period`` or ``allowance``.
 
-    Section 9 requires alerts to be dismissible "para não virar ruído", and decision B2
-    requires the dismissal to expire when things get materially worse.
+    The **only** place in the dismissal code that looks at the type. Everything after it
+    -- recording, matching, re-arming -- runs through one path, which is possible because
+    ``ServiceContractPeriod`` and ``ServiceIssueAllowance`` both expose ``balance_hours``
+    and ``workspace_id``. If a third dismissable entity ever appears, this function and
+    the constraint are the two places that change.
     """
-    alerts = evaluate_period(
-        period,
-        reference_date=reference_date,
-        service_log_count=service_log_count,
-        allowance_hours=allowance_hours,
-    )
+    if isinstance(target, ServiceContractPeriod):
+        return "period"
 
-    dismissals = {
+    if isinstance(target, ServiceIssueAllowance):
+        return "allowance"
+
+    raise TypeError(f"an alert dismissal cannot target {type(target).__name__}")
+
+
+def _dismissals_for(target):
+    """Recorded dismissals of one target, keyed by alert code."""
+    field = _dismissal_target_field(target)
+
+    return {
         dismissal.alert_code: dismissal
-        for dismissal in ServiceContractAlertDismissal.objects.filter(period_id=period.pk)
+        for dismissal in ServiceAlertDismissal.objects.filter(**{f"{field}_id": target.pk})
     }
 
-    balance = period.balance_hours
+
+def _undismissed(alerts, target):
+    """The alerts of one target that a recorded dismissal is not currently silencing."""
+    dismissals = _dismissals_for(target)
+    balance = target.balance_hours
 
     return [
         alert
@@ -358,21 +413,61 @@ def visible_alerts_for_period(
     ]
 
 
-def dismiss_alert(period, alert_code, actor):
-    """Record that an alert has been acknowledged for this period. Decision B2.
+def visible_alerts_for_period(
+    period, *, reference_date=None, service_log_count=None, allowance_hours=None
+):
+    """The alerts of one period that have not been dismissed away.
+
+    Section 9 requires alerts to be dismissible "para não virar ruído", and decision B2
+    requires the dismissal to expire when things get materially worse.
+    """
+    return _undismissed(
+        evaluate_period(
+            period,
+            reference_date=reference_date,
+            service_log_count=service_log_count,
+            allowance_hours=allowance_hours,
+        ),
+        period,
+    )
+
+
+def visible_alerts_for_allowance(allowance, *, reference_date=None):
+    """The alerts of one work item allowance that have not been dismissed away. D54.
+
+    Phase 5 could not offer this: ``period`` was a mandatory foreign key on the dismissal
+    table, so there was nowhere to record the acknowledgement, and it was named as debt
+    owed by this phase. With the D54 nullable pair in place, allowance alerts become
+    dismissible through the **same** code path as period alerts -- including B2's
+    re-arming, which works unchanged because an allowance has a ``balance_hours`` too.
+    """
+    return _undismissed(
+        evaluate_allowance(allowance, reference_date=reference_date), allowance
+    )
+
+
+def dismiss_alert(target, alert_code, actor):
+    """Record that an alert has been acknowledged for a period or an allowance. B2, D54.
 
     The balance at this moment is stored, because that is what re-arming compares
     against. Re-dismissing an alert that has re-armed **updates** the recorded balance
     rather than failing on the unique index -- the admin is acknowledging the worse
     number, and refusing would leave them unable to quiet an alert they have just seen.
+
+    ``target`` is a ``ServiceContractPeriod`` or a ``ServiceIssueAllowance``. Which one it
+    is decides a single keyword; the exclusivity between the two columns is the database's
+    job, per D54, so this function cannot produce a row with two targets even if a caller
+    passes something strange.
     """
-    dismissal, created = ServiceContractAlertDismissal.objects.update_or_create(
-        period_id=period.pk,
+    field = _dismissal_target_field(target)
+
+    dismissal, created = ServiceAlertDismissal.objects.update_or_create(
         alert_code=alert_code,
         deleted_at=None,
+        **{field: target},
         defaults={
-            "workspace_id": period.workspace_id,
-            "balance_at_dismissal": period.balance_hours,
+            "workspace_id": target.workspace_id,
+            "balance_at_dismissal": target.balance_hours,
             "dismissed_by": actor,
         },
     )
@@ -467,16 +562,71 @@ def _service_log_counts(period_ids):
 # ---------------------------------------------------------------------------
 
 
-def evaluate_allowance(allowance):
+def grace_cutoff(reference_date=None):
+    """The instant a work item must have closed before for D35's grace period to be over.
+
+    Returned as a datetime because ``Issue.completed_at`` is one. Callers that only have a
+    date pass it and get midnight, which is the conservative edge: an allowance becomes
+    pending on the day *after* the 30th, never on it.
+    """
+    reference = reference_date or timezone.now().date()
+    midnight = datetime.combine(reference, time.min)
+
+    if timezone.is_naive(midnight):
+        midnight = timezone.make_aware(midnight)
+
+    return midnight - timedelta(days=ALLOWANCE_GRACE_DAYS)
+
+
+def pending_closure_q(reference_date=None):
+    """``Q`` matching allowances whose grace period has run out. D35, read-only form.
+
+    Exists as a ``Q`` rather than a Python predicate for two reasons. It has to be
+    **subtracted** from section 1's list of active allowances -- an allowance awaiting a
+    decision is not an active pool, and showing it as one is what makes the panel rot --
+    and doing that with ``exclude()`` keeps it one query instead of fetching everything to
+    filter in Python.
+
+    **Reopening the ticket cancels the countdown for free.** ``Issue._sync_completed_at``
+    sets ``completed_at`` back to ``None`` on any move out of the completed group, so a
+    reopened work item stops matching this without a line of code here. D35's "contada do
+    fechamento do chamado" is the core's own notion of closure, reused rather than
+    restated.
+
+    **Named limitation:** a *cancelled* work item has ``completed_at`` null in Plane --
+    only the completed group sets it -- so a cancelled ticket's allowance never becomes
+    pending by this rule. Treating cancellation as closure for billing purposes is a
+    commercial decision D35 does not make, and inventing a second definition of "closed"
+    inside the reporting layer is exactly the divergence this phase is trying to avoid.
+    Registered rather than silently patched.
+    """
+    return Q(
+        status=ServiceIssueAllowance.Status.OPEN,
+        issue__completed_at__isnull=False,
+        issue__completed_at__lt=grace_cutoff(reference_date),
+    )
+
+
+def evaluate_allowance(allowance, *, reference_date=None):
     """Every alert that applies to one open work item allowance.
 
-    Two, and they are mutually exclusive by construction: a negative balance, or high
-    consumption while still positive. Emitting both for the same allowance would be one
-    fact reported twice, and a panel counting alerts would double it.
+    The two consumption alerts are mutually exclusive by construction: a negative
+    balance, or high consumption while still positive. Emitting both for the same
+    allowance would be one fact reported twice, and a panel counting alerts would double
+    it.
 
-    **Neither blocks anything.** Section 3 is explicit that overflowing an allowance does
-    not stop work already performed -- the balance goes negative and the alert appears.
-    Same reasoning as D4 and ``NEGATIVE_BALANCE`` for a contract pool.
+    **Pending closure is additive to those, not exclusive with them**, and the asymmetry
+    is deliberate. The consumption pair are two readings of one quantity, so only one can
+    be true. Pending closure is about the *work item*, not about the balance, so it can
+    coexist -- and when it does, the two facts need two different actions: bill the
+    overage first (section 3 of Phase 5 requires the deficit resolved *before* closing),
+    then close. Collapsing them would hide the ordering.
+
+    **Nothing here blocks anything.** Section 3 is explicit that overflowing an allowance
+    does not stop work already performed -- the balance goes negative and the alert
+    appears. Same reasoning as D4 and ``NEGATIVE_BALANCE`` for a contract pool. And
+    pending closure does not write anything either: see ``ALLOWANCE_PENDING_CLOSURE`` for
+    why D35 informs instead of executing.
     """
     balance = allowance.balance_hours
     credited = allowance.credited_hours
@@ -502,10 +652,30 @@ def evaluate_allowance(allowance):
             balance_hours=str(balance),
         )
 
+    completed_at = getattr(allowance.issue, "completed_at", None)
+
+    if (
+        allowance.status == ServiceIssueAllowance.Status.OPEN
+        and completed_at is not None
+        and completed_at < grace_cutoff(reference_date)
+    ):
+        add(
+            ALLOWANCE_PENDING_CLOSURE,
+            # The balance is carried because it is what the decision is *about*: a
+            # positive one is the client's unused credit and a negative one is an
+            # unbilled overage, and those are opposite conversations.
+            balance_hours=str(balance),
+            issue_completed_on=completed_at.date().isoformat(),
+            grace_days=ALLOWANCE_GRACE_DAYS,
+            days_since_closure=(
+                (reference_date or timezone.now().date()) - completed_at.date()
+            ).days,
+        )
+
     return alerts
 
 
-def workspace_allowance_alerts(workspace_id, *, project_id=None):
+def workspace_allowance_alerts(workspace_id, *, project_id=None, reference_date=None):
     """Every work item allowance in a workspace that needs attention, with why.
 
     Returned as its own list rather than folded into ``workspace_alert_panel``'s entries,
@@ -513,16 +683,18 @@ def workspace_allowance_alerts(workspace_id, *, project_id=None):
     neither. Merging them would have meant giving every entry a nullable contract, which
     is the shape that makes a caller guess.
 
-    **There is no dismissal for these**, unlike period alerts. ``ServiceContractAlertDismissal``
-    has a mandatory foreign key to a period, and reusing it would need a second nullable
-    pair plus its own exclusivity constraint for a feature section 3 does not ask for --
-    it asks only that the alert appears. Named debt for **Phase 9**, which owns the
-    dashboards, rather than hidden in a comment.
+    **These are dismissible as of D54.** Phase 5 shipped them undismissable, because
+    ``ServiceAlertDismissal.period`` was mandatory and there was nowhere to record the
+    acknowledgement; it was named as debt owed by this phase rather than hidden in a
+    comment. The D54 nullable pair closed it, and the dismissal now runs through the same
+    ``_undismissed`` path period alerts use, re-arming included.
     """
     entries = []
 
-    for allowance in open_allowances_for_workspace(workspace_id, project_id=project_id):
-        alerts = evaluate_allowance(allowance)
+    allowances = open_allowances_for_workspace(workspace_id, project_id=project_id)
+
+    for allowance in allowances.select_related("issue", "project"):
+        alerts = visible_alerts_for_allowance(allowance, reference_date=reference_date)
 
         if not alerts:
             continue

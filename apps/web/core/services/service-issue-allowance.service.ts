@@ -65,4 +65,35 @@ export class ServiceIssueAllowanceService extends APIService {
         throw error?.response?.data;
       });
   }
+
+  /**
+   * Acknowledge an alert for one allowance, so it stops being noise. Decision D54.
+   *
+   * **The route Phase 5 could not offer.** `ServiceAlertDismissal.period` was a mandatory
+   * foreign key until migration 0132 gave it the D29 nullable pair, so there was nowhere to
+   * record the acknowledgement of an allowance alert -- it was named as debt owed by Phase 9
+   * rather than hidden in a comment.
+   *
+   * Open to Members as well as Admins, matching the period endpoint: section 9 puts the panel
+   * in front of technicians, and an alert nobody present can quiet is an alert everybody learns
+   * to ignore.
+   *
+   * **Dismissing `ALLOWANCE_PENDING_CLOSURE` forfeits nothing.** It silences the reminder while
+   * the negotiation the grace period exists for is still happening. Decision B2's band brings
+   * it back if the balance moves materially, and the hours are only ever written off by the
+   * close endpoint, which is a separate and deliberate act.
+   */
+  async dismissAlert(
+    workspaceSlug: string,
+    allowanceId: string,
+    alertCode: string
+  ): Promise<{ alert_code: string; balance_at_dismissal: string; created: boolean; alerts: unknown[] }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/service-issue-allowances/${allowanceId}/dismiss-alert/`, {
+      alert_code: alertCode,
+    })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
 }
