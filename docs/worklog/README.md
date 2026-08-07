@@ -67,6 +67,7 @@ Sugestões práticas:
 | 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          | feita  |
 | 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       | 20/22  |
 | 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    | feita  |
+| 8b   | `08b-telas-que-faltam.md`                 | As telas dos critérios 2 e 15, mais duas dívidas de UI                   | 8, 9       | —      |
 
 A Fase 6 depende da 4 apenas para o faturamento de excedente (seção 6); as seções
 1 a 5 só precisam da Fase 3. A Fase 7 é independente das 4, 5 e 6 e pode ser feita

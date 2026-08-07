@@ -53,18 +53,22 @@ início da Fase 8 era 2273.
 
 Ordem de utilidade, não de esforço.
 
-| Superfície                                                          | Estado                                                                                               | Onde                                                   |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| **Dashboard do portal do cliente**                                  | API completa e testada, **nenhuma tela**                                                             | `GET /service-reports/portal/`                         |
-| **Concessões da Fase 7**                                            | API completa, nenhum serviço no frontend, nenhuma UI                                                 | `service-member-permissions/`, `/me/`, `/<member_id>/` |
-| **Solicitante do chamado**                                          | API completa (GET/POST/DELETE), nenhum controle no formulário                                        | `.../issues/<id>/service-requester/`                   |
-| Sugestão de `guest_view_all_features` ao vincular Project a Cliente | O endpoint aceita a flag e **deliberadamente nunca a infere** — a decisão é da UI, que não a oferece | `service-clients/<pk>/assign-projects/`                |
+| Superfície                                       | Estado                                                                    | Onde                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Dashboard do portal do cliente**               | API completa e testada, **nenhuma tela**                                  | `GET /service-reports/portal/`                         |
+| **Concessões da Fase 7**                         | API completa, nenhum serviço no frontend, nenhuma UI                      | `service-member-permissions/`, `/me/`, `/<member_id>/` |
+| **Solicitante do chamado**                       | API completa (GET/POST/DELETE), nenhum controle no formulário             | `.../issues/<id>/service-requester/`                   |
+| Atribuição de projects **em massa** a um Cliente | `assignProjects` existe em service e store; **nenhum componente o chama** | `service-clients/<pk>/assign-projects/`                |
 
-As três primeiras são dívidas nomeadas na seção 5. A quarta é da Fase 1 e está no docstring de
-`assign_projects` desde então: _"the master context requires that turning on
-guest_view_all_features be suggested to the admin rather than done silently, so the decision
-stays with the UI and this endpoint never infers it."_ Hoje ninguém sugere, então um admin que
-vincula um Project a um Cliente não descobre que precisa ligar a flag para o portal funcionar.
+As três primeiras são dívidas nomeadas na seção 5. A quarta é a atribuição em massa, cujo
+caminho de uma via já existe.
+
+**Correção de um erro de registro:** uma versão anterior deste documento afirmava que a UI não
+sugere `guest_view_all_features` ao vincular um project. **Ela sugere.**
+`ProjectServiceClientSelect` está montado em `project/settings/service-client-section.tsx` e abre
+um modal de confirmação com as duas flags — exatamente o "sugerir e não impor" que o contexto
+mestre pede. O que não existe é a tela de atribuição **em massa**, que é outro caminho e uma
+lacuna bem menor.
 
 ---
 
@@ -204,6 +208,11 @@ herdado) está entregue — é a **tela** que falta, não a regra.
 
 **Consequência prática:** a Fase 8 não deve ser considerada encerrada. A conclusão é a
 **Fase 8b**, seguindo o precedente da própria série — a Fase 2b existe pelo mesmo motivo.
+
+O briefing está escrito: **`docs/worklog/08b-telas-que-faltam.md`**. É o prompt da próxima
+sessão. Escopo aprovado: o dashboard do portal (critério 2), o controle do solicitante
+(critério 15), a UI das concessões da Fase 7, e a atribuição de projects em massa. Sem migração,
+sem decisão nova, sem toque no core.
 
 ### Dívidas propriamente ditas
 
