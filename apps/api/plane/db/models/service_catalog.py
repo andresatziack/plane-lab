@@ -36,6 +36,15 @@ class ServiceConfigEntity:
     # datum rather than a guess.
     CONTRACT = "service_contract"
     CONTRACT_PERIOD = "service_contract_period"
+    # The pricing phase. `CLIENT_PRICE` audits a dated price sheet -- its start date and
+    # its base hour rate. `CLIENT_HOUR_TYPE_RATE` audits an absolute override of one
+    # hour type within a sheet, where registering and removing the row are the events
+    # (the `CREATED` and `DELETED` verbs) rather than a column changing value.
+    # `ISSUE_ALLOWANCE` audits the one term of an allowance that decides money: the
+    # overage hour rate negotiated with the project it was sold as.
+    CLIENT_PRICE = "service_client_price"
+    CLIENT_HOUR_TYPE_RATE = "service_client_hour_type_rate"
+    ISSUE_ALLOWANCE = "service_issue_allowance"
 
 
 class ServiceCatalogBaseModel(ChangeTrackerMixin, WorkspaceBaseModel):

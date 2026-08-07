@@ -130,6 +130,11 @@ def _log_time(project, author, hour_type, billing_type, **overrides):
         "debited_hours": Decimal("1.5000"),
         "applied_multiplier": hour_type.multiplier,
         "applied_billing_route": billing_type.billing_route,
+        # Mirrors the chosen route: that is what an unsettled row means, and
+        # `service_log_route_deviation_is_coherent` refuses any other pairing without a
+        # recorded deviation. These tests are about the client link and the catalogue, not
+        # about money, so the row stays unpriced.
+        "settled_billing_route": billing_type.billing_route,
         "hour_type": hour_type,
         "billing_type": billing_type,
         "batch_id": uuid4(),

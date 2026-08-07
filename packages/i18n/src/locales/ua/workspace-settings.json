@@ -770,6 +770,32 @@
             }
           }
         }
+      },
+      "service_prices": {
+        "title": "Hourly prices",
+        "description": "The base hour rate, by vigency. A readjustment adds a new vigency instead of editing the current one, so work already invoiced keeps the price it was billed at.",
+        "add": "Add vigency",
+        "empty": "No price registered. Work logs for this client will be recorded without a value.",
+        "starts_on": "In force from",
+        "base_hour_rate": "Base hour rate (R$)",
+        "first_of_month_hint": "A vigency starts on the first of a month. That keeps a work log's price and a contract overage's price reading the same sheet.",
+        "from": "From {date}",
+        "in_force": "In force",
+        "no_table": "No price is in force on this date.",
+        "multiplier": "Multiplier {value}x",
+        "overridden": "Overridden",
+        "override_hint": "An absolute rate that replaces base x multiplier for this hour type. It already includes the multiplier.",
+        "set_override": "Set an absolute rate",
+        "remove_override": "Remove the absolute rate",
+        "override_prompt": "Absolute rate for this hour type (R$ per logged hour)",
+        "override_count": "{count} absolute override(s)",
+        "toasts": {
+          "load_failed": "The prices could not be loaded.",
+          "save_failed": "The price could not be saved.",
+          "duplicate": "A vigency already starts on that date.",
+          "not_first_of_month": "A vigency has to start on the first of a month.",
+          "already_priced": "This vigency already priced work logs and cannot be removed. Those records keep the rate they were billed at, and deleting it would leave nobody able to check it."
+        }
       }
     },
     "empty_state": {

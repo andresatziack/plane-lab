@@ -19,6 +19,7 @@ from plane.utils.service_log_time import (
     format_hours,
     parse_duration,
 )
+from plane.utils.service_money import format_money
 
 from .base import BaseSerializer
 from .user import UserLiteSerializer
@@ -39,7 +40,27 @@ class ServiceLogSerializer(BaseSerializer):
     ``DO_NOTHING``, so they can point at a soft deleted option, and the default
     manager filters those out -- following the forward descriptor would raise
     ``DoesNotExist`` on exactly the historical rows Phase 2's criterion 3 is about.
+
+    **The money is removed for anyone who is not a workspace Admin.** R11 puts the value
+    in reais out of a technician's reach, and R11(b) makes that the serializer's job
+    rather than the interface's -- so the seven monetary keys are *deleted from the
+    payload*, not merely hidden by the frontend. The caller passes
+    ``context["can_see_amounts"]``; the default is ``False``, because the safe direction
+    for a money field is to be absent unless somebody proved otherwise.
     """
+
+    #: The keys removed for a non-Admin. Kept as a class attribute so the contract test
+    #: can assert against the same list the code uses, instead of restating it and
+    #: drifting.
+    AMOUNT_FIELDS = (
+        "amount",
+        "amount_display",
+        "applied_hour_rate",
+        "applied_rate_basis",
+        "settled_billing_route",
+        "route_deviation_reason",
+        "pricing_failure_reason",
+    )
 
     author_detail = UserLiteSerializer(source="author", read_only=True)
 
@@ -57,6 +78,25 @@ class ServiceLogSerializer(BaseSerializer):
     equivalent_hours_display = serializers.SerializerMethodField()
 
     is_billable = serializers.SerializerMethodField()
+
+    # Formatted server side for the same reason the hour displays are: the list, the
+    # consolidation and the CSV export must agree on a thousands separator, and three
+    # formatters is three chances to disagree.
+    amount_display = serializers.SerializerMethodField()
+
+    def __init__(self, *args, **kwargs):
+        """Remove the monetary fields unless the context says the caller may see them.
+
+        Done here rather than with a second serializer class because the same endpoint
+        serves both audiences: an Admin and a Member both GET the work item's logs, and
+        branching on the class in every view is a branch each new view can forget. Removing
+        from ``self.fields`` fails safe -- a view that passes no context gets no money.
+        """
+        super().__init__(*args, **kwargs)
+
+        if not self.context.get("can_see_amounts", False):
+            for field in self.AMOUNT_FIELDS:
+                self.fields.pop(field, None)
 
     class Meta:
         model = ServiceLog
@@ -81,6 +121,15 @@ class ServiceLogSerializer(BaseSerializer):
             # R4 snapshots.
             "applied_multiplier",
             "applied_billing_route",
+            # The money, Phase 6. Removed from the payload for a non-Admin by `__init__`
+            # -- see AMOUNT_FIELDS and the class docstring.
+            "settled_billing_route",
+            "route_deviation_reason",
+            "applied_hour_rate",
+            "applied_rate_basis",
+            "amount",
+            "amount_display",
+            "pricing_failure_reason",
             "hour_type",
             "hour_type_name",
             "hour_type_color",
@@ -118,6 +167,15 @@ class ServiceLogSerializer(BaseSerializer):
             "debited_hours",
             "applied_multiplier",
             "applied_billing_route",
+            # Every monetary column is read only. The value is derived by the domain layer
+            # from the price sheet in force on `worked_on`; a writable amount would be a
+            # second way to set a price, and it would bypass both the R4 snapshot and the
+            # check constraints that keep a pool debit and a charge mutually exclusive.
+            "settled_billing_route",
+            "route_deviation_reason",
+            "applied_hour_rate",
+            "applied_rate_basis",
+            "amount",
             "suggested_hour_type",
             "is_hour_type_overridden",
             "classification_reason",
@@ -169,6 +227,19 @@ class ServiceLogSerializer(BaseSerializer):
 
     def get_equivalent_hours_display(self, obj):
         return format_hours(obj.equivalent_hours)
+
+    def get_amount_display(self, obj):
+        """The value as pt-BR currency, or ``None`` when the row carries no money.
+
+        ``None`` rather than ``"R$ 0,00"`` on purpose: a row with no amount and a row
+        genuinely worth nothing are different facts, and rendering both as R$ 0,00 would
+        make a missing price sheet look like a completed calculation. The reason for the
+        absence travels in ``pricing_failure_reason``.
+        """
+        if obj.applied_hour_rate is None:
+            return None
+
+        return format_money(obj.amount)
 
 
 class ServiceLogClientSerializer(BaseSerializer):

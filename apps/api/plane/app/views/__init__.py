@@ -103,8 +103,16 @@ from .service_issue_allowance.base import (
     IssueServiceAllowanceEndpoint,
     ServiceIssueAllowanceAlertPanelEndpoint,
     ServiceIssueAllowanceCloseEndpoint,
+    ServiceIssueAllowanceOverageRateEndpoint,
 )
 from .service_log.base import ServiceLogViewSet
+from .service_pricing.base import (
+    ServiceBillingConsolidationEndpoint,
+    ServiceClientHourTypeRateViewSet,
+    ServiceClientPriceViewSet,
+    ServiceEffectiveRateTableEndpoint,
+    ServiceLogExportEndpoint,
+)
 from .state.base import StateViewSet, IntakeStateEndpoint
 from .view.base import (
     WorkspaceViewViewSet,

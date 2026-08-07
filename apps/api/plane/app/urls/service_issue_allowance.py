@@ -8,6 +8,7 @@ from plane.app.views import (
     IssueServiceAllowanceEndpoint,
     ServiceIssueAllowanceAlertPanelEndpoint,
     ServiceIssueAllowanceCloseEndpoint,
+    ServiceIssueAllowanceOverageRateEndpoint,
 )
 
 urlpatterns = [
@@ -26,6 +27,13 @@ urlpatterns = [
         "workspaces/<str:slug>/service-issue-allowances/<uuid:pk>/close/",
         ServiceIssueAllowanceCloseEndpoint.as_view(),
         name="service-issue-allowance-close",
+    ),
+    # The rate an hour past this allowance costs. Its own route: a renegotiation changes the
+    # rate without crediting hours.
+    path(
+        "workspaces/<str:slug>/service-issue-allowances/<uuid:pk>/overage-rate/",
+        ServiceIssueAllowanceOverageRateEndpoint.as_view(),
+        name="service-issue-allowance-overage-rate",
     ),
     path(
         "workspaces/<str:slug>/service-issue-allowance-alerts/",

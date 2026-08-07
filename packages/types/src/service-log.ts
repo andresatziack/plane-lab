@@ -4,6 +4,10 @@
  * See the LICENSE file for details.
  */
 
+// The pricing phase's vocabulary, imported rather than restated so that a work log and the
+// consolidation cannot disagree about what a deviation reason is.
+import type { TServicePricingFailure, TServiceRateBasis, TServiceRouteDeviation } from "./service-pricing";
+
 /**
  * How the technician expressed the time. Rule R9.
  *
@@ -66,7 +70,27 @@ export interface IServiceLog {
 
   // R4 snapshots. A later catalogue edit must never change these.
   readonly applied_multiplier: string;
+  /** The route of the billing type that was **chosen**. */
   readonly applied_billing_route: string;
+
+  // --- the money, Phase 6 -------------------------------------------------------------
+  //
+  // Every field below is **optional because it is absent for a non-Admin**, not because it
+  // is sometimes null. R11 keeps the value in reais away from technicians and R11(b) makes
+  // that a serializer's job: the keys are removed from the payload. A client that renders
+  // `amount ?? "R$ 0,00"` would invent a price where it was told nothing.
+
+  /** The route that was actually **applied**. Differs from the chosen one only under D33. */
+  readonly settled_billing_route?: string;
+  /** Why the two differ: a commercial pendency, with a deadline attached. */
+  readonly route_deviation_reason?: TServiceRouteDeviation | null;
+  readonly applied_hour_rate?: string | null;
+  readonly applied_rate_basis?: TServiceRateBasis | null;
+  readonly amount?: string;
+  /** Formatted pt-BR. **Null when the row carries no value at all**, never "R$ 0,00". */
+  readonly amount_display?: string | null;
+  /** Why a row that should carry money carries zero. */
+  readonly pricing_failure_reason?: TServicePricingFailure | null;
 
   hour_type: string;
   /** Resolved through `all_objects`, so a retired option still renders (Phase 2, #3). */
@@ -114,6 +138,15 @@ export interface IServiceLogTotals {
   readonly logged_hours_display: string;
   readonly equivalent_hours_display: string;
   readonly debited_hours_display: string;
+
+  /**
+   * The billed value of the work item, Phase 6. **Optional because it is genuinely absent**
+   * for anyone who is not a workspace Admin -- R11(b) makes the restriction a serializer's
+   * job, so the key is not sent rather than sent as null. Render it when present; never
+   * substitute a zero for its absence.
+   */
+  readonly amount?: string;
+  readonly amount_display?: string;
 }
 
 /** What the form submits. The duration is free text; the server parses it (R1). */

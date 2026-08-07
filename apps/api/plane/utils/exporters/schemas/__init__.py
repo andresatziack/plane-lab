@@ -16,6 +16,7 @@ from .base import (
     StringField,
 )
 from .issue import IssueExportSchema
+from .service_log import ServiceLogExportSchema
 
 __all__ = [
     # Base field types
@@ -31,4 +32,6 @@ __all__ = [
     "ExportSchema",
     # Issue schema
     "IssueExportSchema",
+    # Work log schema
+    "ServiceLogExportSchema",
 ]

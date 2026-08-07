@@ -54,22 +54,26 @@ Sugestões práticas:
 
 ### Núcleo — Fases 1 a 9
 
-| Fase | Arquivo                                   | Entrega                                                                  | Depende de |
-| ---- | ----------------------------------------- | ------------------------------------------------------------------------ | ---------- |
-| 1    | `01-fundacao-clientes.md`                 | Entidade Cliente ancorada a projects do Plane                            | —          |
-| 2    | `02-catalogos-configuraveis.md`           | Tipo de Hora (multiplicador) e Tipo de Atendimento (rota de faturamento) | 1          |
-| 2b   | `02b-calendario-janelas-classificacao.md` | Feriados, janelas de classificação e motor de segmentação                | 2          |
-| 3    | `03-worklog-core.md`                      | Parser, arredondamento, modo duração/intervalo, CRUD, totais             | 2b         |
-| 4    | `04-contratos-e-pools.md`                 | Contratos, pool mensal, acúmulo, excedente, renovação, alertas           | 3          |
-| 5    | `05-bolsa-por-workitem.md`                | Bolsa de horas isolada por chamado                                       | 4          |
-| 6    | `06-avulso-precificacao.md`               | Preços por cliente, valor em R$, faturamento de excedente                | 3 e 4      |
-| 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          |
-| 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       |
-| 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    |
+| Fase | Arquivo                                   | Entrega                                                                  | Depende de | Status |
+| ---- | ----------------------------------------- | ------------------------------------------------------------------------ | ---------- | ------ |
+| 1    | `01-fundacao-clientes.md`                 | Entidade Cliente ancorada a projects do Plane                            | —          | feita  |
+| 2    | `02-catalogos-configuraveis.md`           | Tipo de Hora (multiplicador) e Tipo de Atendimento (rota de faturamento) | 1          | feita  |
+| 2b   | `02b-calendario-janelas-classificacao.md` | Feriados, janelas de classificação e motor de segmentação                | 2          | feita  |
+| 3    | `03-worklog-core.md`                      | Parser, arredondamento, modo duração/intervalo, CRUD, totais             | 2b         | feita  |
+| 4    | `04-contratos-e-pools.md`                 | Contratos, pool mensal, acúmulo, excedente, renovação, alertas           | 3          | feita  |
+| 5    | `05-bolsa-por-workitem.md`                | Bolsa de horas isolada por chamado                                       | 4          | feita  |
+| 6    | `06-avulso-precificacao.md`               | Preços por cliente, valor em R$, faturamento de excedente                | 3 e 4      | feita  |
+| 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          | —      |
+| 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       | —      |
+| 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    | —      |
 
 A Fase 6 depende da 4 apenas para o faturamento de excedente (seção 6); as seções
 1 a 5 só precisam da Fase 3. A Fase 7 é independente das 4, 5 e 6 e pode ser feita
 em paralelo.
+
+**Restam a 7, a 8 e a 9.** A 7 e a 9 estão ambas desbloqueadas; a 8 depende da 7.
+`PROXIMA-SESSAO.md` aponta para a **7**, porque é a única que ainda bloqueia outra
+fase — mas explica o que muda se você preferir a 9.
 
 ### Depois do núcleo — roadmap acordado
 

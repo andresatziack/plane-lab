@@ -34,6 +34,7 @@ from plane.db.models import (
     ServiceBillingType,
     ServiceContract,
     ServiceContractPeriod,
+    ServiceHourLedgerEntry,
     ServiceLog,
     Workspace,
     WorkspaceMember,
@@ -98,6 +99,9 @@ def setup(db):
         monthly_hours=Decimal("30.0000"),
         starts_on=date(2026, 1, 1),
         ends_on=date(2026, 12, 31),
+        # Phase 6: billing an overage writes a value and refuses without a rate that
+        # resolves. R$ 250,00/h is the pricing brief's criterion 7 figure.
+        overage_hour_rate=Decimal("250.00"),
     )
     project = ProjectFactory(name="Marubeni", workspace=workspace, service_client=service_client)
     project.is_time_tracking_enabled = True
@@ -451,6 +455,13 @@ class TestPeriodClose:
         assert response.json()["period"]["overage_hours"] == "3.0000"
         february = resolve_period(setup["contract"], date(2026, 2, 1))
         assert february.granted_hours == Decimal("30.0000"), "the next month is whole"
+
+        # Phase 6: the value rode along on the same ledger row. Criterion 7's figure.
+        billed = ServiceHourLedgerEntry.objects.get(
+            period_id=period.pk, entry_type="overage_billed"
+        )
+        assert billed.amount == Decimal("750.00")
+        assert billed.applied_hour_rate == Decimal("250.00")
 
     def test_a_member_cannot_close_a_period(self, setup):
         """Closing locks an invoiced month. That is an admin decision."""

@@ -70,6 +70,13 @@ from .service_issue_allowance import (
     ServiceIssueAllowanceCreditSerializer,
     ServiceIssueAllowanceSerializer,
 )
+from .service_pricing import (
+    ServiceAllowanceOverageRateSerializer,
+    ServiceClientHourTypeRateSerializer,
+    ServiceClientPriceSerializer,
+    ServiceLogExportHistorySerializer,
+    ServiceLogExportRequestSerializer,
+)
 from .service_log import (
     ServiceLogClientSerializer,
     ServiceLogSerializer,

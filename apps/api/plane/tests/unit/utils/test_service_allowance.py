@@ -903,12 +903,20 @@ class TestClosing:
 
         assert reconcile_allowance(closed)["is_consistent"]
 
-    def test_closing_with_a_deficit_bills_the_overage_in_hours(
+    def test_closing_with_a_deficit_bills_the_overage_in_hours_and_in_reais(
         self, catalog, project_issue, january, actor
     ):
-        """The other settlement. Recorded in hours; Phase 6 turns it into reais, through
-        the same mechanism a period's overage uses."""
+        """The other settlement, through the same mechanism a period's overage uses.
+
+        The value is priced at the **allowance's own** rate, not the client's support rate:
+        an allowance is a separately negotiated sale, so a project sold at R$ 180/h does not
+        have overage at whatever support costs. ``TestOverageRate`` covers the precedence
+        and the sabotage directly.
+        """
         credit_allowance(project_issue, Decimal("10.0000"), actor=actor)
+        ServiceIssueAllowance.objects.filter(issue_id=project_issue.pk).update(
+            overage_hour_rate=Decimal("180.00")
+        )
         log_on(
             project_issue, actor=actor, catalog=catalog, minutes=25 * 60, worked_on=date(2026, 1, 15)
         )
@@ -924,6 +932,8 @@ class TestClosing:
             allowance_id=closed.pk, entry_type=ServiceLedgerEntryType.OVERAGE_BILLED
         )
         assert billed.hours == Decimal("15.0000")
+        assert billed.amount == Decimal("2700.00"), "15h at R$ 180,00/h"
+        assert billed.applied_hour_rate == Decimal("180.00")
 
         assert ServiceHourLedgerEntry.objects.filter(allowance_id=closed.pk).aggregate(
             total=Sum("hours")

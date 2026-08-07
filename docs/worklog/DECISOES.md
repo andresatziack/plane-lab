@@ -693,3 +693,250 @@ implementada na Fase 5:
 | D34 | Não, é cadastro | `accrual_cap_mode = NONE`, `carryover_months = NULL`. Requisito: garantir que o alerta de saldo acumulado alto exista |
 | D35 | **Sim, fora da Fase 6** | carência de 30 dias e tarefa periódica de baixa — dívida nomeada |
 | D36 | **Sim** | quarta origem no consolidado — Fase 6 |
+
+
+---
+
+# Decisões da Fase 6 — precificação em R$
+
+Tomadas na sessão de implementação da Fase 6, todas confirmadas antes de escrever
+código, conforme a §7.1 do contexto mestre. O desenho completo que as originou está
+em `06-design-proposto.md`.
+
+## D37 — A vigência de preços é resolvida por `worked_on`, não pela data de digitação
+
+A §2 do briefing diz que o apontamento "persiste o valor/hora vigente **no momento do
+registro**". A frase é ambígua e a leitura correta é "a vigência daquele registro", não
+"a data em que alguém digitou".
+
+Trabalho feito em março é cobrado ao preço de março. Cobrar o preço de maio porque o
+técnico digitou em maio é indefensável diante do cliente, e a R7 mais o critério 12 já
+fixaram esse princípio para a competência.
+
+**A consequência que justifica a tabela de vigência existir:** o snapshot da R4 sozinho
+não resolve isto. Um apontamento de março digitado em maio, depois de um reajuste em
+abril, ainda não tem snapshot — é a vigência por `worked_on` que o faz precificar a
+março. Selecionar pela data de digitação faria dois apontamentos do mesmo dia de março,
+digitados com um mês de diferença, terem preços diferentes: a fatura de março deixaria
+de ser reproduzível.
+
+**Caso que o briefing não cobria, e que o desenho teve de resolver:** apontamento cujo
+`worked_on` é **anterior à primeira folha de preço** do cliente. "Maior `starts_on` que
+não passa da data" devolve vazio. Não bloqueia — é trabalho já executado, e valem a D27
+e a D9 integralmente. Grava valor 0 com
+`ServicePricingFailure.NO_PRICE_SHEET_IN_FORCE`, visível no consolidado como pendência
+de **cadastro**, distinta de `NO_PRICE_SHEET_FOR_CLIENT` (nunca cadastraram) porque são
+erros opostos e pedem ações diferentes.
+
+## D38 — O override absoluto é filho da vigência, não do Cliente
+
+A folha de preço é uma linha por vigência (`ServiceClientPrice`), e o valor absoluto de
+um Tipo de Hora é uma linha **filha dela** (`ServiceClientHourTypeRate`).
+
+O override pendurado no Cliente sobreviveria intacto a um reajuste e, sendo valor
+absoluto, **deixaria de ser reajustado em silêncio**: a base vai de R$ 200 para R$ 220 e
+o valor de domingo fica no número do ano passado para sempre. Também não haveria como
+*remover* um override num reajuste, nem tê-lo em 2026 e não em 2027.
+
+Sendo filha da folha, **cada vigência é uma folha de preço completa e autossuficiente**:
+base mais suas exceções. Reajustar é copiar para frente e editar. Ler um preço é uma
+busca da folha vigente e as exceções dela — sem nenhuma regra de mesclagem entre
+vigências para errar, que é onde esse tipo de bug mora.
+
+**Não existe `ends_on`.** Um par `(starts_on, ends_on)` são duas verdades que podem
+discordar de duas formas silenciosas: **buraco** (data sem preço) e **sobreposição**
+(data com dois). Com a regra do maior `starts_on`, buraco e sobreposição ficam
+irrepresentáveis — sobreposição pelo índice único parcial, buraco porque a folha vale
+até a seguinte começar. Mesmo raciocínio da D3.
+
+**Ganho colateral: isto responde à advertência da D22 em vez de pagar o preço dela.** A
+D22 avisou que rastrear uma coluna **nullable** cobra da trilha de auditoria, e nomeou "o
+preço sobrescrito opcional da Fase 6" como o caso concreto. O override aqui é **uma
+linha, não uma coluna nullable**: cadastrar é `CREATED`, remover é `DELETED` — os dois
+verbos que a própria D22 criou — e `absolute_rate` é não nullable. O sentinel
+`CONFIG_VALUE_UNSET` continua existindo e continua sendo usado por
+`ServiceContract.overage_hour_rate`, que não muda de forma.
+
+## D39 — A bolsa tem valor/hora próprio, com fallback para a base do Cliente
+
+`ServiceIssueAllowance.overage_hour_rate`, nullable e **rastreado**. Nulo cai para o
+valor base do Cliente na vigência em força.
+
+O argumento é o mesmo que a Fase 4 usou para criar `ServiceContract.overage_hour_rate`
+antes de ter consumidor: **o momento em que 40h são creditadas é o momento em que o valor
+daquele projeto é conhecido**, e adicionar coluna auditada depois significa back-fill de
+trilha de auditoria, que não se faz honestamente.
+
+Uma bolsa é venda de projeto negociada à parte. Um projeto vendido a R$ 180/h não tem
+excedente a R$ 200/h porque R$ 200/h é o que o suporte daquele cliente custa. Usar a base
+do Cliente como **única** resposta precificaria excedente de projeto com preço de
+suporte, o que é errado com a mesma frequência com que os dois preços diferem — ou seja,
+quase sempre.
+
+**Consequência no modelo:** `ServiceIssueAllowance` ganhou `ChangeTrackerMixin`, que a
+Fase 5 deliberadamente não tinha. As exclusões são o ponto: `TRACKED_FIELDS` tem
+**apenas** `overage_hour_rate`. O raciocínio da Fase 5 continua válido para todo o resto
+— creditar horas é movimento contábil e a auditoria dele é o livro-caixa com seu próprio
+`actor`; os acumuladores auditados aqui duplicariam o ledger, o que a §6 do contexto
+mestre proíbe. O que mudou é que a Fase 6 acrescentou **configuração que decide
+dinheiro**, e a D22 exige exatamente isso auditado.
+
+Como é nullable e rastreado, é o único campo deste modelo que depende do sentinel
+`CONFIG_VALUE_UNSET` (D4). Fixado por
+`AP::test_the_rate_change_is_audited`, que afirma `old_value == "UNSET"`.
+
+## D40 — O excedente de contrato é precificado pela vigência do **início** da competência
+
+`period.starts_on`, não `period.ends_on` nem a data do fechamento.
+
+Fechar em abril não pode pôr preço de abril na fatura de março. E `starts_on` em vez de
+`ends_on` porque uma folha que entrasse em vigor no dia 28 passaria a valer para o mês
+inteiro retroativamente, na direção desfavorável ao cliente.
+
+**A pergunta ficou irrelevante por construção:** `starts_on` de folha de preço é
+**restrito ao dia 1º em DDL** (`service_client_price_starts_on_first_of_month`). Assim
+não existe folha entrando em vigor no meio de uma competência, e as duas leituras — a do
+apontamento, por `worked_on`, e a do excedente, por `period.starts_on` — coincidem. É o
+mesmo movimento da D31, que aboliu pro-rata em todo o sistema: em vez de acertar a regra,
+tornar o caso inexistente.
+
+Excedente de **bolsa** usa a data de encerramento, porque uma bolsa não tem competência —
+ela é uma venda que termina quando alguém a encerra.
+
+## D41 — Faturar excedente sem valor/hora resolvível **bloqueia**
+
+`close_period(settlement=BILLED)` e `close_allowance` recusam com
+`OVERAGE_RATE_NOT_CONFIGURED` quando nem o termo específico nem a base do Cliente
+resolvem.
+
+**Isto não contradiz a D27, a D9 e a D21, e a distinção é o que o torna seguro.** Aquelas
+protegem **trabalho já executado por um técnico**: recusar destruiria o registro de
+trabalho real por causa de configuração que o técnico não controla. Faturar excedente não
+é isso. É **ato administrativo deliberado, num momento de escolha, com alternativa
+legítima já disponível** — o período pode fechar como `CARRIED`.
+
+Faturar a R$ 0,00 **zeraria um déficit real em silêncio**, destruindo a dívida sem
+rastro, que é o pior dos três resultados. Recusar devolve a decisão a quem pode tomá-la.
+
+O controle positivo está na suíte: `B::test_carrying_the_deficit_needs_no_rate` prova que
+a alternativa realmente existe sem taxa nenhuma.
+
+## D42 — Não existe estorno de excedente faturado. Dívida nomeada
+
+O critério 6 da §6 do briefing pede que "estornar o faturamento de excedente restaure o
+déficit e o transporte de forma consistente". **Isso não foi implementado, e a ausência é
+anterior a esta fase**: nada no repositório escreve linha reversora de `OVERAGE_BILLED`, e
+não existe `reopen_period`. A Fase 4 fechou seus critérios sem esse caminho.
+
+Reabrir período é mecanismo que a Fase 4 deliberadamente não construiu, e o cascateamento
+do saldo já transportado para a competência seguinte é problema dela, não da fase do R$.
+Construí-lo aqui seria a mesma invasão de escopo que a D35 recusou.
+
+**O que um estorno exigiria, registrado para quem pegar isto não redescobrir:**
+
+1. um `entry_type` novo e reversor, que precisa entrar em uma das três listas de sinal
+   (`NEGATIVE_ONLY_`, `POSITIVE_ONLY_`, `SIGNED_LEDGER_ENTRY_TYPES`) ou a constraint
+   `service_ledger_hours_sign_matches_entry_type` rejeita a linha;
+2. **reabertura do período** — hoje um período fechado recusa débito, estorno, fechamento
+   e edição de cota, e todos os quatro precisariam de um caminho de volta;
+3. **cascateamento do transporte**: se o déficit foi faturado, a competência seguinte
+   abriu com a cota inteira. Estornar recria o déficit, que agora tem de ser transportado
+   — e se a competência seguinte já fechou, o cascateamento é recursivo;
+4. remoção do índice único parcial `service_ledger_unique_overage_billed_per_period`, ou
+   um estorno seguido de novo faturamento seria recusado pelo banco.
+
+**Duas exigências que compensam a ausência, e ambas estão implementadas:**
+
+- **A confirmação mostra o valor calculado e o valor/hora aplicado antes de efetivar, e
+  diz que a ação não pode ser desfeita.** `overage_billing_preview` e
+  `allowance_overage_preview` devolvem `is_reversible: false` como constante — a API
+  afirma o fato em vez de deixar o cliente saber por conta própria. Endpoints
+  `GET .../overage-preview/` e `GET .../service-issue-allowances/<pk>/close/`, mais
+  `OverageBillingConfirmation` no frontend. Erro irreversível tem de ser deliberado, não
+  descuidado.
+- **O erro mais provável — faturar duas vezes — passou a ser recusado pelo banco**, não
+  por um `if`. Ver o critério 9 no resumo abaixo.
+
+## D43 — Project sem Cliente é trabalho interno, e sai da receita
+
+`ServicePricingFailure.INTERNAL_PROJECT_NO_CLIENT`, e o consolidado o **exclui da
+receita** em vez de listá-lo como R$ 0,00 pendente.
+
+A §1 da Fase 1 já dizia que project sem Cliente é trabalho interno, "não apontável para
+faturamento". Não é falha de precificação — é trabalho próprio, que não deve ser cobrado
+de ninguém. Um código chamado `NO_SERVICE_CLIENT_FOR_PROJECT` soaria como "não consegui
+descobrir quem paga", que é outra coisa.
+
+**O motivo prático é de confiança no painel.** Uma empresa que faz trabalho interno de
+verdade teria o painel financeiro cheio de "falhas" que não são falhas. Aí o operador
+aprende a ignorar a lista, e no dia em que aparecer uma pendência real de cadastro ela
+passa batida. Ruído em painel financeiro custa a credibilidade do painel.
+
+Os códigos de motivo separam **três coisas** que colapsariam numa:
+
+| Classe | Códigos | Alguém precisa agir? |
+|---|---|---|
+| Pendência **comercial** | `route_deviation_reason` — contrato ausente, suspenso, encerrado, vencido | Sim, com prazo. É receita |
+| Pendência de **cadastro** | `NO_PRICE_SHEET_FOR_CLIENT`, `NO_PRICE_SHEET_IN_FORCE` | Sim. **Não** é receita ainda |
+| Trabalho **interno** | `INTERNAL_PROJECT_NO_CLIENT` | **Não.** Fora da receita |
+
+Expostas em `PRICING_PENDENCY_FAILURES` e `INTERNAL_WORK_FAILURES`, no nível do módulo,
+para que as constraints e o consolidado não possam divergir sobre quais são quais.
+
+## D44 — Rota escolhida e rota aplicada são duas colunas
+
+A D33 exige que "o que foi escolhido e o que foi aplicado" sejam recuperáveis, mais o
+motivo do desvio. `applied_billing_route` **não foi redefinida**: ela continua sendo a
+escolha, e `settled_billing_route` é nova.
+
+A tentação é redefinir a coluna existente para significar "o resultado". Isso apagaria a
+escolha, que é exatamente a informação que permite ao consolidado distinguir "avulso
+porque o cliente é avulso" de "avulso porque o contrato venceu" — a distinção que a
+própria D33 exige que apareça.
+
+Três fatos, três colunas, e um biconditional em DDL
+(`service_log_route_deviation_is_coherent`) tornando irrepresentáveis "desviou sem
+motivo", "motivo sem desvio" e desvio a partir de qualquer outra rota. A alternativa
+recusada era derivar a rota aplicada do motivo: funciona e economiza uma coluna, mas põe
+um `CASE` no `GROUP BY` de cada relatório.
+
+## O que a Fase 6 ganhou de estrutural, além do briefing
+
+Dois invariantes monetários que eram `if` e viraram DDL. Ambos seguem o método da D29:
+uma invariante de dinheiro garantida por uma checagem é uma invariante que uma requisição
+concorrente atravessa.
+
+**1. Um apontamento debita um pool OU é faturado em R$. Nunca os dois.**
+`service_log_billed_debits_no_pool` e `service_log_pool_route_carries_no_amount`. É o
+análogo monetário do que a D29 conseguiu para horas: cobrar em reais *e* consumir as horas
+contratadas pelo mesmo apontamento passa a ser recusado pelo banco. Espelha
+`service_log_debits_at_most_one_origin`, que já existia.
+
+**2. O critério 9 virou recusa do banco.** "Faturar excedente duas vezes no mesmo período
+é rejeitado" era garantido por `close_period` levantando `PERIOD_ALREADY_CLOSED` — um
+`if`. O índice único existente **não cobria** essas linhas: ele é condicionado a
+`service_log__isnull=False`, e uma linha `OVERAGE_BILLED` não tem apontamento. Duas
+linhas de excedente para o mesmo período eram **representáveis**. Corrigido por
+`service_ledger_unique_overage_billed_per_period` e o gêmeo da bolsa. A sabotagem agora
+falha com `UniqueViolation`.
+
+**3. Vazamento fechado que a R11 pega e a gate de resposta sozinha não pegaria.** O
+payload do Admin alimentava `IssueActivity` via `_record_activity`, e o feed de atividade
+de um work item é legível por qualquer Member do project. Reusar o payload já serializado
+— a coisa óbvia a fazer — poria o valor em R$ na frente exatamente da audiência de quem a
+R11 o esconde, a um salto do endpoint que cuidadosamente o omitiu. Por isso existe
+`_activity_payload`, que serializa **sem** contexto. Fixado por
+`AP::test_the_activity_trail_carries_no_money`.
+
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde |
+|---|---|---|
+| D37 | **Sim** | `resolve_price_sheet` por `worked_on`; `NO_PRICE_SHEET_IN_FORCE` para data anterior à primeira folha |
+| D38 | **Sim** | `ServiceClientHourTypeRate.price` FK para a folha, não para o Cliente; sem `ends_on` |
+| D39 | **Sim** | `ServiceIssueAllowance.overage_hour_rate` + `ChangeTrackerMixin` só para ele |
+| D40 | **Sim** | `_bill_period_overage` resolve por `period.starts_on`; folha restrita ao dia 1º em DDL |
+| D41 | **Sim** | `resolve_overage_rate` levanta `OVERAGE_RATE_NOT_CONFIGURED` |
+| D42 | Não | dívida nomeada. Compensada por preview com `is_reversible: false` e pelo único parcial |
+| D43 | **Sim** | `INTERNAL_PROJECT_NO_CLIENT` fora da receita; três classes de motivo |
+| D44 | **Sim** | `settled_billing_route` nova; `applied_billing_route` mantém o significado |

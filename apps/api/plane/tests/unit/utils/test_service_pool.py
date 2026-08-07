@@ -118,6 +118,10 @@ def client_with_contract(db):
         monthly_hours=Decimal("30.0000"),
         starts_on=date(2026, 1, 1),
         ends_on=date(2026, 12, 31),
+        # Phase 6: billing an overage now writes a value, and refuses without a rate that
+        # resolves. R$ 250,00/h is the figure the pricing brief's acceptance criterion 7
+        # uses, so a 3h deficit here bills exactly the R$ 750,00 that criterion names.
+        overage_hour_rate=Decimal("250.00"),
     )
     project = ProjectFactory(
         name="Marubeni", workspace=service_client.workspace, service_client=service_client
@@ -127,6 +131,7 @@ def client_with_contract(db):
 
     assert contract.monthly_hours == Decimal("30.0000")
     assert (contract.starts_on, contract.ends_on) == (date(2026, 1, 1), date(2026, 12, 31))
+    assert contract.overage_hour_rate == Decimal("250.00"), "billing an overage needs a rate"
     assert contract.carryover_months is None, "these tests assume the balance never expires"
     assert contract.accrual_cap_mode == ServiceContract.AccrualCapMode.NONE
     assert contract.is_default is False, "a single contract must resolve without needing the flag"
@@ -902,9 +907,15 @@ class TestOverage:
         assert february.granted_hours == Decimal("30.0000"), "the next month is whole"
         assert january.overage_hours == Decimal("3.0000")
         assert january.overage_settlement == ServiceOverageSettlement.BILLED
-        assert ServiceHourLedgerEntry.objects.filter(
+
+        # Phase 6: the same ledger row now carries the value. Acceptance criterion 7 of the
+        # pricing brief, exactly as written: 3h at R$ 250,00/h is R$ 750,00.
+        billed = ServiceHourLedgerEntry.objects.get(
             period=january, entry_type=ServiceLedgerEntryType.OVERAGE_BILLED
-        ).exists()
+        )
+        assert billed.amount == Decimal("750.00")
+        assert billed.applied_hour_rate == Decimal("250.00")
+
         assert reconcile_period(january)["is_consistent"]
 
     def test_a_deficit_uses_the_contracts_preference_when_none_is_given(
@@ -919,6 +930,8 @@ class TestOverage:
             starts_on=date(2026, 1, 1),
             ends_on=date(2026, 12, 31),
             overage_policy=ServiceContract.OveragePolicy.BILL_AMOUNT,
+            # Phase 6: billing needs a rate that resolves, or the close is refused.
+            overage_hour_rate=Decimal("100.00"),
         )
         period = resolve_period(contract, date(2026, 1, 1), actor=actor)
         ServiceContractPeriod.objects.filter(pk=period.pk).update(consumed_hours=Decimal("12.0000"))
@@ -1329,14 +1342,22 @@ class TestContractResolution:
 
         assert caught.value.code == CONTRACT_PINNED_ON_PROJECT_BELONGS_TO_ANOTHER_CLIENT
 
-    def test_an_out_of_vigency_contract_warns_but_still_resolves(
+    def test_a_vigency_that_has_not_started_warns_and_debits_the_first_period(
         self, client_with_contract, catalog, actor
     ):
-        """D9: permitted, flagged, never discarded. Asserts the debit LANDED as well as
-        the warning -- a warning with a blocked debit would be the opposite behaviour."""
+        """D9 and D31 together. Permitted, flagged, never discarded -- and the hours land
+        in the contract's FIRST period, not in a period of their own.
+
+        This test used to assert ``CONTRACT_OUT_OF_VIGENCY`` for a date *after* the
+        vigency, when both directions shared one warning. Phase 6 split them because they
+        acquired opposite destinations: before the start there is a future pool to borrow
+        from, after the end there is nothing left to debit and D33 bills it instead. The
+        after-the-end half is now
+        ``test_a_vigency_that_has_ended_does_not_warn_because_d33_bills_it``.
+        """
         issue = IssueFactory(project=client_with_contract["project"])
 
-        resolved, warning = resolve_contract(issue, date(2027, 3, 1))
+        resolved, warning = resolve_contract(issue, date(2025, 11, 20))
 
         assert resolved.pk == client_with_contract["contract"].pk
         assert warning == CONTRACT_OUT_OF_VIGENCY
@@ -1346,10 +1367,42 @@ class TestContractResolution:
             actor=actor,
             catalog=catalog,
             minutes=60,
-            worked_on=date(2027, 3, 1),
+            worked_on=date(2025, 11, 20),
         )
-        period = resolve_period(client_with_contract["contract"], date(2027, 3, 1))
-        assert period.consumed_hours == Decimal("1.0000")
+
+        # D31: the hour landed in January 2026, the first competency of the contract.
+        first = resolve_period(client_with_contract["contract"], date(2026, 1, 15))
+        assert first.competence_label == "2026-01"
+        assert first.consumed_hours == Decimal("1.0000")
+
+        # And NO period was materialised for November 2025. This is the assertion that
+        # catches the 390h-against-a-360h-contract bug D31 exists to prevent.
+        assert not ServiceContractPeriod.objects.filter(
+            contract=client_with_contract["contract"], competence_year=2025
+        ).exists()
+
+        # The contract still sells exactly 360h, which is the invariant underneath D31.
+        granted = ServiceContractPeriod.objects.filter(
+            contract=client_with_contract["contract"]
+        ).aggregate(total=Sum("contracted_hours"))["total"]
+        assert granted == Decimal("30.0000"), "only the periods touched so far exist"
+
+    def test_a_vigency_that_has_ended_does_not_warn_because_d33_bills_it(
+        self, client_with_contract
+    ):
+        """The other half of the old single warning. D33 turned this into a deviation.
+
+        ``contract_warnings`` deliberately stays silent here: the work is not going to
+        touch this pool at all, so warning that the pool is out of vigency would describe
+        a debit that never happens. The fact is recorded on the work log instead, as
+        ``route_deviation_reason = CONTRACT_EXPIRED`` -- asserted in the billing tests.
+        """
+        issue = IssueFactory(project=client_with_contract["project"])
+
+        resolved, warning = resolve_contract(issue, date(2027, 3, 1))
+
+        assert resolved.pk == client_with_contract["contract"].pk
+        assert warning is None, "an expired contract is D33's business, not a pool warning"
 
     def test_a_suspended_contract_debits_and_warns_with_a_distinct_code(
         self, client_with_contract, catalog, actor

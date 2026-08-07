@@ -30,7 +30,18 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
     transaction. A writable ``credited_hours`` would be a way to move a balance without
     an audit row, which is exactly what decision D23 exists to prevent. The credit and
     close actions have their own serializers below and their own endpoints.
+
+    **``overage_hour_rate`` is removed for anyone who is not a workspace Admin.** R11 keeps
+    the value in reais away from technicians, and this endpoint is legitimately open to
+    Members -- the balance indicator on the work item is for the technician about to log
+    against it. So the hours stay and the price goes, by the same mechanism
+    ``ServiceLogSerializer`` uses and with the same fail-safe default: absent unless the
+    caller proved otherwise.
     """
+
+    #: Removed for a non-Admin. Kept as a class attribute so the contract test asserts
+    #: against the same list the code uses rather than restating it.
+    AMOUNT_FIELDS = ("overage_hour_rate",)
 
     balance_hours = serializers.DecimalField(max_digits=10, decimal_places=4, read_only=True)
     consumed_pct = serializers.DecimalField(
@@ -38,6 +49,14 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
     )
     closed_by_detail = UserAdminLiteSerializer(source="closed_by", read_only=True)
     issue_name = serializers.CharField(source="issue.name", read_only=True)
+
+    def __init__(self, *args, **kwargs):
+        """Drop the rate unless the context says the caller may see money. See the docstring."""
+        super().__init__(*args, **kwargs)
+
+        if not self.context.get("can_see_amounts", False):
+            for field in self.AMOUNT_FIELDS:
+                self.fields.pop(field, None)
 
     class Meta:
         model = ServiceIssueAllowance
@@ -53,6 +72,8 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
             "balance_hours",
             "consumed_pct",
             "overage_hours",
+            # Money, Phase 6. Removed from the payload for a non-Admin by `__init__`.
+            "overage_hour_rate",
             "expired_hours",
             "status",
             "closed_at",
@@ -88,3 +109,20 @@ class ServiceIssueAllowanceCreditSerializer(serializers.Serializer):
     hours = serializers.DecimalField(max_digits=10, decimal_places=4, min_value=Decimal("0.0001"))
     reference = serializers.CharField(max_length=255, required=False, allow_blank=True)
     notes = serializers.CharField(required=False, allow_blank=True)
+
+    # The rate an hour past this allowance costs, accepted here because the moment somebody
+    # decides a project is worth 40 hours is the moment they know what an overage hour costs
+    # -- an allowance is a separately negotiated sale, and the client's support price is the
+    # wrong price for it.
+    #
+    # `required=False` and `allow_null=True` mean three distinct things, all of them real:
+    # absent leaves the current rate alone, `null` clears it back to the client's base rate,
+    # and a value sets it. The dedicated endpoint's serializer makes the field required, so
+    # that "clear it" cannot be expressed there by simply omitting it.
+    overage_hour_rate = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=False,
+        allow_null=True,
+    )

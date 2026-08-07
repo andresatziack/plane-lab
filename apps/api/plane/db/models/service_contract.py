@@ -334,11 +334,15 @@ class ServiceContract(ChangeTrackerMixin, WorkspaceBaseModel):
 
     # An optional override of the client's base hour rate, for billing overage.
     #
-    # NOTHING IN THIS PHASE READS IT. It is stored now because it is a *term of the
-    # contract*, so the moment a contract is registered is the moment its value is
-    # known, and because adding an audited column later means back-filling an audit
-    # trail that cannot be back-filled honestly. Phase 6 consumes it. Monetary scale
-    # (12, 2) per section 4b, not the hour scale.
+    # It was stored before it was read because it is a *term of the contract*, so the
+    # moment a contract is registered is the moment its value is known, and adding an
+    # audited column later means back-filling an audit trail that cannot be back-filled
+    # honestly. Monetary scale (12, 2) per section 4b, not the hour scale.
+    #
+    # **Phase 6 consumes it**: `plane.utils.service_pricing.resolve_overage_rate` reads
+    # it first and falls back to the client's base hour rate for the vigency in force.
+    # Null therefore means "bill overage at whatever support costs", not "free" -- and
+    # the check constraint below is what keeps zero from becoming a third answer.
     overage_hour_rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     # ------------------------------------------------------------------ lifecycle
@@ -451,6 +455,16 @@ class ServiceContract(ChangeTrackerMixin, WorkspaceBaseModel):
                     )
                 ),
                 name="service_contract_accrual_cap_is_coherent",
+            ),
+            # Added by Phase 6, on a column Phase 4 left unguarded because nothing read
+            # it. Now that overage is priced, a negative rate would credit the client for
+            # exceeding their pool and a zero rate would be a second mechanism for "do
+            # not charge" (D20). Null stays legal and means "fall back to the client's
+            # base hour rate", which is why this permits null rather than being a plain
+            # `> 0`.
+            models.CheckConstraint(
+                condition=Q(overage_hour_rate__isnull=True) | Q(overage_hour_rate__gt=0),
+                name="service_contract_overage_rate_is_positive",
             ),
         ]
 
@@ -824,6 +838,29 @@ class ServiceHourLedgerEntry(WorkspaceBaseModel):
 
     notes = models.TextField(blank=True)
 
+    # -------------------------------------------------------- the money (Phase 6)
+
+    # **The money lives on the entry that moved it, and there is no second journal.**
+    # Decision D29's test applied to reais: of the three monetary events in the pricing
+    # phase, one is not a pool movement at all (a priced work log, whose journal is the
+    # `service_logs` table itself) and the other two -- a contract period's overage and
+    # an allowance's overage -- are *already rows in this table*, carrying only the
+    # hours. Opening a parallel monetary table would record the reais of an event
+    # somewhere other than the event, and section 6 of the master context forbids the
+    # second audit trail that would result.
+    #
+    # Both null on every entry type that moves only hours, which is all of them but
+    # `OVERAGE_BILLED`. The check constraint below holds that line, so a future entry
+    # type has to relax it deliberately rather than inherit money by accident.
+
+    # The value billed by this entry, in reais. Monetary scale (12, 2) per section 4b.
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    # The rate that produced it -- an R4 snapshot for the same reason
+    # `ServiceLog.applied_hour_rate` is one: the contract's overage rate and the client's
+    # price sheet both change, and a closed period's invoice must not move when they do.
+    applied_hour_rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
     class Meta:
         verbose_name = "Service Hour Ledger Entry"
         verbose_name_plural = "Service Hour Ledger Entries"
@@ -885,6 +922,57 @@ class ServiceHourLedgerEntry(WorkspaceBaseModel):
                     | Q(entry_type__in=SIGNED_LEDGER_ENTRY_TYPES)
                 ),
                 name="service_ledger_hours_sign_matches_entry_type",
+            ),
+            # ---------------------------------------------------- the money, Phase 6
+            #
+            # **ACCEPTANCE CRITERION 9, IN DDL: "faturar excedente duas vezes no mesmo
+            # período é rejeitado".**
+            #
+            # It was an `if` until this phase -- `close_period` raises
+            # `PERIOD_ALREADY_CLOSED` -- and the index above does not help, because it is
+            # conditioned on `service_log__isnull=False` and an `OVERAGE_BILLED` row has no
+            # work log. So two overage billings for one period were *representable*, and
+            # only the ordering of a Python guard stood between the client and a duplicate
+            # invoice line. Once the row carries reais that is no longer good enough, for
+            # the same reason D29 gave: a money invariant held by a check is a money
+            # invariant a concurrent request can race past.
+            #
+            # Two constraints rather than one because the target is an XOR of two nullable
+            # columns; a single index over both would treat the nulls as distinct and
+            # enforce nothing.
+            models.UniqueConstraint(
+                fields=["period"],
+                condition=Q(entry_type=ServiceLedgerEntryType.OVERAGE_BILLED, period__isnull=False),
+                name="service_ledger_unique_overage_billed_per_period",
+            ),
+            models.UniqueConstraint(
+                fields=["allowance"],
+                condition=Q(entry_type=ServiceLedgerEntryType.OVERAGE_BILLED, allowance__isnull=False),
+                name="service_ledger_unique_overage_billed_per_allowance",
+            ),
+            # Money appears only on the entry type that bills it, and a value never
+            # travels without the rate that produced it.
+            #
+            # **One direction only, and the asymmetry is an accepted limitation rather than
+            # an oversight.** The natural biconditional -- `OVERAGE_BILLED` implies an
+            # amount -- cannot be added: rows written before this phase are real history
+            # with no rate and no amount, and inventing values to satisfy a constraint is
+            # precisely what the migration conventions forbid. So the strong invariant
+            # ("billing overage requires a resolvable rate") lives in
+            # `plane.utils.service_pool._settle_deficit`, which refuses with
+            # `OVERAGE_RATE_NOT_CONFIGURED`, and in a test that pins it.
+            models.CheckConstraint(
+                condition=(
+                    Q(amount__isnull=True, applied_hour_rate__isnull=True)
+                    | Q(
+                        amount__isnull=False,
+                        applied_hour_rate__isnull=False,
+                        amount__gte=0,
+                        applied_hour_rate__gt=0,
+                        entry_type=ServiceLedgerEntryType.OVERAGE_BILLED,
+                    )
+                ),
+                name="service_ledger_amount_only_on_overage_billed",
             ),
         ]
 

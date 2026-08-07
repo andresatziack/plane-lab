@@ -41,11 +41,13 @@ from plane.utils.service_pool import (
     end_and_create_successor,
     issue_pool_snapshot,
     materialize_contract_periods,
+    overage_billing_preview,
     reconcile_period,
     renew_expiring_balance,
     renew_in_place,
     update_contracted_hours,
 )
+from plane.utils.service_pricing import ServicePricingValidationError
 from plane.utils.service_pool_alerts import (
     contracts_without_default,
     dismiss_alert,
@@ -355,7 +357,14 @@ class ServiceContractPeriodViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def close(self, request, slug, pk):
-        """Close the month. Section 6, and criteria 8 and 9."""
+        """Close the month. Section 6, and criteria 8 and 9.
+
+        Since Phase 6 a close that bills the overage also writes a value in reais, and can
+        therefore be refused with ``OVERAGE_RATE_NOT_CONFIGURED`` -- caught below and
+        translated to a 400 like every other domain refusal. Without that second exception
+        class in the ``except`` the refusal would surface as a 500, which would read as a
+        bug in the server rather than a decision the Admin has to make.
+        """
         period = self.get_queryset().filter(pk=pk).first()
 
         if period is None:
@@ -372,7 +381,7 @@ class ServiceContractPeriodViewSet(BaseViewSet):
                 settlement=serializer.validated_data.get("overage_settlement"),
                 actor=request.user,
             )
-        except ServicePoolValidationError as error:
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
             return Response(
                 {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -384,6 +393,33 @@ class ServiceContractPeriodViewSet(BaseViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def overage_preview(self, request, slug, pk):
+        """What billing this period's overage would cost, before doing it.
+
+        **Exists because billing overage cannot be undone.** There is no reversal in this
+        system -- D42 records what one would require -- so the Admin has to see the value
+        and the rate, and be told the action is final, *before* confirming. An irreversible
+        mistake must be deliberate rather than careless.
+
+        Returns the same ``OVERAGE_RATE_NOT_CONFIGURED`` refusal the close returns, so the
+        confirmation dialog surfaces the missing price sheet at the point the Admin can
+        still choose to carry the deficit instead.
+        """
+        period = self.get_queryset().filter(pk=pk).first()
+
+        if period is None:
+            return self._not_found()
+
+        try:
+            preview = overage_billing_preview(period)
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(preview, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def set_contracted_hours(self, request, slug, pk):
