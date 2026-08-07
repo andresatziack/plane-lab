@@ -26,6 +26,7 @@ GUEST=5 }`.
 
 Buscas em todo o repositório (`.py`, `.ts`, `.tsx`) retornam **zero** ocorrências
 de:
+
 - `COMMENTER` / `Commenter`
 - `PermissionScheme`, `permission_scheme`, `CustomRole`
 - strings de permissão granular como `workitem:edit`
@@ -115,10 +116,10 @@ if serializer.is_valid():
 
 Resultado, exatamente ao contrário do que se quer:
 
-| Situação | Comportamento atual | O que precisamos |
-|---|---|---|
-| Guest edita chamado que **ele criou** | pode alterar **tudo**: prioridade, estado, responsável, labels, datas, estimativa, parent, type | só prioridade e estado |
-| Guest edita chamado criado por **técnico** ou por colega | não pode alterar **nada** | prioridade e estado |
+| Situação                                                 | Comportamento atual                                                                             | O que precisamos       |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------- |
+| Guest edita chamado que **ele criou**                    | pode alterar **tudo**: prioridade, estado, responsável, labels, datas, estimativa, parent, type | só prioridade e estado |
+| Guest edita chamado criado por **técnico** ou por colega | não pode alterar **nada**                                                                       | prioridade e estado    |
 
 Ou seja, é permissivo demais no caso errado e restritivo demais no caso certo.
 A Fase 8 precisa de **allowlist de campos por papel**, que não existe hoje.
@@ -209,13 +210,13 @@ Cadeia de abstratos (`plane/db/mixins.py`, `plane/db/models/base.py:17`):
 
 Mapeamento recomendado para as entidades novas:
 
-| Entidade | Classe base | Por quê |
-|---|---|---|
-| Cliente | `WorkspaceBaseModel` | vive no workspace, sem project obrigatório |
-| Contrato, Período de competência | `WorkspaceBaseModel` | pertencem ao Cliente |
-| Tipo de Hora, Tipo de Atendimento, Feriado, Janela | `WorkspaceBaseModel` | catálogos de workspace |
-| Apontamento (worklog) | `ProjectBaseModel` | sempre atrelado a um work item de um project |
-| Bolsa de horas | `ProjectBaseModel` | atrelada a um work item |
+| Entidade                                           | Classe base          | Por quê                                      |
+| -------------------------------------------------- | -------------------- | -------------------------------------------- |
+| Cliente                                            | `WorkspaceBaseModel` | vive no workspace, sem project obrigatório   |
+| Contrato, Período de competência                   | `WorkspaceBaseModel` | pertencem ao Cliente                         |
+| Tipo de Hora, Tipo de Atendimento, Feriado, Janela | `WorkspaceBaseModel` | catálogos de workspace                       |
+| Apontamento (worklog)                              | `ProjectBaseModel`   | sempre atrelado a um work item de um project |
+| Bolsa de horas                                     | `ProjectBaseModel`   | atrelada a um work item                      |
 
 ## 8. Soft delete é o padrão, e a unicidade tem um padrão próprio
 
@@ -254,7 +255,7 @@ um mecanismo próprio.
 - **Não há DRF router.** Todas as rotas são `path()` explícitos, um arquivo por
   recurso em `plane/app/urls/`, agregados em `urls/__init__.py`.
 - Autorização por decorator `allow_permission(allowed_roles, level, creator,
-  model)` — `plane/app/permissions/base.py:19`. Nas classes DRF, `ProjectEntityPermission`
+model)` — `plane/app/permissions/base.py:19`. Nas classes DRF, `ProjectEntityPermission`
   e afins em `plane/app/permissions/project.py`.
 - Recurso simples para copiar ponta a ponta: **State** —
   `db/models/state.py` → `app/serializers/state.py` → `app/views/state/base.py`
@@ -306,7 +307,6 @@ Note que os viewsets injetam escopo no save: `serializer.save(project_id=project
 README: oferecer isso como serviço a clientes externos tem implicações que valem
 validação jurídica.
 
-
 ---
 
 ## 14. Design system e stack de gráficos
@@ -356,6 +356,7 @@ com destaque de série ativa (`activeLegend`/`activeBar`), ticks customizados e
 suporte a barras empilhadas.
 
 Tipos em `packages/types/src/charts/`:
+
 - `TChartData<K, T>`, `TBaseChartProps`, `TAxisChartProps`, `TChartLegend`,
   `TChartMargin`, `TBarChartProps`
 
@@ -367,6 +368,7 @@ gerais. O restante do monorepo: `packages/editor`, `packages/hooks`,
 `packages/tailwind-config`, `packages/types`, `packages/utils`.
 
 **Feature de analytics já existente**, cujos padrões devem ser reaproveitados:
+
 - `apps/web/core/components/analytics/` — `analytics-wrapper.tsx`,
   `analytics-section-wrapper.tsx`, `insight-card.tsx`, `total-insights.tsx`,
   `trend-piece.tsx`, `insight-table/{root,data-table,loader}.tsx`,
@@ -388,14 +390,12 @@ usar Recharts diretamente nas telas. Consumir os wrappers do `@plane/propel`. Se
 faltar um tipo de gráfico, adicionar o wrapper ao propel seguindo o padrão dos
 existentes.
 
-
-
-## 14. Leitura e escrita cross-tenant em rotas do core, encontradas pela varredura da Fase 8
+## 15. Leitura e escrita cross-tenant em rotas do core, encontradas pela varredura da Fase 8
 
 **NÃO CORRIGIDO. Isto é informação de operador, e decidir o que fazer é outra conversa.**
 
 A Fase 8 escreveu a varredura de escopo enumerando o resolvedor de URL do Django em vez de
-uma lista de endpoints à mão (D66). Ela encontrou um bug no código *desta série* — corrigido
+uma lista de endpoints à mão (D66). Ela encontrou um bug no código _desta série_ — corrigido
 em PR próprio — e, rodada uma vez sobre **todas** as rotas com escopo de workspace, encontrou
 o mesmo padrão em código do **core do Plane**, que a operação hospeda sem ter escrito.
 
@@ -403,7 +403,7 @@ o mesmo padrão em código do **core do Plane**, que a operação hospeda sem te
 
 `BaseViewSet.permission_classes = [IsAuthenticated]` (`plane/app/views/base.py:51`). A
 autorização real desta base de código está no decorador `allow_permission`, aplicado **por
-ação**. Consequência: uma ação que está *roteada* mas cujo handler não foi escrito — ou foi
+ação**. Consequência: uma ação que está _roteada_ mas cujo handler não foi escrito — ou foi
 escrito sem o decorador — cai no handler herdado do `ModelViewSet` e roda sob
 `IsAuthenticated` sozinho. Sem checagem de papel e **sem checagem de pertencimento a
 workspace**.
@@ -424,13 +424,13 @@ testes. Registrado aqui porque é o achado que provou o método.
 
 Três das quatro ações têm decorador. Duas não:
 
-| ação             | linha | decorador                                     | resultado para não-membro |
-| ---------------- | ----- | --------------------------------------------- | ------------------------- |
-| `list`           | 77    | `[ADMIN, MEMBER, GUEST]` WORKSPACE             | 403 ✔                     |
-| `partial_update` | 86    | `[]` + `creator=True`                          | 403 ✔                     |
-| `destroy`        | 120   | `[ADMIN]` + `creator=True`                     | 403 ✔                     |
-| **`retrieve`**   | 108   | **nenhum** (definido, mas sem decorador)       | **200, e lê o conteúdo**  |
-| **`update`** (PUT) | —   | **não definido** (cai no do `ModelViewSet`)    | **200, e MODIFICA**       |
+| ação               | linha | decorador                                   | resultado para não-membro |
+| ------------------ | ----- | ------------------------------------------- | ------------------------- |
+| `list`             | 77    | `[ADMIN, MEMBER, GUEST]` WORKSPACE          | 403 ✔                     |
+| `partial_update`   | 86    | `[]` + `creator=True`                       | 403 ✔                     |
+| `destroy`          | 120   | `[ADMIN]` + `creator=True`                  | 403 ✔                     |
+| **`retrieve`**     | 108   | **nenhum** (definido, mas sem decorador)    | **200, e lê o conteúdo**  |
+| **`update`** (PUT) | —     | **não definido** (cai no do `ModelViewSet`) | **200, e MODIFICA**       |
 
 Medido, não inferido. Usuário autenticado, membro de nenhum workspace, contra uma view
 `access=1` (compartilhada no workspace) de outro workspace:
