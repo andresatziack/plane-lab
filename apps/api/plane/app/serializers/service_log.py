@@ -273,27 +273,69 @@ class ServiceLogSerializer(BaseSerializer):
 class ServiceLogClientSerializer(BaseSerializer):
     """A work log as the *client* is allowed to see it. Rule R11.
 
-    Not routed anywhere in this phase -- section 6 of the phase brief says "não expor
-    apontamento a papel GUEST em nenhum endpoint", and the client portal is Phase 8.
+    Routed by Phase 8 at ``.../issues/<issue_id>/service-logs/client/``. Written in Phase
+    6 because R11(b) makes the field allowlist a serializer concern, and writing it while
+    the rule was in front of that phase was safer than leaving this one to rediscover
+    which fields leak.
 
-    It exists now because R11(b) makes the field allowlist a serializer concern, and
-    writing it while the rule is in front of me is safer than leaving Phase 8 to
-    rediscover which fields leak. What must stay absent, per R11's table:
+    What must stay absent, per R11's table:
 
     * ``raw_duration_minutes`` -- what the technician typed
     * ``logged_hours`` -- the chronological time before the multiplier
     * ``applied_multiplier`` -- the numeric multiplier
-    * money, once Phase 6 adds it, except for ad-hoc clients
+
+    Those three are absent by construction rather than stripped: they are not in
+    ``Meta.fields``, so no context flag can restore them and no caller can ask for them.
+    That is the difference from ``ServiceLogSerializer``, which owns them and removes the
+    monetary subset conditionally.
+
+    ``logged_hours`` is the one to guard hardest, and not because it is the largest
+    number. The client sees ``equivalent_hours`` legitimately; given both, one division
+    returns the multiplier. R11(c) exists to prevent exactly that derivation.
 
     What the client does see is ``equivalent_hours``, which R11(c) warns must never be
     labelled "horas trabalhadas" -- an hour worked after hours shows as 1,5h, and the
     wrong label turns a contractual rule into an accusation of inflated hours.
+
+    **Money is present per row, not per client. D58.** R11's table abbreviates the rule as
+    "só se avulso", but section 4 of the Phase 6 brief is the more specific text: in a
+    contract client, hours only -- *except* for logs on the FATURA_REAIS route recorded
+    outside the contract's scope, and for invoiced overage. So the deciding fact is the
+    settled route of the individual row (D44: settled is the route actually applied, not
+    the one chosen), and a client-level flag would answer the wrong question. ``avulso``
+    is not a field on ``ServiceClient`` in any case -- that enum became
+    ``default_billing_type`` in Phase 2.
+
+    The criterion that makes this the only defensible reading: the client sees money
+    exactly where they will receive an invoice line. Showing a value for something they
+    will not be charged and hiding a value for something they will are both wrong.
+
+    **Commercial state: two of the three, deliberately. D65.** ``settled_billing_route``
+    and ``route_deviation_reason`` are shown, because when the amount is visible the
+    client will ask why they are being charged despite holding a contract, and "contract
+    expired" is the answer. Showing the charge and hiding its reason is the same error
+    shape D58 rejects. ``pricing_failure_reason`` is *not* shown: it names an internal
+    configuration gap ("no price sheet for this client") on a row that is not billable
+    yet, so there is nothing for the client to act on and the value would only invite a
+    question the client cannot answer.
     """
+
+    #: Money, present only when this row's settled route bills the client. D58.
+    #:
+    #: Named as a class attribute for the reason ``ServiceLogSerializer.MONEY_FIELDS``
+    #: gives: the contract test asserts against the same tuple the code uses, so a test
+    #: cannot keep passing after somebody widens the set.
+    CLIENT_MONEY_FIELDS = ("amount", "amount_display")
+
+    #: Commercial state the client does see. D65. ``pricing_failure_reason`` is absent
+    #: from this tuple on purpose and is absent from ``Meta.fields`` entirely.
+    CLIENT_COMMERCIAL_STATE_FIELDS = ("settled_billing_route", "route_deviation_reason")
 
     author_detail = UserLiteSerializer(source="author", read_only=True)
     hour_type_name = serializers.SerializerMethodField()
     billing_type_name = serializers.SerializerMethodField()
     equivalent_hours_display = serializers.SerializerMethodField()
+    amount_display = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceLog
@@ -309,9 +351,42 @@ class ServiceLogClientSerializer(BaseSerializer):
             "debited_hours",
             "hour_type_name",
             "billing_type_name",
+            "settled_billing_route",
+            "route_deviation_reason",
+            "amount",
+            "amount_display",
             "created_at",
         ]
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        """Remove the money on a row whose settled route does not bill this client. D58.
+
+        Per row and not per serializer, which is why this is ``to_representation`` and not
+        the ``__init__`` field-popping that ``ServiceLogSerializer`` uses: one response can
+        legitimately mix a pool-debited row with no amount and a billed row with one. A
+        field popped at construction would apply the first row's answer to all of them.
+
+        Absent, not zero. A zero would be a number the client may not have, and
+        additionally a false one -- the same argument the aggregation layer makes in
+        ``bucket()``.
+        """
+        data = super().to_representation(instance)
+
+        if instance.settled_billing_route != ServiceBillingType.BillingRoute.BILL_AMOUNT:
+            for field in self.CLIENT_MONEY_FIELDS:
+                data.pop(field, None)
+
+        return data
+
+    def get_amount_display(self, obj):
+        """``None`` rather than "R$ 0,00" when nothing was priced, matching
+        ``ServiceLogSerializer.get_amount_display``: an unpriced row and a row priced at
+        zero are different facts."""
+        if obj.applied_hour_rate is None:
+            return None
+
+        return format_money(obj.amount)
 
     def get_hour_type_name(self, obj):
         if not obj.hour_type_id:

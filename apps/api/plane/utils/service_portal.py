@@ -339,3 +339,59 @@ def activity_fields_hidden_from(user, *, slug, project_id=None):
         return base + sorted(CLIENT_HIDDEN_ACTIVITY_FIELDS)
 
     return base
+
+
+
+def issue_client_totals(issue_id):
+    """The work item totals a client may see. R11, D58.
+
+    Two hour quantities and not three. ``logged_hours`` is absent for the reason R11(c)
+    gives: the client sees ``equivalent_hours``, and given both, one division returns the
+    multiplier. This is the same projection ``ReportViewer.guest()`` applies at the
+    aggregation boundary (D55), applied to a single work item -- deliberately the same two
+    field names, so a reader comparing the portal's work item panel against the portal's
+    dashboard is comparing like with like.
+
+    The monetary total is summed **only over rows whose settled route bills the client**
+    (D58), and is **absent** rather than zero when there are none.
+
+    The explicit route filter is the point. ``issue_service_log_amount`` needs no such
+    filter because pool debits and non-billable rows carry ``0.00`` by construction, and
+    for an Admin total that reasoning is sound. Relying on it here would make the client's
+    monetary boundary an emergent property of a check constraint somewhere else, so that
+    the day a pool debit legitimately carries a value -- invoiced overage is already
+    priced, D40 -- a contract client would silently start seeing money for hours their
+    pool absorbed. Naming the route keeps D58 true by construction instead of by luck.
+
+    Summed from the persisted columns, never recomputed: section 4b, and criterion 13.
+    """
+    from django.db.models import Sum, Value
+    from django.db.models.functions import Coalesce
+
+    from plane.db.models import ServiceBillingType, ServiceLog
+    from plane.utils.service_log_time import ZERO_HOURS, format_hours
+    from plane.utils.service_money import ZERO_MONEY, format_money
+
+    client_hour_fields = ("equivalent_hours", "debited_hours")
+
+    logs = ServiceLog.objects.filter(issue_id=issue_id)
+
+    aggregates = logs.aggregate(
+        **{field: Coalesce(Sum(field), Value(ZERO_HOURS)) for field in client_hour_fields}
+    )
+
+    payload = {}
+
+    for field in client_hour_fields:
+        value = aggregates[field] or ZERO_HOURS
+        payload[field] = str(value)
+        payload[f"{field}_display"] = format_hours(value)
+
+    billed = logs.filter(settled_billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT)
+
+    if billed.exists():
+        amount = billed.aggregate(amount=Coalesce(Sum("amount"), Value(ZERO_MONEY)))["amount"] or ZERO_MONEY
+        payload["amount"] = str(amount)
+        payload["amount_display"] = format_money(amount)
+
+    return payload
