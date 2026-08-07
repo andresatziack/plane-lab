@@ -17,6 +17,7 @@ import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import useKeypress from "@/hooks/use-keypress";
 import usePeekOverviewOutsideClickDetector from "@/hooks/use-peek-overview-outside-click";
 // local imports
+import { withArchived, type TWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 import type { TIssueOperations } from "../issue-detail";
 import { IssueActivity } from "../issue-detail/issue-activity";
 import { IssueDetailWidgets } from "../issue-detail-widgets";
@@ -34,7 +35,7 @@ interface IIssueView {
   isLoading?: boolean;
   isError?: boolean;
   is_archived: boolean;
-  disabled?: boolean;
+  editPermissions: TWorkItemEditPermissions;
   embedIssue?: boolean;
   embedRemoveCurrentNotification?: () => void;
   issueOperations: TIssueOperations;
@@ -48,7 +49,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
     isLoading,
     isError,
     is_archived,
-    disabled = false,
+    editPermissions,
     embedIssue = false,
     embedRemoveCurrentNotification,
     issueOperations,
@@ -168,7 +169,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                 workspaceSlug={workspaceSlug}
                 projectId={projectId}
                 isSubmitting={isSubmitting}
-                disabled={disabled}
+                disabled={!editPermissions.restrictedFields}
                 embedIssue={embedIssue}
               />
               {/* content */}
@@ -181,7 +182,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                       projectId={projectId}
                       issueId={issueId}
                       issueOperations={issueOperations}
-                      disabled={disabled}
+                      disabled={!editPermissions.restrictedFields}
                       isArchived={is_archived}
                       isSubmitting={isSubmitting}
                       setIsSubmitting={(value) => setIsSubmitting(value)}
@@ -192,7 +193,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                         workspaceSlug={workspaceSlug}
                         projectId={projectId}
                         issueId={issueId}
-                        disabled={disabled || is_archived}
+                        disabled={!editPermissions.restrictedFields || is_archived}
                         issueServiceType={EIssueServiceType.ISSUES}
                       />
                     </div>
@@ -202,7 +203,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                       projectId={projectId}
                       issueId={issueId}
                       issueOperations={issueOperations}
-                      disabled={disabled || is_archived}
+                      editPermissions={withArchived(editPermissions, is_archived)}
                     />
 
                     <IssueActivity
@@ -222,7 +223,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                           projectId={projectId}
                           issueId={issueId}
                           issueOperations={issueOperations}
-                          disabled={disabled}
+                          disabled={!editPermissions.restrictedFields}
                           isArchived={is_archived}
                           isSubmitting={isSubmitting}
                           setIsSubmitting={(value) => setIsSubmitting(value)}
@@ -233,7 +234,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                             workspaceSlug={workspaceSlug}
                             projectId={projectId}
                             issueId={issueId}
-                            disabled={disabled}
+                            disabled={!editPermissions.restrictedFields}
                             issueServiceType={EIssueServiceType.ISSUES}
                           />
                         </div>
@@ -256,7 +257,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                         projectId={projectId}
                         issueId={issueId}
                         issueOperations={issueOperations}
-                        disabled={disabled || is_archived}
+                        editPermissions={withArchived(editPermissions, is_archived)}
                       />
                     </div>
                   </div>

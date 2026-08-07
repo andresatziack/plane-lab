@@ -6,7 +6,13 @@
 
 // plane imports
 import { API_BASE_URL } from "@plane/constants";
-import type { IServiceLogPayload, IServiceLogPreview, IServiceLogResponse, IServiceLogTotals } from "@plane/types";
+import type {
+  IServiceLogClientResponse,
+  IServiceLogPayload,
+  IServiceLogPreview,
+  IServiceLogResponse,
+  IServiceLogTotals,
+} from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
 
@@ -22,6 +28,26 @@ export class ServiceLogService extends APIService {
   /** Every work log of a work item, newest service date first, plus the three totals. */
   async fetchServiceLogs(workspaceSlug: string, projectId: string, issueId: string): Promise<IServiceLogResponse> {
     return this.get(`${this.basePath(workspaceSlug, projectId, issueId)}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
+   * The same work logs as the *client* is allowed to see them. R11, D58, D65.
+   *
+   * Its own endpoint and its own return type rather than a flag on `fetchServiceLogs`, for the
+   * reason the server gives for having a second serializer: the fields R11 withholds should be
+   * unreachable, not conditionally absent. A flag would leave one code path that returns either
+   * shape, and the caller that forgets which is the leak.
+   */
+  async fetchClientServiceLogs(
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string
+  ): Promise<IServiceLogClientResponse> {
+    return this.get(`${this.basePath(workspaceSlug, projectId, issueId)}/client/`)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

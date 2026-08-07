@@ -9,7 +9,6 @@ import { observer } from "mobx-react";
 import { usePathname } from "next/navigation";
 // Plane imports
 import useSWR from "swr";
-import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setPromiseToast, setToast } from "@plane/propel/toast";
 import type { IWorkItemPeekOverview, TIssue } from "@plane/types";
@@ -17,9 +16,9 @@ import { EIssueServiceType, EIssuesStoreType } from "@plane/types";
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useIssues } from "@/hooks/store/use-issues";
-import { useUserPermissions } from "@/hooks/store/user";
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
 import { useWorkItemProperties } from "@/hooks/use-issue-properties";
+import { useWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 // local imports
 import type { TIssueOperations } from "../issue-detail";
 import { IssueView } from "./view";
@@ -35,7 +34,6 @@ export const IssuePeekOverview = observer(function IssuePeekOverview(props: IWor
   // router
   const pathname = usePathname();
   // store hook
-  const { allowPermissions } = useUserPermissions();
 
   const {
     issues: { restoreIssue },
@@ -227,13 +225,11 @@ export const IssuePeekOverview = observer(function IssuePeekOverview(props: IWor
 
   if (!peekIssue?.workspaceSlug || !peekIssue?.projectId || !peekIssue?.issueId) return <></>;
 
-  // Check if issue is editable, based on user role
-  const isEditable = allowPermissions(
-    [EUserPermissions.ADMIN, EUserPermissions.MEMBER],
-    EUserPermissionsLevel.PROJECT,
-    peekIssue?.workspaceSlug,
-    peekIssue?.projectId
-  );
+  // Per field, not one boolean. **This gate is the one that matters most**: the peek overview
+  // is where a user lands clicking a work item from any list view, so a per-field gate applied
+  // only in `issue-detail/root.tsx` would be correct on the detail page and absent from the
+  // path people actually take. See D64.
+  const editPermissions = useWorkItemEditPermissions(peekIssue?.workspaceSlug, peekIssue?.projectId);
 
   return (
     <IssueView
@@ -243,7 +239,7 @@ export const IssuePeekOverview = observer(function IssuePeekOverview(props: IWor
       isLoading={isLoading}
       isError={error}
       is_archived={!!peekIssue.isArchived}
-      disabled={!isEditable}
+      editPermissions={editPermissions}
       embedIssue={embedIssue}
       embedRemoveCurrentNotification={embedRemoveCurrentNotification}
       issueOperations={issueOperations}

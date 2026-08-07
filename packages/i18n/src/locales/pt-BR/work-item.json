@@ -542,6 +542,22 @@
         "contract_suspended": "O contrato esta suspenso, entao o atendimento foi faturado como avulso.",
         "contract_ended": "O contrato foi encerrado, entao o atendimento foi faturado como avulso.",
         "contract_expired": "A data do atendimento esta fora da vigencia do contrato, entao foi faturado como avulso."
+      },
+      "client": {
+        "title": "Apontamento",
+        "consumed": "Horas consumidas",
+        "consumed_hint": "Horas descontadas do seu contrato. Trabalho fora do expediente conta com acréscimo, e é por isso que este número pode ser maior que o tempo decorrido.",
+        "charged": "Horas faturáveis",
+        "charged_hint": "Não inclui o que não é cobrado, como garantia ou cortesia.",
+        "amount": "Valor faturado",
+        "amount_hint": "Faturado à parte do seu contrato, porque este atendimento ficou fora do escopo dele.",
+        "not_charged": "sem cobrança",
+        "deviation": {
+          "no_contract_for_client": "sem contrato ativo",
+          "contract_suspended": "contrato suspenso",
+          "contract_ended": "contrato encerrado",
+          "contract_expired": "contrato vencido"
+        }
       }
     },
     "service_allowance": {
