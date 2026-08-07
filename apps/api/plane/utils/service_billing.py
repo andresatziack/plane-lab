@@ -380,11 +380,26 @@ def revenue_origin_of(service_log, *, client_has_contract):
     if service_log.pricing_failure_reason in INTERNAL_WORK_FAILURES:
         return None
 
-    if service_log.route_deviation_reason is not None:
-        # D33: the client may well hold a contract, but it could not absorb this work. That
-        # makes it avulso-with-a-reason, never "out of scope" -- out of scope means a service
-        # type deliberately sold outside the contract, which is a decision rather than a
-        # lapse.
+    return _origin_from(
+        route_deviation_reason=service_log.route_deviation_reason,
+        client_has_contract=client_has_contract,
+    )
+
+
+def _origin_from(*, route_deviation_reason, client_has_contract):
+    """Standalone or out of scope. **The one statement of that half of the rule.**
+
+    Shared by ``revenue_origin_of`` (which answers "which origin" for a row that is already
+    known to be revenue) and ``report_bucket_from`` (which answers the prior question of
+    whether it is revenue at all). Two callers, one rule -- before this existed the D33
+    precedence was written twice, which is precisely the duplication the module docstring
+    warns turns one month of work into two different invoices.
+
+    D33: a deviation means the client may well hold a contract that could not absorb this
+    work. That is avulso-with-a-reason, never "out of scope" -- out of scope means a service
+    type deliberately sold outside the contract, which is a decision rather than a lapse.
+    """
+    if route_deviation_reason is not None:
         return RevenueOrigin.STANDALONE_LOG
 
     return RevenueOrigin.OUT_OF_SCOPE_LOG if client_has_contract else RevenueOrigin.STANDALONE_LOG
@@ -415,13 +430,21 @@ class ReportBucket:
     NOT_REVENUE = None
 
 
-def report_bucket_of(service_log, *, client_has_contract, has_client):
-    """Which report bucket one work log belongs to. **The Python statement of the rule.**
+def report_bucket_from(
+    *,
+    settled_billing_route,
+    route_deviation_reason,
+    pricing_failure_reason,
+    client_has_contract,
+    has_client,
+):
+    """Which report bucket these classification inputs describe. **The rule itself.**
 
-    Extracted from ``consolidated_billing``, which now calls it, so that the dispatch has
-    one implementation rather than one per report. The origin half delegates to
-    ``revenue_origin_of`` instead of restating it -- there is still exactly one place that
-    decides standalone versus out-of-scope.
+    Takes scalars rather than a work log, because Phase 9's series aggregates in SQL and
+    then classifies the **grouped rows** -- the group key carries exactly these five facts
+    and there is no ``ServiceLog`` instance to hand over. A version that needed a model
+    instance would have forced either a second copy of the rule or a fake object, and both
+    are worse than a signature with five keywords.
 
     Order matters and is not arbitrary:
 
@@ -434,17 +457,36 @@ def report_bucket_of(service_log, *, client_has_contract, has_client):
     3. **Pendency before origin.** A row with no resolvable price has no amount, so filing
        it under an origin would add a zero to a revenue column and make a missing price
        sheet look like completed work worth nothing.
+    4. **A deviation beats the contract.** D33: the client may hold a contract that could
+       not absorb this work, and that is ad-hoc-with-a-reason, never out of scope.
     """
-    if service_log.settled_billing_route != _BILL:
+    if settled_billing_route != _BILL:
         return ReportBucket.NOT_REVENUE
 
-    if not has_client or service_log.pricing_failure_reason in INTERNAL_WORK_FAILURES:
+    if not has_client or pricing_failure_reason in INTERNAL_WORK_FAILURES:
         return ReportBucket.INTERNAL_WORK
 
-    if service_log.pricing_failure_reason in PRICING_PENDENCY_FAILURES:
+    if pricing_failure_reason in PRICING_PENDENCY_FAILURES:
         return ReportBucket.REGISTRATION_PENDENCY
 
-    return revenue_origin_of(service_log, client_has_contract=client_has_contract)
+    return _origin_from(
+        route_deviation_reason=route_deviation_reason, client_has_contract=client_has_contract
+    )
+
+
+def report_bucket_of(service_log, *, client_has_contract, has_client):
+    """``report_bucket_from`` for a persisted work log. The row-shaped front door.
+
+    Extracted from ``consolidated_billing``, which now calls it, so that the dispatch has
+    one implementation rather than one per report.
+    """
+    return report_bucket_from(
+        settled_billing_route=service_log.settled_billing_route,
+        route_deviation_reason=service_log.route_deviation_reason,
+        pricing_failure_reason=service_log.pricing_failure_reason,
+        client_has_contract=client_has_contract,
+        has_client=has_client,
+    )
 
 
 def report_bucket_expression(contracted_client_ids):

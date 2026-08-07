@@ -198,6 +198,36 @@ _ROUTES = tuple(choice[0] for choice in ServiceBillingType.BillingRoute.choices)
 _DEVIATIONS = tuple(choice[0] for choice in ServiceLog.RouteDeviation.choices)
 _FAILURES = tuple(choice[0] for choice in ServiceLog.PricingFailure.choices)
 
+#: Only the two **log-based** origins are filterable here. The two overage origins are ledger
+#: rows, not work logs, so a work log descriptor that accepted them would promise a list that
+#: cannot exist -- see D56 and ``_descriptor_for_origin``.
+_REVENUE_ORIGINS = ("standalone_log", "out_of_scope_log")
+
+
+def _clients_with_a_contract_in(workspace_id, competence):
+    """Clients holding a contract covering one competency.
+
+    The same overlap rule ``service_billing._clients_with_a_contract_covering`` uses -- a
+    contract that ended mid-month still covered part of that month -- restated against
+    competency columns instead of day bounds because that is what a descriptor carries.
+    ``None`` competency means no window, and then no client can be established as contracted
+    for "whenever", so the set is empty and everything classifies as standalone.
+    """
+    from plane.db.models import ServiceContract
+
+    if competence is None:
+        return set()
+
+    year, month = competence
+    first_day = date(year, month, 1)
+    last_day = date(year + (month // 12), (month % 12) + 1, 1)
+
+    return set(
+        ServiceContract.objects.filter(
+            workspace_id=workspace_id, starts_on__lt=last_day, ends_on__gte=first_day
+        ).values_list("service_client_id", flat=True)
+    )
+
 
 @dataclass(frozen=True)
 class ServiceLogFilterSet:
@@ -240,11 +270,34 @@ class ServiceLogFilterSet:
     debited_period_ids: tuple = field(default_factory=tuple)
     debited_allowance_ids: tuple = field(default_factory=tuple)
 
+    #: Revenue origins (D36), applied through ``report_bucket_expression``.
+    #:
+    #: **Needed because "standalone" is not expressible as a conjunction of columns.** A
+    #: standalone work log is one with a deviation recorded *or* one on a client holding no
+    #: contract for that competency -- a disjunction, and one whose second half is derived
+    #: rather than stored. Without this field the origin buckets of the revenue chart would
+    #: have no honest drill-down, and criterion 8 would be satisfied only for the buckets
+    #: that happened to be simple.
+    #:
+    #: Requires a **single** competency, enforced below: the contract-coverage half of the
+    #: classification is per-month, so a multi-month window would need a different client set
+    #: per month and one query cannot carry both.
+    revenue_origins: tuple = field(default_factory=tuple)
+
     #: ``True`` restricts to work logs that debited **no** pool at all -- neither a period
     #: nor an allowance. Needed by the operational view, where "billed ad-hoc" and "debited
     #: somewhere" are different populations that a route filter alone cannot separate,
     #: because a non-billable log also debits nothing.
     without_pool_origin: bool = False
+
+    #: ``True`` restricts to work logs on projects with **no** client -- internal work.
+    #:
+    #: ``service_client_id`` is the one nullable dimension a distribution can be cut by, so
+    #: without this the "internal work" slice of a per-client chart had no way to describe
+    #: itself and fell back to the unnarrowed descriptor -- a bucket claiming its own hours
+    #: while pointing at every row in the window. The property test found exactly that, which
+    #: is the argument for having written it as a property rather than as examples.
+    without_service_client: bool = False
 
     # ----------------------------------------------------------------- validation
 
@@ -261,6 +314,19 @@ class ServiceLogFilterSet:
         ):
             raise ServiceReportFilterError(
                 "COMPETENCE_RANGE_IS_INVERTED",
+                {
+                    "competence_from": format_competence(self.competence_from),
+                    "competence_to": format_competence(self.competence_to),
+                },
+            )
+
+        if self.revenue_origins and self.competence_from != self.competence_to:
+            # Refused rather than silently approximated. Whether a client held a contract is
+            # a per-competency fact, so classifying a multi-month window would need one
+            # client set per month; picking any single set would misclassify every month on
+            # the other side of a renewal, and the report would look right.
+            raise ServiceReportFilterError(
+                "REVENUE_ORIGIN_NEEDS_ONE_COMPETENCE",
                 {
                     "competence_from": format_competence(self.competence_from),
                     "competence_to": format_competence(self.competence_to),
@@ -329,7 +395,32 @@ class ServiceLogFilterSet:
         if self.without_pool_origin:
             rows = rows.filter(debited_period__isnull=True, debited_allowance__isnull=True)
 
+        if self.without_service_client:
+            rows = rows.filter(project__service_client__isnull=True)
+
+        if self.revenue_origins:
+            rows = self._apply_revenue_origins(rows, workspace_id)
+
         return rows
+
+    def _apply_revenue_origins(self, rows, workspace_id):
+        """Filter by revenue origin, through the expression D48 proved.
+
+        Imported at call time rather than at module level: ``service_billing`` imports the
+        pool and pricing layers, and a top-level import here would put this module in the
+        middle of that chain for every caller that only wants to filter by project.
+
+        The classification is the **same expression** the exhaustive differential covers, so
+        a drill-down cannot classify differently from the chart it was clicked on -- which is
+        the whole point of not writing a second ``CASE`` here.
+        """
+        from plane.utils.service_billing import report_bucket_expression
+
+        contracted = _clients_with_a_contract_in(workspace_id, self.competence_from)
+
+        return rows.annotate(_revenue_origin=report_bucket_expression(contracted)).filter(
+            _revenue_origin__in=list(self.revenue_origins)
+        )
 
     def _apply_competence(self, rows):
         """The competency window, resolved according to ``competence_basis``. D47."""
@@ -397,6 +488,7 @@ class ServiceLogFilterSet:
             "pricing_failure_reasons",
             "debited_period_ids",
             "debited_allowance_ids",
+            "revenue_origins",
         ):
             values = getattr(self, attribute)
             if values:
@@ -404,6 +496,9 @@ class ServiceLogFilterSet:
 
         if self.without_pool_origin:
             params["without_pool_origin"] = "true"
+
+        if self.without_service_client:
+            params["without_service_client"] = "true"
 
         return params
 
@@ -447,6 +542,11 @@ class ServiceLogFilterSet:
             debited_allowance_ids=_parse_uuids(
                 get("debited_allowance_ids"), field_name="debited_allowance_ids"
             ),
+            revenue_origins=_parse_choices(
+                get("revenue_origins"), field_name="revenue_origins", allowed=_REVENUE_ORIGINS
+            ),
             without_pool_origin=str(get("without_pool_origin") or "").lower()
+            in ("true", "1", "yes"),
+            without_service_client=str(get("without_service_client") or "").lower()
             in ("true", "1", "yes"),
         )
