@@ -442,7 +442,9 @@
         "equivalent": "Equivalent hours",
         "equivalent_hint": "After the hour type multiplier. This is the figure the client sees.",
         "debited": "Billable hours",
-        "debited_hint": "Excludes entries whose billing type does not charge, such as warranty or courtesy."
+        "debited_hint": "Excludes entries whose billing type does not charge, such as warranty or courtesy.",
+        "amount": "Value",
+        "amount_hint": "The billed value of this work item, summed from the value stored on each work log. Hours paid from a contract pool or an allowance contribute nothing."
       },
       "form": {
         "entry_mode": "How do you want to enter the time?",
@@ -487,7 +489,9 @@
       },
       "badges": {
         "not_billable": "Not charged",
-        "overridden": "Hour type changed manually"
+        "overridden": "Hour type changed manually",
+        "no_price": "No price",
+        "billed_as_standalone": "Billed as standalone"
       },
       "delete": {
         "title": "Delete work log",
@@ -527,6 +531,17 @@
         "hour_type_not_found": "That hour type is no longer available. Choose another.",
         "billing_type_not_found": "That billing type is no longer available. Choose another.",
         "delegation_unavailable": "Logging time on someone else's behalf is not available yet."
+      },
+      "pricing_failure": {
+        "no_price_sheet_for_client": "This client has no hourly price registered, so the work log has no value yet.",
+        "no_price_sheet_in_force": "No price was in force on the service date. The registered vigency starts later.",
+        "internal_project_no_client": "Internal project: not billable to anyone."
+      },
+      "route_deviation": {
+        "no_contract_for_client": "The client has no contract, so the work was billed as standalone.",
+        "contract_suspended": "The contract is suspended, so the work was billed as standalone.",
+        "contract_ended": "The contract was ended, so the work was billed as standalone.",
+        "contract_expired": "The service date is past the contract vigency, so the work was billed as standalone."
       }
     },
     "service_allowance": {
@@ -571,6 +586,24 @@
           "title": "Hours not credited",
           "message": "Something went wrong. Please try again."
         }
+      }
+    },
+    "service_overage": {
+      "title": "Bill the overage",
+      "description": "The hours beyond the pool will be billed at the rate below.",
+      "hours": "Overage hours",
+      "rate": "Hour rate",
+      "amount": "Value to bill",
+      "irreversible": "This cannot be undone. There is no reversal for a billed overage.",
+      "confirm": "Bill the overage",
+      "no_rate": "No hour rate resolves for this overage: the contract has none and the client has no price in force. Register a price, or close the period carrying the deficit instead.",
+      "rate_source": {
+        "contract": "contract term",
+        "allowance": "allowance term",
+        "client_base_rate": "client base rate"
+      },
+      "toasts": {
+        "failed": "The overage could not be billed."
       }
     }
   }

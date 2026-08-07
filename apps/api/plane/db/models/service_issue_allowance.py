@@ -11,7 +11,9 @@ from django.db import models
 from django.db.models import Q
 
 # Module imports
+from ..mixins import ChangeTrackerMixin
 from .project import ProjectBaseModel
+from .service_catalog import ServiceConfigEntity
 
 
 class ServiceIssueAllowanceStatus(models.TextChoices):
@@ -36,7 +38,7 @@ class ServiceIssueAllowanceStatus(models.TextChoices):
     CLOSED = "closed", "Closed"
 
 
-class ServiceIssueAllowance(ProjectBaseModel):
+class ServiceIssueAllowance(ChangeTrackerMixin, ProjectBaseModel):
     """A pool of hours credited to one work item, isolated from the client's contract.
 
     The use case, from section 3 of the master context and the phase brief: a client on
@@ -71,18 +73,27 @@ class ServiceIssueAllowance(ProjectBaseModel):
     therefore **ledger rows on the same allowance**, never a second allowance, and the
     history of each credit with its author is the ledger.
 
-    **This model deliberately has no ``ChangeTrackerMixin``**, which is worth stating
-    because the contract has one and the analogy is tempting. There is nothing here for
-    it to record. Crediting hours is *accounting movement*, so it is a
-    ``ServiceHourLedgerEntry`` carrying its own ``actor`` and ``created_at`` -- which is
-    the "autoria e data do crédito" the brief asks for. ``credited_hours`` and
-    ``consumed_hours`` are accumulators, and auditing them here would duplicate the
-    ledger, which section 6 of the master context forbids. Closing is recorded by
-    ``closed_at`` and ``closed_by`` plus its own ledger rows. What is left --
-    ``reference`` and ``notes`` -- is a label, not money.
+    **``ChangeTrackerMixin`` tracks exactly one field here, and the exclusions are the
+    point.** Phase 5 carried no mixin at all, with the correct reasoning that crediting
+    hours is *accounting movement*: it is a ``ServiceHourLedgerEntry`` carrying its own
+    ``actor`` and ``created_at``, which is the "autoria e data do crédito" the brief asks
+    for. That still holds -- ``credited_hours`` and ``consumed_hours`` are accumulators
+    and auditing them here would duplicate the ledger, which section 6 of the master
+    context forbids; closing is recorded by ``closed_at`` and ``closed_by`` plus its own
+    ledger rows; ``reference`` and ``notes`` are labels, not money.
+
+    Phase 6 added ``overage_hour_rate``, which is **configuration that decides money**
+    rather than movement, and D22 requires exactly that to be audited. So the mixin
+    arrived for one field, and one only.
     """
 
     Status = ServiceIssueAllowanceStatus
+
+    # Only the rate. See the class docstring for why every other column on this model is
+    # deliberately absent: they are either accumulators the ledger already audits, or
+    # labels that never reach an invoice.
+    TRACKED_FIELDS = ["overage_hour_rate"]
+    CONFIG_ENTITY_NAME = ServiceConfigEntity.ISSUE_ALLOWANCE
 
     # ---------------------------------------------------------------- relations
 
@@ -132,9 +143,35 @@ class ServiceIssueAllowance(ProjectBaseModel):
 
     # A deficit settled by billing it, in hours. Section 3: on closing an allowance in
     # deficit the Admin either credits more hours -- which is a `CREDIT` *before*
-    # closing, not a settlement mode -- or bills the overage. Converting this to reais
-    # is Phase 6, using the same mechanism as `ServiceContractPeriod.overage_hours`.
+    # closing, not a settlement mode -- or bills the overage. Phase 6 converts it to
+    # reais through the same mechanism `ServiceContractPeriod.overage_hours` uses: the
+    # amount lands on the `OVERAGE_BILLED` ledger row, priced by `overage_hour_rate`
+    # below.
     overage_hours = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal("0.0000"))
+
+    # ------------------------------------------------------------ the price of overage
+
+    # What an hour past this allowance costs, in reais. Null falls back to the client's
+    # base hour rate for the vigency in force -- see
+    # `plane.utils.service_pricing.resolve_overage_rate`.
+    #
+    # **This column exists because the allowance is a separately negotiated sale, and
+    # the support price is the wrong price for it.** A project sold at R$ 180/h does not
+    # have overage at R$ 200/h because R$ 200/h is what that client's support costs; the
+    # two numbers differ roughly as often as the two things are sold separately, which is
+    # always. Falling back to the client's base rate as the *only* answer would price
+    # project overage at the support rate and be wrong almost every time.
+    #
+    # It is registered now rather than later for the reason `ServiceContract
+    # .overage_hour_rate` gives for itself: the moment hours are credited to a work item
+    # is the moment the value of that project is known, and adding an audited column
+    # afterwards means back-filling an audit trail, which cannot be done honestly. Same
+    # trade the contract phase already made and accepted.
+    #
+    # Nullable and tracked, so it is the one field on this model that relies on the
+    # `CONFIG_VALUE_UNSET` sentinel (D4) to satisfy
+    # `svc_cfg_activity_shape_matches_verb`. Monetary scale (12, 2) per section 4b.
+    overage_hour_rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     # A surplus written off at close. The project came in under budget and the hours
     # are lost, because section 3 forbids them moving to the contract pool. There is no
@@ -192,6 +229,19 @@ class ServiceIssueAllowance(ProjectBaseModel):
 
         return (self.consumed_hours / self.credited_hours) * Decimal("100")
 
+    def config_summary(self):
+        """One line for the ``CREATED`` and ``DELETED`` rows of the audit trail.
+
+        Present because ``ChangeTrackerMixin`` models carry one by convention. In
+        practice only the ``UPDATED`` path is exercised for this model: an allowance row
+        comes into being as a side effect of the first credit, and that event is already
+        audited by the ``CREDIT`` ledger entry with its own actor -- recording it twice
+        is the duplicate trail section 6 of the master context forbids.
+        """
+        rate = "sem valor/hora proprio" if self.overage_hour_rate is None else f"R$ {self.overage_hour_rate}/h"
+
+        return f"Bolsa de {self.credited_hours}h ({rate})"
+
     class Meta:
         verbose_name = "Service Issue Allowance"
         verbose_name_plural = "Service Issue Allowances"
@@ -226,6 +276,14 @@ class ServiceIssueAllowance(ProjectBaseModel):
                     | Q(status=ServiceIssueAllowanceStatus.CLOSED, closed_at__isnull=False)
                 ),
                 name="service_issue_allowance_closed_at_matches_status",
+            ),
+            # Decision D20, in DDL: a rate of zero would be a second mechanism for "do
+            # not charge", and this system has exactly one. Null is the legitimate "not
+            # negotiated separately, use the client's base rate" state, which is why this
+            # is written to permit null rather than as a plain `> 0`.
+            models.CheckConstraint(
+                condition=Q(overage_hour_rate__isnull=True) | Q(overage_hour_rate__gt=0),
+                name="service_issue_allowance_overage_rate_is_positive",
             ),
         ]
 

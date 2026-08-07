@@ -25,20 +25,24 @@ from rest_framework.response import Response
 # Module imports
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import (
+    ServiceAllowanceOverageRateSerializer,
     ServiceHourLedgerEntrySerializer,
     ServiceIssueAllowanceCreditSerializer,
     ServiceIssueAllowanceSerializer,
 )
-from plane.db.models import Issue, ServiceIssueAllowance, Workspace
+from plane.db.models import Issue, ServiceIssueAllowance, Workspace, WorkspaceMember
 from plane.utils.service_allowance import (
     allowance_credits,
+    allowance_overage_preview,
     close_allowance,
     credit_allowance,
     issue_allowance_snapshot,
     reconcile_allowance,
     resolve_work_item_allowance,
+    set_allowance_overage_rate,
 )
 from plane.utils.service_pool import ServicePoolValidationError
+from plane.utils.service_pricing import ServicePricingValidationError
 from plane.utils.service_pool_alerts import evaluate_allowance, workspace_allowance_alerts
 
 from ..base import BaseAPIView
@@ -48,6 +52,22 @@ def _not_found():
     return Response(
         {"error": "The required object does not exist."}, status=status.HTTP_404_NOT_FOUND
     )
+
+
+def _can_see_amounts(request, slug):
+    """Whether this caller may see the value in reais. Rule R11.
+
+    Workspace ADMIN only, resolved from `WorkspaceMember` rather than from the
+    `allow_permission` decorator -- the decorator has already let Members through, because
+    reading the balance indicator is legitimately open to them, and only the monetary subset
+    of the payload is not. Same helper, same reasoning, as the work log view's.
+    """
+    return WorkspaceMember.objects.filter(
+        workspace__slug=slug,
+        member=request.user,
+        role=ROLE.ADMIN.value,
+        is_active=True,
+    ).exists()
 
 
 class IssueServiceAllowanceEndpoint(BaseAPIView):
@@ -84,7 +104,9 @@ class IssueServiceAllowanceEndpoint(BaseAPIView):
 
         return Response(
             {
-                "allowance": ServiceIssueAllowanceSerializer(allowance).data,
+                "allowance": ServiceIssueAllowanceSerializer(
+                    allowance, context={"can_see_amounts": _can_see_amounts(request, slug)}
+                ).data,
                 "summary": issue_allowance_snapshot(issue),
                 "alerts": evaluate_allowance(allowance),
                 "credits": allowance_credits(allowance),
@@ -122,14 +144,27 @@ class IssueServiceAllowanceEndpoint(BaseAPIView):
                 reference=validated.get("reference"),
                 notes=validated.get("notes"),
             )
-        except ServicePoolValidationError as error:
+
+            # The rate usually arrives with the credit, because the moment somebody decides a
+            # project is worth 40 hours is the moment they know what an hour past them costs.
+            # Applied through the audited setter rather than inline, so the change is recorded
+            # as configuration either way. Absent means "leave it alone", which is why the
+            # credit serializer marks it `required=False` while the dedicated endpoint's
+            # serializer does not.
+            if "overage_hour_rate" in validated:
+                allowance = set_allowance_overage_rate(
+                    allowance, validated["overage_hour_rate"], actor=request.user
+                )
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
             return Response(
                 {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
             )
 
         return Response(
             {
-                "allowance": ServiceIssueAllowanceSerializer(allowance).data,
+                "allowance": ServiceIssueAllowanceSerializer(
+                    allowance, context={"can_see_amounts": _can_see_amounts(request, slug)}
+                ).data,
                 "summary": issue_allowance_snapshot(issue),
                 "alerts": evaluate_allowance(allowance),
                 "credits": allowance_credits(allowance),
@@ -165,19 +200,96 @@ class ServiceIssueAllowanceCloseEndpoint(BaseAPIView):
 
         try:
             closed = close_allowance(allowance, actor=request.user)
-        except ServicePoolValidationError as error:
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
             return Response(
                 {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
             )
 
         return Response(
             {
-                "allowance": ServiceIssueAllowanceSerializer(closed).data,
+                "allowance": ServiceIssueAllowanceSerializer(
+                    closed, context={"can_see_amounts": True}
+                ).data,
                 "reconciliation": reconcile_allowance(closed),
                 "entries": ServiceHourLedgerEntrySerializer(
                     closed.ledger_entries.order_by("created_at"), many=True
                 ).data,
             },
+            status=status.HTTP_200_OK,
+        )
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug, pk):
+        """What closing would bill, before closing. Phase 6.
+
+        **Exists because billing an overage cannot be undone.** There is no reversal in this
+        system -- D42 records what one would require -- so the Admin has to see the hours, the
+        rate, the resulting value and the fact that it is final *before* confirming.
+
+        ``overage_preview`` is ``None`` when there is nothing to bill, which is the honest
+        answer for a surplus: offering an amount for it would invent one.
+        """
+        allowance = (
+            ServiceIssueAllowance.objects.filter(workspace__slug=slug, pk=pk)
+            .select_related("issue", "project")
+            .first()
+        )
+
+        if allowance is None:
+            return _not_found()
+
+        try:
+            preview = allowance_overage_preview(allowance)
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response({"overage_preview": preview}, status=status.HTTP_200_OK)
+
+
+class ServiceIssueAllowanceOverageRateEndpoint(BaseAPIView):
+    """The rate an hour past one allowance is billed at. Phase 6.
+
+    Its own endpoint rather than a field on the credit body, because the two are different
+    decisions taken at different moments: crediting hours is "this project is worth 40
+    hours", and this is "an hour past them costs R$ 180,00". They usually arrive together,
+    which is why the credit endpoint also accepts the rate -- but a renegotiation changes
+    only this one, and forcing a zero-hour credit to express that would be absurd.
+
+    Audited, because the rate is configuration that decides money. ``null`` clears it and
+    restores the fallback to the client's base rate.
+    """
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug, pk):
+        allowance = (
+            ServiceIssueAllowance.objects.filter(workspace__slug=slug, pk=pk)
+            .select_related("issue", "project")
+            .first()
+        )
+
+        if allowance is None:
+            return _not_found()
+
+        serializer = ServiceAllowanceOverageRateSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            updated = set_allowance_overage_rate(
+                allowance,
+                serializer.validated_data["overage_hour_rate"],
+                actor=request.user,
+            )
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {"allowance": ServiceIssueAllowanceSerializer(updated, context={"can_see_amounts": True}).data},
             status=status.HTTP_200_OK,
         )
 

@@ -18,21 +18,31 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import ServiceLogSerializer, ServiceLogWriteSerializer
 from plane.bgtasks.issue_activities_task import issue_activity
-from plane.db.models import Issue, ServiceBillingType, ServiceHourType, ServiceLog
+from plane.db.models import (
+    Issue,
+    ServiceBillingType,
+    ServiceHourType,
+    ServiceLog,
+    WorkspaceMember,
+)
 from plane.utils.host import base_host
+from plane.utils.service_billing import settle_service_log_batch, settlement_fields
 from plane.utils.service_log import (
     ServiceLogValidationError,
     build_batch_rows,
     build_segments,
     create_service_log_batch,
     delete_service_log_batch,
+    issue_service_log_amount,
     issue_service_log_totals,
     replace_service_log_batch,
     validate_author_can_change,
     validate_time_tracking_enabled,
 )
 from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours
-from plane.utils.service_pool import ServicePoolValidationError, apply_batch_debit, issue_pool_snapshot
+from plane.utils.service_money import ZERO_MONEY, format_money
+from plane.utils.service_pool import ServicePoolValidationError, issue_pool_snapshot
+from plane.utils.service_pricing import ServicePricingValidationError
 
 from ..base import BaseViewSet
 
@@ -157,18 +167,84 @@ class ServiceLogViewSet(BaseViewSet):
 
         return {"code": "SERVICE_LOG_EXCEEDS_24_HOURS", "raw_duration_minutes": total_raw}
 
-    def _totals(self, issue_id):
-        """The three totals, plus their pt-BR renderings. Section 6.
+    def _can_see_amounts(self, request, slug):
+        """Whether this caller may see the value in reais. Rule R11.
+
+        **Workspace Admin only.** A project Admin is not a workspace Admin in this fork,
+        which is the same distinction the allowance endpoints already draw for crediting
+        hours -- and money is at least as sensitive as an hour credit. A technician sees
+        hours; what those hours are worth is commercial information.
+
+        Resolved from ``WorkspaceMember`` rather than from the ``allow_permission``
+        decorator, because the decorator has already let both roles through by this point:
+        reading a work item's logs is legitimately open to Members, and only the monetary
+        subset of the payload is not.
+        """
+        return WorkspaceMember.objects.filter(
+            workspace__slug=slug,
+            member=request.user,
+            role=ROLE.ADMIN.value,
+            is_active=True,
+        ).exists()
+
+    def _serializer_context(self, request):
+        """Context every ``ServiceLogSerializer`` in this view is built with.
+
+        Centralised so that adding an endpoint cannot accidentally omit it. Omitting it
+        fails *safe* -- the serializer drops the monetary fields when the flag is absent --
+        but a payload that silently loses a column an Admin expected is still a bug, and
+        one method is easier to keep right than six call sites.
+        """
+        return {
+            "request": request,
+            "can_see_amounts": self._can_see_amounts(request, self.kwargs.get("slug")),
+        }
+
+    def _activity_payload(self, rows):
+        """Work log rows as the **activity trail** may record them: never with money.
+
+        Deliberately built with no context, so ``ServiceLogSerializer`` strips the
+        monetary fields.
+
+        **This is a leak that gating the response alone would not have closed.**
+        ``_record_activity`` stores its argument in ``IssueActivity``, and a work item's
+        activity feed is readable by every Member of the project. Reusing an Admin's
+        response payload here -- which is the obvious thing to do, since it is already
+        serialised -- would put the value in reais in front of exactly the audience R11
+        keeps it from, one hop away from the endpoint that carefully withheld it. R11(b)
+        is about the payload, and this is a payload.
+
+        The hour quantities stay: R8 requires the trail, and hours are not the secret.
+        """
+        return ServiceLogSerializer(rows, many=True).data
+
+    def _totals(self, issue_id, *, can_see_amounts=False):
+        """The three hour totals, plus their pt-BR renderings, and the value for an Admin.
 
         Returned on every write so the work item panel never has to make a second
         request to refresh them, and cannot show a stale total next to a new row.
+
+        The monetary total is **absent** rather than zero for a non-Admin, matching the
+        serializer: R11(b) forbids sending a number the caller may not see, and a zero
+        would be a number.
+
+        Section 4 of the phase brief asks the work item to show the total value "para
+        clientes avulsos". It is summed from the persisted ``amount`` column in the
+        database, never recomputed from hours -- acceptance criterion 13.
         """
         totals = issue_service_log_totals(issue_id)
 
-        return {
+        payload = {
             **{field: str(value) for field, value in totals.items()},
             **{f"{field}_display": format_hours(value) for field, value in totals.items()},
         }
+
+        if can_see_amounts:
+            billed = issue_service_log_amount(issue_id)
+            payload["amount"] = str(billed)
+            payload["amount_display"] = format_money(billed)
+
+        return payload
 
     def _record_activity(self, activity_type, request, issue, project_id, requested_data, current_instance):
         """Rule R8's audit trail, on the work item.
@@ -224,19 +300,23 @@ class ServiceLogViewSet(BaseViewSet):
         retroactively hide work that was already logged and possibly already invoiced.
         """
         service_logs = self.get_queryset()
+        context = self._serializer_context(request)
 
         return Response(
             {
-                "service_logs": ServiceLogSerializer(service_logs, many=True).data,
-                "totals": self._totals(issue_id),
+                "service_logs": ServiceLogSerializer(service_logs, many=True, context=context).data,
+                "totals": self._totals(issue_id, can_see_amounts=context["can_see_amounts"]),
             },
             status=status.HTTP_200_OK,
         )
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def totals(self, request, slug, project_id, issue_id):
-        """Just the three totals, for the work item header."""
-        return Response(self._totals(issue_id), status=status.HTTP_200_OK)
+        """Just the totals, for the work item header. Money only for an Admin."""
+        return Response(
+            self._totals(issue_id, can_see_amounts=self._can_see_amounts(request, slug)),
+            status=status.HTTP_200_OK,
+        )
 
     # ------------------------------------------------------------------ preview
 
@@ -275,19 +355,37 @@ class ServiceLogViewSet(BaseViewSet):
         raw_total = serializer.validated_data["raw_duration_minutes"]
         logged_total = sum(row.logged_hours for row in rows)
 
+        context = self._serializer_context(request)
+
+        # Section 4: the form shows the value before saving. Computed by the same function
+        # the save uses, on the unsaved rows -- a preview computed by different code than
+        # the save is a preview that can lie, which is why `settlement_fields` exists
+        # separately from `settle_service_log`. Nothing is written.
+        if context["can_see_amounts"]:
+            for row in rows:
+                for name, value in settlement_fields(row).items():
+                    setattr(row, name, value)
+
+        totals = {
+            "logged_hours": str(logged_total),
+            "equivalent_hours": str(sum(row.equivalent_hours for row in rows)),
+            "debited_hours": str(sum(row.debited_hours for row in rows)),
+        }
+
+        if context["can_see_amounts"]:
+            previewed = sum((row.amount for row in rows), ZERO_MONEY)
+            totals["amount"] = str(previewed)
+            totals["amount_display"] = format_money(previewed)
+
         return Response(
             {
                 # Unsaved rows, so the same serializer renders the same shape the list
                 # will show once saved.
-                "segments": ServiceLogSerializer(rows, many=True).data,
+                "segments": ServiceLogSerializer(rows, many=True, context=context).data,
                 "raw_duration_minutes": raw_total,
                 # Acceptance criterion 2: the UI has to say that rounding happened.
                 "was_rounded": logged_total * 60 != raw_total,
-                "totals": {
-                    "logged_hours": str(logged_total),
-                    "equivalent_hours": str(sum(row.equivalent_hours for row in rows)),
-                    "debited_hours": str(sum(row.debited_hours for row in rows)),
-                },
+                "totals": totals,
                 "warning": self._long_entry_warning(rows),
             },
             status=status.HTTP_200_OK,
@@ -332,27 +430,32 @@ class ServiceLogViewSet(BaseViewSet):
         if error_code:
             return Response({"error": error_code}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Persist and debit in ONE transaction. A batch that exists without its pool
+        # Persist and settle in ONE transaction. A batch that exists without its pool
         # debit is the divergence the whole contract phase is built to prevent, and a
         # closed period has to refuse the entry (acceptance criterion 13) -- which only
-        # works as a refusal if the rows roll back with it.
+        # works as a refusal if the rows roll back with it. Since Phase 6 "settle" also
+        # covers pricing, so the same argument extends to the value in reais: a row that
+        # exists without its amount would be an invoice line nobody can find.
         try:
             with transaction.atomic():
                 create_service_log_batch(rows)
-                apply_batch_debit(rows, actor=request.user)
-        except ServicePoolValidationError as error:
+                settle_service_log_batch(rows, actor=request.user)
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
             return Response(
                 {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        payload = ServiceLogSerializer(rows, many=True).data
+        context = self._serializer_context(request)
+        payload = ServiceLogSerializer(rows, many=True, context=context).data
 
         self._record_activity(
             "service_log.activity.created",
             request,
             issue,
             project_id,
-            requested_data=json.dumps(payload, cls=DjangoJSONEncoder),
+            # NOT `payload`: the activity feed is readable by Members. See
+            # `_activity_payload`.
+            requested_data=json.dumps(self._activity_payload(rows), cls=DjangoJSONEncoder),
             current_instance=None,
         )
         self._record_override_activity(request, issue, project_id, payload)
@@ -361,7 +464,7 @@ class ServiceLogViewSet(BaseViewSet):
             {
                 "service_logs": payload,
                 "batch_id": str(rows[0].batch_id),
-                "totals": self._totals(issue_id),
+                "totals": self._totals(issue_id, can_see_amounts=context["can_see_amounts"]),
                 "warning": self._long_entry_warning(rows),
                 # Section 7: the work item shows the pool it just debited, so the panel
                 # never has to make a second request to refresh the balance and cannot
@@ -414,7 +517,7 @@ class ServiceLogViewSet(BaseViewSet):
 
         # Captured before the swap so the activity generator can diff against it.
         current_instance = json.dumps(
-            ServiceLogSerializer(existing, many=True).data, cls=DjangoJSONEncoder
+            self._activity_payload(existing), cls=DjangoJSONEncoder
         )
 
         try:
@@ -433,23 +536,33 @@ class ServiceLogViewSet(BaseViewSet):
         # reversal and the new debit are one transaction. The reversal reads its amount
         # from the DEBIT row rather than recomputing it, which is what makes the old 2h
         # come back and not the new 3h.
+        #
+        # The monetary half needs no reversal of its own, and that is a real consequence of
+        # where the value lives rather than an omission: the amount sits on the work log
+        # row, so soft deleting the row removes it from every total by removing it from
+        # `objects`. The recreated rows are then priced from scratch -- and price at the
+        # same rate, because `resolve_log_price` reads the sheet in force on `worked_on`,
+        # which an edit does not move unless the technician changed the service date.
         try:
             with transaction.atomic():
                 replace_service_log_batch(batch_id=batch_id, rows=rows)
-                apply_batch_debit(rows, actor=request.user)
-        except ServicePoolValidationError as error:
+                settle_service_log_batch(rows, actor=request.user)
+        except (ServicePoolValidationError, ServicePricingValidationError) as error:
             return Response(
                 {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        payload = ServiceLogSerializer(rows, many=True).data
+        context = self._serializer_context(request)
+        payload = ServiceLogSerializer(rows, many=True, context=context).data
 
         self._record_activity(
             "service_log.activity.updated",
             request,
             issue,
             project_id,
-            requested_data=json.dumps(payload, cls=DjangoJSONEncoder),
+            # NOT `payload`: the activity feed is readable by Members. See
+            # `_activity_payload`.
+            requested_data=json.dumps(self._activity_payload(rows), cls=DjangoJSONEncoder),
             current_instance=current_instance,
         )
         self._record_override_activity(request, issue, project_id, payload)
@@ -458,7 +571,7 @@ class ServiceLogViewSet(BaseViewSet):
             {
                 "service_logs": payload,
                 "batch_id": str(batch_id),
-                "totals": self._totals(issue_id),
+                "totals": self._totals(issue_id, can_see_amounts=context["can_see_amounts"]),
                 "warning": self._long_entry_warning(rows),
                 "pool": issue_pool_snapshot(issue, worked_on=serializer.validated_data["worked_on"]),
             },
@@ -484,7 +597,7 @@ class ServiceLogViewSet(BaseViewSet):
             return Response({"error": error.code}, status=status.HTTP_403_FORBIDDEN)
 
         current_instance = json.dumps(
-            ServiceLogSerializer(existing, many=True).data, cls=DjangoJSONEncoder
+            self._activity_payload(existing), cls=DjangoJSONEncoder
         )
 
         # Acceptance criterion 11: exactly the hours taken go back to the right period.
@@ -508,6 +621,9 @@ class ServiceLogViewSet(BaseViewSet):
         )
 
         return Response(
-            {"totals": self._totals(issue_id), "pool": issue_pool_snapshot(issue)},
+            {
+                "totals": self._totals(issue_id, can_see_amounts=self._can_see_amounts(request, slug)),
+                "pool": issue_pool_snapshot(issue),
+            },
             status=status.HTTP_200_OK,
         )

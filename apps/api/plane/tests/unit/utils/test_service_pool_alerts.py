@@ -604,7 +604,12 @@ class TestAllowanceAlerts:
         from plane.utils.service_pool_alerts import workspace_allowance_alerts
 
         allowance = ServiceIssueAllowanceFactory(
-            credited_hours=Decimal("10.0000"), consumed_hours=Decimal("25.0000")
+            credited_hours=Decimal("10.0000"),
+            consumed_hours=Decimal("25.0000"),
+            # Phase 6: closing a deficit bills it in reais, and refuses without a rate that
+            # resolves. This test is about the alert disappearing, not about the price, so
+            # the rate is here only to let the close succeed.
+            overage_hour_rate=Decimal("200.00"),
         )
 
         assert len(workspace_allowance_alerts(allowance.workspace_id)) == 1, "positive control"

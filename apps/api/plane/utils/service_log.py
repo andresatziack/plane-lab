@@ -41,6 +41,7 @@ from plane.utils.service_log_time import (
     round_to_block,
     to_decimal_hours,
 )
+from plane.utils.service_money import ZERO_MONEY
 
 # Error codes, in the UPPER_SNAKE style the client entity and the catalogues
 # established. The frontend maps them to translated strings; the API never returns
@@ -274,6 +275,14 @@ def build_batch_rows(
 
     The multiplier and the billing route are snapshotted onto every row (R4, and D20
     for the route). Nothing downstream may re-read them through the foreign keys.
+
+    **The value in reais is deliberately NOT computed here**, even though it is an R4
+    snapshot like the multiplier and would fit the pattern. It cannot be: D33 makes the
+    applied route depend on resolving the client's contract, and a monetary charge only
+    happens when that resolution finds no usable pool. Resolution needs the persisted row.
+    So pricing happens one step later, in ``plane.utils.service_billing``, in the same
+    place the debit happens -- which is also the only way "debited a pool" and "billed in
+    reais" can stay mutually exclusive.
     """
     batch_id = batch_id or uuid.uuid4()
     rows = []
@@ -306,6 +315,13 @@ def build_batch_rows(
                 classification_reason=segment.reason,
                 applied_multiplier=segment_hour_type.multiplier,
                 applied_billing_route=billing_type.billing_route,
+                # Born equal to the chosen route, and only `settle_service_log` may move
+                # it -- solely to D33's `BILL_AMOUNT`. Set here rather than left to the
+                # field default because the default is `DEBIT_POOL`, which would make a
+                # `NON_BILLABLE` row violate `service_log_route_deviation_is_coherent`
+                # the moment it was saved. Same fact the 0130 back-fill wrote for history:
+                # before a settlement runs, applied and settled are the same route.
+                settled_billing_route=billing_type.billing_route,
                 batch_id=batch_id,
                 segment_index=index,
                 **quantities,
@@ -481,6 +497,28 @@ def issue_service_log_totals(issue_id):
     )
 
     return {field: aggregates[field] or ZERO_HOURS for field in TOTAL_FIELDS}
+
+
+def issue_service_log_amount(issue_id):
+    """The billed value of one work item, in reais. Section 4 of the pricing phase.
+
+    Separate from ``issue_service_log_totals`` rather than a fourth key in it, and the
+    separation is not cosmetic: the three hour totals go to everyone who may see the work
+    item, while this one is **Admin only** (R11). Returning it from the same function would
+    make withholding it a caller's responsibility, and the caller that forgets is the leak.
+
+    ``Sum`` over the persisted ``amount`` column, in the database, never recomputed from
+    hours and a rate. Section 4b and acceptance criterion 13 both require it: the rounding
+    happened once, per work log, when the value was derived -- summing rounded products and
+    rounding a sum of products are different numbers, and only the first one matches the
+    invoice lines.
+
+    Non-billable rows and pool debits contribute ``0.00`` by construction, so no filter on
+    the route is needed here; the check constraints guarantee those rows carry no amount.
+    """
+    return ServiceLog.objects.filter(issue_id=issue_id).aggregate(
+        amount=Coalesce(Sum("amount"), Value(ZERO_MONEY))
+    )["amount"] or ZERO_MONEY
 
 
 def annotate_service_log_totals(queryset):

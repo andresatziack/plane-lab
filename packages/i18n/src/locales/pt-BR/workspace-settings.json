@@ -770,6 +770,32 @@
             }
           }
         }
+      },
+      "service_prices": {
+        "title": "Precos por hora",
+        "description": "O valor/hora base, por vigencia. Um reajuste cria uma vigencia nova em vez de editar a atual, para que o que ja foi faturado mantenha o preco cobrado.",
+        "add": "Adicionar vigencia",
+        "empty": "Nenhum preco cadastrado. Apontamentos deste cliente ficarao sem valor.",
+        "starts_on": "Vigente a partir de",
+        "base_hour_rate": "Valor/hora base (R$)",
+        "first_of_month_hint": "A vigencia comeca no dia 1o de um mes. Isso faz o preco de um apontamento e o preco do excedente do contrato lerem a mesma folha.",
+        "from": "Desde {date}",
+        "in_force": "Vigente",
+        "no_table": "Nenhum preco vigente nesta data.",
+        "multiplier": "Multiplicador {value}x",
+        "overridden": "Sobrescrito",
+        "override_hint": "Valor absoluto que substitui base x multiplicador para este tipo de hora. Ele ja embute o multiplicador.",
+        "set_override": "Definir valor absoluto",
+        "remove_override": "Remover valor absoluto",
+        "override_prompt": "Valor absoluto para este tipo de hora (R$ por hora apontada)",
+        "override_count": "{count} valor(es) absoluto(s)",
+        "toasts": {
+          "load_failed": "Nao foi possivel carregar os precos.",
+          "save_failed": "Nao foi possivel salvar o preco.",
+          "duplicate": "Ja existe uma vigencia comecando nessa data.",
+          "not_first_of_month": "A vigencia precisa comecar no dia 1o de um mes.",
+          "already_priced": "Esta vigencia ja precificou apontamentos e nao pode ser removida. Esses registros guardam o valor cobrado, e apagar a folha deixaria ninguem capaz de conferi-lo."
+        }
       }
     },
     "empty_state": {

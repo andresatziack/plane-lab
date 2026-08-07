@@ -442,7 +442,9 @@
         "equivalent": "Horas equivalentes",
         "equivalent_hint": "Depois do multiplicador do Tipo de Hora. É o número que o cliente vê.",
         "debited": "Horas faturáveis",
-        "debited_hint": "Exclui apontamentos cujo Tipo de Atendimento não cobra, como Garantia ou Cortesia."
+        "debited_hint": "Exclui apontamentos cujo Tipo de Atendimento não cobra, como Garantia ou Cortesia.",
+        "amount": "Valor",
+        "amount_hint": "O valor faturavel deste chamado, somado do valor gravado em cada apontamento. Horas pagas pelo pool do contrato ou por uma bolsa nao entram."
       },
       "form": {
         "entry_mode": "Como você quer informar o tempo?",
@@ -487,7 +489,9 @@
       },
       "badges": {
         "not_billable": "Não cobrado",
-        "overridden": "Tipo de Hora alterado manualmente"
+        "overridden": "Tipo de Hora alterado manualmente",
+        "no_price": "Sem preco",
+        "billed_as_standalone": "Faturado como avulso"
       },
       "delete": {
         "title": "Excluir apontamento",
@@ -527,6 +531,17 @@
         "hour_type_not_found": "Esse Tipo de Hora não está mais disponível. Escolha outro.",
         "billing_type_not_found": "Esse Tipo de Atendimento não está mais disponível. Escolha outro.",
         "delegation_unavailable": "Apontar em nome de outra pessoa ainda não está disponível."
+      },
+      "pricing_failure": {
+        "no_price_sheet_for_client": "Este cliente nao tem valor/hora cadastrado, entao o apontamento ainda nao tem valor.",
+        "no_price_sheet_in_force": "Nenhum preco estava vigente na data do atendimento. A vigencia cadastrada comeca depois.",
+        "internal_project_no_client": "Project interno: nao faturavel para ninguem."
+      },
+      "route_deviation": {
+        "no_contract_for_client": "O cliente nao tem contrato, entao o atendimento foi faturado como avulso.",
+        "contract_suspended": "O contrato esta suspenso, entao o atendimento foi faturado como avulso.",
+        "contract_ended": "O contrato foi encerrado, entao o atendimento foi faturado como avulso.",
+        "contract_expired": "A data do atendimento esta fora da vigencia do contrato, entao foi faturado como avulso."
       }
     },
     "service_allowance": {
@@ -571,6 +586,24 @@
           "title": "Horas não creditadas",
           "message": "Algo deu errado. Tente novamente."
         }
+      }
+    },
+    "service_overage": {
+      "title": "Faturar o excedente",
+      "description": "As horas alem do pool serao faturadas pelo valor abaixo.",
+      "hours": "Horas excedentes",
+      "rate": "Valor/hora",
+      "amount": "Valor a faturar",
+      "irreversible": "Isto nao pode ser desfeito. Nao existe estorno de excedente faturado.",
+      "confirm": "Faturar o excedente",
+      "no_rate": "Nenhum valor/hora resolve para este excedente: o contrato nao tem e o cliente nao tem preco vigente. Cadastre um preco, ou feche o periodo transportando o deficit.",
+      "rate_source": {
+        "contract": "termo do contrato",
+        "allowance": "termo da bolsa",
+        "client_base_rate": "valor base do cliente"
+      },
+      "toasts": {
+        "failed": "Nao foi possivel faturar o excedente."
       }
     }
   }

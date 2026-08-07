@@ -24,6 +24,12 @@ type Props = {
  * The values arrive already formatted from the server. Nothing here does arithmetic on
  * them -- section 4b requires every total to be a sum of persisted values, and the hour
  * quantities are decimal strings precisely so the browser cannot add them as floats.
+ *
+ * **The value in reais appears only when the payload contains it**, which happens only for a
+ * workspace Admin (R11). This does not check a role: the field is simply **absent** from a
+ * Member's payload, because R11(b) makes that a serializer's job rather than an interface's --
+ * "esconder na interface e mandar no payload é vazamento". So the correct client-side
+ * behaviour is to render what arrived, and a `!== undefined` check is the whole of it.
  */
 export const ServiceLogTotals = observer(function ServiceLogTotals(props: Props) {
   const { totals } = props;
@@ -50,8 +56,17 @@ export const ServiceLogTotals = observer(function ServiceLogTotals(props: Props)
     },
   ];
 
+  if (totals.amount_display !== undefined) {
+    cards.push({
+      key: "amount",
+      label: t("work_item.service_log.totals.amount"),
+      hint: t("work_item.service_log.totals.amount_hint"),
+      value: totals.amount_display,
+    });
+  }
+
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className={`grid gap-2 ${cards.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
       {cards.map((card) => (
         <Tooltip key={card.key} tooltipContent={card.hint} position="top">
           <div className="border-custom-border-200 bg-custom-background-90 flex flex-col gap-0.5 rounded-md border px-3 py-2">

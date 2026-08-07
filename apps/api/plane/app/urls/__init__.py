@@ -21,6 +21,7 @@ from .service_client import urlpatterns as service_client_urls
 from .service_contract import urlpatterns as service_contract_urls
 from .service_issue_allowance import urlpatterns as service_issue_allowance_urls
 from .service_log import urlpatterns as service_log_urls
+from .service_pricing import urlpatterns as service_pricing_urls
 from .state import urlpatterns as state_urls
 from .user import urlpatterns as user_urls
 from .views import urlpatterns as view_urls
@@ -48,6 +49,7 @@ urlpatterns = [
     *service_contract_urls,
     *service_issue_allowance_urls,
     *service_log_urls,
+    *service_pricing_urls,
     *state_urls,
     *user_urls,
     *view_urls,

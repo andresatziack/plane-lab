@@ -50,7 +50,12 @@ from plane.db.models import (
     ServiceLog,
 )
 from plane.utils.service_log_time import ZERO_HOURS, quantize_hours as _quantize
-from plane.utils.service_pool import ServicePoolValidationError, write_ledger_entry
+from plane.utils.service_money import format_money, overage_amount, quantize_money
+from plane.utils.service_pool import (
+    ServicePoolValidationError,
+    _overage_amount_discrepancies,
+    write_ledger_entry,
+)
 
 # ---------------------------------------------------------------------------
 # Error codes
@@ -473,8 +478,8 @@ def close_allowance(allowance, *, actor=None):
     Two cases, and unlike a competency period there is no third:
 
     * a **deficit** is billed as overage -- ``OVERAGE_BILLED`` for what is owed, recorded
-      in hours on ``overage_hours``, with Phase 6 converting it to reais through the same
-      mechanism a period's overage uses;
+      in hours on ``overage_hours`` and **in reais on the same ledger row**, through the
+      identical mechanism a period's overage uses;
     * a **surplus** is written off -- ``EXPIRED_BY_ALLOWANCE_CLOSE``, recorded on
       ``expired_hours``. It **cannot** be carried anywhere: an allowance has no successor,
       and moving it to the client's contract pool is what section 3 forbids outright.
@@ -502,15 +507,23 @@ def close_allowance(allowance, *, actor=None):
         balance = locked.balance_hours
 
         if balance < 0:
-            owed = -balance
+            owed = _quantize(-balance)
+            rate = _overage_rate_for(locked)
+            amount = overage_amount(overage_hours=owed, overage_hour_rate=rate)
+
             write_ledger_entry(
                 allowance=locked,
                 entry_type=ServiceLedgerEntryType.OVERAGE_BILLED,
                 hours=owed,
                 actor=actor,
-                notes=f"Excedente de {_quantize(owed)}h da bolsa faturado",
+                notes=(
+                    f"Excedente de {owed}h da bolsa faturado a {format_money(rate)}/h "
+                    f"= {format_money(amount)}"
+                ),
+                amount=amount,
+                applied_hour_rate=rate,
             )
-            locked.overage_hours = _quantize(owed)
+            locked.overage_hours = owed
         elif balance > 0:
             write_ledger_entry(
                 allowance=locked,
@@ -537,6 +550,96 @@ def close_allowance(allowance, *, actor=None):
                 "updated_at",
             ]
         )
+
+    return locked
+
+
+def _overage_rate_for(allowance):
+    """The rate an hour past this allowance is billed at.
+
+    ``allowance.overage_hour_rate`` first, then the client's base rate for the vigency in
+    force. **The allowance's own rate comes first because an allowance is a separately
+    negotiated sale, and the support price is the wrong price for it**: a project sold at
+    R$ 180/h does not have overage at R$ 200/h merely because that is what the client's
+    support costs. Reaching for the client base rate while the allowance carries its own is
+    the mistake this ordering exists to prevent, and there is a sabotage test for it.
+
+    Resolved on the **closing date**, unlike a contract period's overage which uses the
+    competency's start. An allowance has no competency -- it is not a month, it is a sale
+    that ends when someone closes it -- so the closing date is the only date it has.
+
+    Raises ``ServicePricingValidationError(OVERAGE_RATE_NOT_CONFIGURED)`` when neither
+    resolves, for the reason given on ``plane.utils.service_pricing.resolve_overage_rate``:
+    closing is a deliberate act with an alternative, so refusing is better than zeroing a
+    real debt in silence.
+    """
+    from plane.utils.service_pricing import resolve_overage_rate
+
+    return resolve_overage_rate(
+        service_client_id=allowance.project.service_client_id,
+        on_date=timezone.now().date(),
+        allowance=allowance,
+    )
+
+
+def allowance_overage_preview(allowance):
+    """What closing this allowance would bill, computed without closing it.
+
+    The allowance counterpart of ``plane.utils.service_pool.overage_billing_preview``, and
+    it exists for the same reason: **billing overage is irreversible**, so the confirmation
+    has to show the value and the rate first and say so. See D42 for what a reversal would
+    require.
+
+    Returns ``None`` when there is nothing to bill -- a surplus or an exactly zero balance
+    is not a charge, and offering an amount for it would invent one.
+    """
+    balance = allowance.balance_hours
+
+    if balance >= 0:
+        return None
+
+    owed = _quantize(-balance)
+    rate = _overage_rate_for(allowance)
+
+    return {
+        "overage_hours": str(owed),
+        "overage_hour_rate": str(rate),
+        "amount": str(overage_amount(overage_hours=owed, overage_hour_rate=rate)),
+        "rate_source": ("allowance" if allowance.overage_hour_rate is not None else "client_base_rate"),
+        "is_reversible": False,
+    }
+
+
+def set_allowance_overage_rate(allowance, overage_hour_rate, *, actor):
+    """Register or clear the rate an hour past this allowance is billed at.
+
+    Audited through ``save_with_config_activity``, which is why
+    ``ServiceIssueAllowance`` carries ``ChangeTrackerMixin`` for this one field: the rate
+    is **configuration that decides money**, unlike the hour accumulators, whose audit is
+    the ledger itself.
+
+    ``None`` clears it and restores the fallback to the client's base rate. That transition
+    is auditable in both directions because the field is nullable *and* tracked, so it
+    serialises through the ``CONFIG_VALUE_UNSET`` sentinel (D4) rather than violating
+    ``svc_cfg_activity_shape_matches_verb``.
+
+    Refuses on a closed allowance: its ledger already sums to zero and its overage is
+    already billed at a rate that was snapshotted onto the row, so changing the rate
+    afterwards would describe a decision that was never applied.
+    """
+    from plane.utils.service_catalog import save_with_config_activity
+
+    with transaction.atomic():
+        locked = _lock_allowance(allowance)
+
+        if locked.status == ServiceIssueAllowanceStatus.CLOSED:
+            raise ServicePoolValidationError(
+                ALLOWANCE_ALREADY_CLOSED,
+                {"allowance_id": str(locked.pk), "issue_id": str(locked.issue_id)},
+            )
+
+        locked.overage_hour_rate = None if overage_hour_rate is None else quantize_money(overage_hour_rate)
+        save_with_config_activity(locked, actor=actor)
 
     return locked
 
@@ -621,6 +724,14 @@ def reconcile_allowance(allowance):
                 "ledger": str(_quantize(ledger_total)),
                 "allowance": str(_quantize(expected_total)),
             }
+        )
+
+    # The monetary half. Reuses the pool's checker so the arithmetic is asserted the same
+    # way for both targets; the key is renamed to this function's own shape, because a
+    # caller reading `discrepancies` here expects `allowance` and not `period`.
+    for item in _overage_amount_discrepancies(allowance_id=allowance.pk):
+        discrepancies.append(
+            {"field": item["field"], "ledger": item["ledger"], "allowance": item["period"]}
         )
 
     return {

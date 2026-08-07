@@ -219,12 +219,18 @@ class IssueFactory(factory.django.DjangoModelFactory):
 class ServiceLogFactory(factory.django.DjangoModelFactory):
     """Factory for creating ServiceLog instances.
 
-    The three hour quantities and the two R4 snapshots default to a coherent set for
-    one billable hour at multiplier 1.00, so a test that does not care about the
+    The three hour quantities and the R4 snapshots default to a coherent set for one
+    billable hour at multiplier 1.00, so a test that does not care about the
     arithmetic gets a valid row. A test that *does* care should go through
     ``plane.utils.service_log.build_batch_rows`` instead, which is the code the API
     uses -- the check constraint tying ``debited_hours`` to the billing route will
     reject an incoherent combination passed here, which is the point of it.
+
+    **The row is born unpriced**: no rate, no basis, ``amount`` at its ``0.00`` default,
+    and ``settled_billing_route`` mirroring the chosen route. That is a real state -- it is
+    what a row looks like between ``create_service_log_batch`` and
+    ``settle_service_log_batch`` -- and the monetary check constraints accept it. A test
+    that wants a priced row calls ``plane.utils.service_billing.settle_service_log``.
     """
 
     class Meta:
@@ -247,6 +253,16 @@ class ServiceLogFactory(factory.django.DjangoModelFactory):
     debited_hours = Decimal("1.0000")
     applied_multiplier = Decimal("1.00")
     applied_billing_route = ServiceBillingType.BillingRoute.DEBIT_POOL
+    # Mirrors the chosen route, which is what an unsettled row means and exactly the fact
+    # migration 0130 back-filled for existing history. Derived with `SelfAttribute` rather
+    # than repeated as a literal so that a test overriding `applied_billing_route` gets a
+    # coherent row for free -- otherwise every non-pool test would have to remember to set
+    # both, and `service_log_route_deviation_is_coherent` would reject the row.
+    #
+    # A test that needs D33's deviation -- chosen pool, settled as a charge -- sets
+    # `settled_billing_route` and `route_deviation_reason` explicitly, or goes through
+    # `plane.utils.service_billing.settle_service_log`, which is the code the API uses.
+    settled_billing_route = factory.SelfAttribute("applied_billing_route")
     hour_type = factory.SubFactory(ServiceHourTypeFactory, workspace=factory.SelfAttribute("..issue.workspace"))
     billing_type = factory.SubFactory(ServiceBillingTypeFactory, workspace=factory.SelfAttribute("..issue.workspace"))
     suggested_hour_type = None

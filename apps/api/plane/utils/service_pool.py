@@ -54,6 +54,7 @@ from plane.utils.service_log_time import ZERO_HOURS
 # owes. Aliased rather than renamed here so the move is one line of diff in a file where
 # every line moves a balance.
 from plane.utils.service_log_time import quantize_hours as _quantize
+from plane.utils.service_money import format_money, overage_amount, quantize_money
 
 # ---------------------------------------------------------------------------
 # Error and warning codes
@@ -101,6 +102,16 @@ ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE = "ISSUE_ALLOWANCE_REQUIRES_TARGET_ISSUE"
 #: Warning, never a blocker. D9 and section 1: an entry outside contractual vigency is
 #: recorded, flagged in the form and on the work item, and marked in reports. "Nunca
 #: descartar o registro por causa de uma pendência comercial."
+#:
+#: **Since D33 this covers only a vigency that has not started yet.** The two halves of
+#: "outside the vigency" acquired opposite destinations in the pricing phase, so they can
+#: no longer share one code:
+#:
+#: * a service date **before** ``starts_on`` still debits the pool -- the contract's first
+#:   period, per D31 -- and carries this warning;
+#: * a service date **after** ``ends_on`` has no pool left to debit, so D33 settles it as
+#:   avulso and it carries ``ServiceRouteDeviation.CONTRACT_EXPIRED`` on the work log
+#:   instead of a warning here.
 CONTRACT_OUT_OF_VIGENCY = "CONTRACT_OUT_OF_VIGENCY"
 
 #: Warning, never a blocker, and **a distinct code from the one above** -- decision B4,
@@ -183,7 +194,10 @@ def contract_warnings(contract, worked_on):
     if contract.status == ServiceContract.Status.SUSPENDED:
         warnings.append(CONTRACT_SUSPENDED)
 
-    if not contract.covers(worked_on):
+    # Only a vigency that has not started yet. A service date past `ends_on` is not a
+    # warning any more -- D33 settles it as avulso, and `route_deviation_reason` on the
+    # work log is where that is recorded. See the comment on CONTRACT_OUT_OF_VIGENCY.
+    if worked_on < contract.starts_on:
         warnings.append(CONTRACT_OUT_OF_VIGENCY)
 
     return warnings
@@ -290,17 +304,45 @@ def _period_bounds(contract, year, month):
     price, by editing ``contracted_hours``, instead of the system inventing a pro-rata
     rule.
 
-    A month that the vigency does not touch at all keeps its natural bounds. That
-    happens for a backdated or late entry, which D9 permits, and it keeps the check
-    constraint ``ends_on >= starts_on`` satisfiable in a case where clipping would
-    invert the range.
+    **Every caller passes a competency the vigency touches**, so the clip can never
+    invert the range. That is guaranteed upstream: ``materialize_contract_periods`` walks
+    only inside the vigency, and ``resolve_period`` clamps the service date to it (D31).
+
+    This function used to carry a branch returning the *natural* month bounds for a
+    competency the vigency does not touch, added so that a backdated or late entry could
+    not violate the ``ends_on >= starts_on`` check constraint. **D31 made that branch
+    both unreachable and wrong**: materialising a period outside the vigency invents a
+    quota that was never sold, so the entry is clamped or billed instead of getting a
+    month of its own. The branch is gone rather than left in place describing a rule the
+    system no longer has.
     """
     first, last = month_bounds(year, month)
 
-    if contract.ends_on < first or contract.starts_on > last:
-        return first, last
-
     return max(first, contract.starts_on), min(last, contract.ends_on)
+
+
+def competence_date_for(contract, worked_on):
+    """The date whose competency month a work log debits. Decision D31.
+
+    Normally ``worked_on`` itself, per R7. The exception is a service date **before the
+    contract starts**, which debits the contract's **first** period.
+
+    D31's reasoning, worth keeping next to the arithmetic: a 30h/month contract running
+    twelve months sells 360h, and no work log may change that total. Materialising a
+    period for February on a contract that starts in March would grant a thirteenth
+    monthly quota -- 390h against a 360h contract -- so the hours would be a gift the
+    system invented. Anticipating work costs the client hours from the month they
+    contracted for; it does not create a month.
+
+    A service date **after** ``ends_on`` never reaches here: D33 settles it as avulso,
+    because a contract that has ended has no pool left to debit. That asymmetry is the
+    point -- before the start there is a future pool to borrow from, after the end there
+    is nothing.
+    """
+    if worked_on < contract.starts_on:
+        return contract.starts_on
+
+    return worked_on
 
 
 def resolve_period(contract, worked_on, *, materialize=True, actor=None):
@@ -322,25 +364,32 @@ def resolve_period(contract, worked_on, *, materialize=True, actor=None):
     ``materialize=False`` returns ``None`` instead of creating, for callers that only
     want to read -- a dashboard must not create rows as a side effect of being looked
     at.
+
+    **The service date is clamped to the contract's vigency first** (D31, see
+    ``competence_date_for``), and the clamp is here rather than in the callers so that
+    reading and writing cannot disagree: ``issue_pool_snapshot`` calls this with
+    ``materialize=False`` and now previews the very period a debit would use.
     """
+    competence = competence_date_for(contract, worked_on)
+
     existing = ServiceContractPeriod.objects.filter(
         contract_id=contract.pk,
-        competence_year=worked_on.year,
-        competence_month=worked_on.month,
+        competence_year=competence.year,
+        competence_month=competence.month,
     ).first()
 
     if existing is not None or not materialize:
         return existing
 
-    starts_on, ends_on = _period_bounds(contract, worked_on.year, worked_on.month)
+    starts_on, ends_on = _period_bounds(contract, competence.year, competence.month)
 
     try:
         with transaction.atomic():
             period = ServiceContractPeriod.objects.create(
                 workspace_id=contract.workspace_id,
                 contract=contract,
-                competence_year=worked_on.year,
-                competence_month=worked_on.month,
+                competence_year=competence.year,
+                competence_month=competence.month,
                 starts_on=starts_on,
                 ends_on=ends_on,
                 contracted_hours=_quantize(contract.monthly_hours),
@@ -357,8 +406,8 @@ def resolve_period(contract, worked_on, *, materialize=True, actor=None):
         # Lost the race. The winner's row is the right one to use.
         return ServiceContractPeriod.objects.filter(
             contract_id=contract.pk,
-            competence_year=worked_on.year,
-            competence_month=worked_on.month,
+            competence_year=competence.year,
+            competence_month=competence.month,
         ).first()
 
     return period
@@ -434,6 +483,8 @@ def write_ledger_entry(
     service_log=None,
     actor=None,
     notes="",
+    amount=None,
+    applied_hour_rate=None,
 ):
     """Insert one ledger row. **The only place rows are created.**
 
@@ -448,12 +499,24 @@ def write_ledger_entry(
     move a balance without moving the owning row's totals, and those two are supposed to
     be impossible to separate. It stays the single writer precisely so that "no balance
     moves without a row" (D23) keeps holding for the allowance as well as for the pool.
+
+    ``amount`` and ``applied_hour_rate`` are Phase 6's monetary pair, and they travel
+    together or not at all -- ``service_ledger_amount_only_on_overage_billed`` enforces
+    both that and the fact that only ``OVERAGE_BILLED`` may carry them. Extending this
+    signature was preferred to a second writer for the reason the whole function exists:
+    one place that creates rows is what keeps "no balance moves without a row" checkable.
+    Quantised here, at the boundary, exactly as ``hours`` is.
     """
     if (period is None) == (allowance is None):
         # Defence against a caller, not against data: the DDL constraint is what
         # actually guarantees this. Raised here so the traceback points at the mistake
         # rather than at a Postgres constraint name.
         raise ValueError("A ledger entry targets exactly one of a period or an allowance")
+
+    if (amount is None) != (applied_hour_rate is None):
+        # Same kind of defence. A value with no rate cannot be audited back to a decision,
+        # and a rate with no value is a rate that was never applied.
+        raise ValueError("A ledger entry carries an amount and its rate together, or neither")
 
     owner = period if period is not None else allowance
 
@@ -468,6 +531,8 @@ def write_ledger_entry(
         service_log=service_log,
         actor=actor,
         notes=notes,
+        amount=None if amount is None else quantize_money(amount),
+        applied_hour_rate=None if applied_hour_rate is None else quantize_money(applied_hour_rate),
     )
 
 
@@ -541,9 +606,22 @@ def apply_debit(service_log, actor=None):
     caller distinguishes them through ``issue_pool_snapshot``, which reports the
     resolution code. A caller that only checked the balance had not moved would be unable
     to tell a non-billable log from a missing contract, and those are opposite faults.
+
+    **Since Phase 6 this is the pool half of a larger decision**, and it is no longer the
+    entry point the API calls. ``plane.utils.service_billing.settle_service_log`` decides
+    between the pool, a monetary charge and no charge at all -- because D33 turned "there
+    is no usable contract" from "debit nothing" into "bill it as avulso", and that choice
+    needs the contract resolution this function used to keep to itself. The resolution now
+    happens once, in ``resolve_settlement``, and the mechanical debit lives in
+    ``debit_resolved_pool`` below.
+
+    This function is kept, unchanged in behaviour, because it is the honest expression of
+    "debit this log from its pool" and Phase 4's and Phase 5's tests are written against
+    it. It resolves and then delegates.
     """
     if service_log.applied_billing_route != ServiceBillingType.BillingRoute.DEBIT_POOL:
-        # Not a pool route. R5 for NON_BILLABLE, and the monetary route is Phase 6.
+        # Not a pool route. R5 for NON_BILLABLE; a monetary route is priced by
+        # `plane.utils.service_billing`, never debited here.
         return None
 
     if service_log.debited_hours == ZERO_HOURS:
@@ -572,8 +650,28 @@ def apply_debit(service_log, actor=None):
         # reported by `issue_pool_snapshot` rather than being silently dropped -- "não
         # faturável" and "não existe contrato" produce the same balance and are opposite
         # faults, so the absence has to say which one it is.
+        #
+        # Note that a caller coming through `settle_service_log` never reaches this: D33
+        # settles an absent contract as avulso, so the log is priced instead.
         return None
 
+    return debit_resolved_pool(service_log, contract=contract, actor=actor)
+
+
+def debit_resolved_pool(service_log, *, contract, actor=None):
+    """Move the hours, given a contract that is already resolved. The mechanical half.
+
+    Split out of ``apply_debit`` by Phase 6 so that the **decision** of which contract
+    applies happens exactly once. ``plane.utils.service_billing.resolve_settlement`` has
+    to resolve the contract in order to apply D33 -- an expired or suspended contract is
+    billed rather than debited -- and if this function did not exist it would resolve it,
+    hand back "debit the pool", and then ``apply_debit`` would resolve it a second time.
+    Two resolutions is two chances to disagree about which pool pays, which is precisely
+    the class of bug the R4 snapshot exists to make impossible after the fact.
+
+    Assumes the caller has already established that the route debits a pool, that the
+    hours are non-zero and that no allowance applies. Raises ``PERIOD_IS_CLOSED``.
+    """
     with transaction.atomic():
         period = resolve_period(contract, service_log.worked_on, actor=actor)
         locked = _lock_period(period)
@@ -879,6 +977,9 @@ def _settle_deficit(period, contract, balance, settlement, actor):
     so the next month opens with its contracted hours whole -- which is what criterion 9
     asks for and what makes "pay for this month's excess rather than mortgage the rest
     of the contract" a real option instead of a relabelling.
+
+    **Billing now carries a value in reais, and can therefore be refused.** See
+    ``_bill_period_overage``.
     """
     owed = -balance
 
@@ -890,15 +991,7 @@ def _settle_deficit(period, contract, balance, settlement, actor):
         )
 
     if settlement == ServiceOverageSettlement.BILLED:
-        write_ledger_entry(
-            period=period,
-            entry_type=ServiceLedgerEntryType.OVERAGE_BILLED,
-            hours=owed,
-            actor=actor,
-            notes=f"Excedente de {owed}h faturado, competencia {period.competence_label}",
-        )
-        period.overage_hours = _quantize(owed)
-        period.overage_settlement = ServiceOverageSettlement.BILLED
+        _bill_period_overage(period, contract, owed, actor)
         return
 
     following = next_period(period, actor=actor)
@@ -929,6 +1022,94 @@ def _settle_deficit(period, contract, balance, settlement, actor):
         carried_hours=F("carried_hours") - _quantize(owed)
     )
     period.overage_settlement = ServiceOverageSettlement.CARRIED
+
+
+def overage_billing_preview(period):
+    """What billing this period's overage would cost, computed without billing it.
+
+    Returns ``{"overage_hours", "overage_hour_rate", "amount", "rate_source",
+    "is_reversible"}``, all monetary values as strings, or raises
+    ``ServicePricingValidationError(OVERAGE_RATE_NOT_CONFIGURED)`` when no rate resolves.
+
+    **This exists because billing overage is irreversible**, and an irreversible mistake
+    has to be deliberate rather than careless. There is no ``reverse_overage_billing`` in
+    this system -- see ``docs/worklog/DECISOES.md`` D42 for what one would require -- so the
+    confirmation an Admin sees must show the value and the rate *before* the action, and
+    say plainly that it cannot be undone. ``is_reversible`` is a constant ``False`` rather
+    than an omission, so the API states the fact instead of leaving the client to know it.
+
+    Computed by the same functions the close uses, for the reason the work log preview
+    gives: a preview computed by different code than the action is a preview that can lie.
+    """
+    from plane.utils.service_pricing import resolve_overage_rate
+
+    contract = period.contract
+    balance = period.balance_hours
+    owed = _quantize(-balance) if balance < 0 else ZERO_HOURS
+
+    rate = resolve_overage_rate(
+        service_client_id=contract.service_client_id,
+        # Decision C: the sheet in force when the COMPETENCY BEGAN. Closing in April must
+        # not put April's readjusted price on March's invoice, and `starts_on` rather than
+        # `ends_on` also means a readjustment never reaches backwards over a month that is
+        # already partly worked. Price sheets are pinned to the first of a month in DDL, so
+        # the two readings coincide anyway -- this is belt and braces on purpose.
+        on_date=period.starts_on,
+        contract=contract,
+    )
+
+    return {
+        "overage_hours": str(owed),
+        "overage_hour_rate": str(quantize_money(rate)),
+        "amount": str(overage_amount(overage_hours=owed, overage_hour_rate=rate)),
+        "rate_source": ("contract" if contract.overage_hour_rate is not None else "client_base_rate"),
+        "is_reversible": False,
+    }
+
+
+def _bill_period_overage(period, contract, owed, actor):
+    """Bill a period's deficit in reais. Acceptance criteria 7, 8 and 9.
+
+    **The one place in this phase that refuses rather than recording an absence.** When no
+    rate resolves, ``resolve_overage_rate`` raises and the close is refused with
+    ``OVERAGE_RATE_NOT_CONFIGURED``.
+
+    That is not a contradiction of D27, D9 and D21, and the distinction is the whole
+    reason it is safe: those protect **work already executed by a technician**, where
+    refusing would destroy a record of real labour over configuration the technician does
+    not control. Closing a period is a **deliberate administrative act, at a moment of
+    choice, with a legitimate alternative already available** -- settle as ``CARRIED``
+    instead. Billing at R$ 0,00 would silently zero a real deficit, destroying the debt
+    with no trace, and that is the worst of the three outcomes.
+
+    Acceptance criterion 8 is answered by ``overage_amount``'s signature rather than by a
+    branch here: ``owed`` is accumulated from ``debited_hours``, which is already
+    equivalent, and the function has no multiplier parameter to pass one through.
+    """
+    from plane.utils.service_pricing import resolve_overage_rate
+
+    rate = resolve_overage_rate(
+        service_client_id=contract.service_client_id,
+        on_date=period.starts_on,
+        contract=contract,
+    )
+    amount = overage_amount(overage_hours=owed, overage_hour_rate=rate)
+
+    write_ledger_entry(
+        period=period,
+        entry_type=ServiceLedgerEntryType.OVERAGE_BILLED,
+        hours=owed,
+        actor=actor,
+        notes=(
+            f"Excedente de {_quantize(owed)}h faturado a {format_money(rate)}/h "
+            f"= {format_money(amount)}, competencia {period.competence_label}"
+        ),
+        amount=amount,
+        applied_hour_rate=rate,
+    )
+
+    period.overage_hours = _quantize(owed)
+    period.overage_settlement = ServiceOverageSettlement.BILLED
 
 
 def _settle_surplus(period, contract, actor):
@@ -1183,12 +1364,59 @@ def reconcile_period(period):
             }
         )
 
+    discrepancies.extend(_overage_amount_discrepancies(period_id=period.pk))
+
     return {
         "period_id": str(period.pk),
         "competence": period.competence_label,
         "is_consistent": not discrepancies,
         "discrepancies": discrepancies,
     }
+
+
+def _overage_amount_discrepancies(*, period_id=None, allowance_id=None):
+    """Check that a billed overage's value still equals its hours times its rate.
+
+    **The only monetary reconciliation there is, and the reason there is only one is that
+    Phase 6 added no monetary accumulator to reconcile against.** The value lives on the
+    ``OVERAGE_BILLED`` ledger row beside the hours and the rate that produced it, so the
+    single thing that can be wrong is the arithmetic between those three -- there is no
+    second column holding a total that could drift from the journal. That is the payoff for
+    reusing the ledger instead of opening a monetary one (D29's argument applied to reais).
+
+    Reported in the same ``{"field", "ledger", "period"}`` shape the hour discrepancies use,
+    because ``reconcile_service_periods`` prints those three keys and a fourth shape would
+    print blank.
+
+    Rows written before this phase carry no amount and are skipped rather than flagged:
+    they are real history from before prices existed, which is the same accepted limitation
+    that keeps ``service_ledger_amount_only_on_overage_billed`` one-directional.
+    """
+    entries = ServiceHourLedgerEntry.objects.filter(
+        entry_type=ServiceLedgerEntryType.OVERAGE_BILLED,
+        amount__isnull=False,
+    )
+
+    if period_id is not None:
+        entries = entries.filter(period_id=period_id)
+    else:
+        entries = entries.filter(allowance_id=allowance_id)
+
+    discrepancies = []
+
+    for entry in entries:
+        expected = overage_amount(overage_hours=entry.hours, overage_hour_rate=entry.applied_hour_rate)
+
+        if quantize_money(entry.amount) != expected:
+            discrepancies.append(
+                {
+                    "field": f"overage_amount[{entry.pk}]",
+                    "ledger": str(expected),
+                    "period": str(quantize_money(entry.amount)),
+                }
+            )
+
+    return discrepancies
 
 
 def repair_period(period):

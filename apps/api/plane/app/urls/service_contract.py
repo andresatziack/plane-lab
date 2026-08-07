@@ -52,6 +52,13 @@ urlpatterns = [
         ServiceContractPeriodViewSet.as_view({"post": "close"}),
         name="service-contract-period-close",
     ),
+    # Read before the irreversible write. GET, because it changes nothing -- see the
+    # method's docstring for why the confirmation needs it.
+    path(
+        "workspaces/<str:slug>/service-contract-periods/<uuid:pk>/overage-preview/",
+        ServiceContractPeriodViewSet.as_view({"get": "overage_preview"}),
+        name="service-contract-period-overage-preview",
+    ),
     path(
         "workspaces/<str:slug>/service-contract-periods/<uuid:pk>/contracted-hours/",
         ServiceContractPeriodViewSet.as_view({"post": "set_contracted_hours"}),

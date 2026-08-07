@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { observer } from "mobx-react";
-import { Building2, Pencil, Trash2 } from "lucide-react";
+import { Building2, CircleDollarSign, Pencil, Trash2 } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { Badge } from "@plane/propel/badge";
@@ -18,6 +18,7 @@ import { formatCNPJ } from "@plane/utils";
 import { useServiceCatalog } from "@/hooks/store/use-service-catalog";
 import { useServiceClient } from "@/hooks/store/use-service-client";
 // local imports
+import { ServiceClientPrices } from "@/components/service-pricing";
 import { DeleteServiceClientModal } from "./delete-service-client-modal";
 import { ServiceClientModal } from "./service-client-modal";
 
@@ -31,6 +32,9 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
   // states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  // Prices expand inline rather than opening a modal. A vigency list is something an admin
+  // reads while comparing clients, and a modal would make that a sequence of open-close.
+  const [arePricesOpen, setArePricesOpen] = useState(false);
   // plane hooks
   const { t } = useTranslation();
   // store hooks
@@ -129,6 +133,12 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
                 {t("common.edit")}
               </span>
             </CustomMenu.MenuItem>
+            <CustomMenu.MenuItem onClick={() => setArePricesOpen((open) => !open)}>
+              <span className="flex items-center gap-2">
+                <CircleDollarSign className="size-3.5" />
+                {t("workspace_settings.settings.service_prices.title")}
+              </span>
+            </CustomMenu.MenuItem>
             <CustomMenu.MenuItem onClick={handleDeleteClick}>
               <span className="text-danger flex items-center gap-2">
                 <Trash2 className="size-3.5" />
@@ -138,6 +148,12 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
           </CustomMenu>
         </div>
       </div>
+
+      {arePricesOpen && (
+        <div className="border-b border-subtle px-3 py-4">
+          <ServiceClientPrices workspaceSlug={workspaceSlug} serviceClientId={serviceClient.id} />
+        </div>
+      )}
     </>
   );
 });

@@ -132,6 +132,42 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
             </span>
           )}
 
+          {/* The value, Phase 6. Rendered only when the payload carries it, which is only for a
+              workspace Admin -- R11(b) removes the keys rather than nulling them, so presence
+              *is* the permission check and no role lookup happens here.
+
+              `amount_display` is null when the row carries no value at all, and that stays
+              blank rather than becoming "R$ 0,00": a row the pool paid for and a row nobody
+              could price are different facts, and neither costs zero. The reason for the
+              absence is shown beside it. */}
+          {first.amount_display && (
+            <span className="bg-custom-background-80 text-custom-text-100 rounded px-1.5 py-0.5 text-[11px] font-medium">
+              {first.amount_display}
+            </span>
+          )}
+
+          {first.pricing_failure_reason && first.pricing_failure_reason !== "internal_project_no_client" && (
+            <Tooltip
+              tooltipContent={t(`work_item.service_log.pricing_failure.${first.pricing_failure_reason}`)}
+              position="top"
+            >
+              <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[11px] font-medium text-red-600">
+                {t("work_item.service_log.badges.no_price")}
+              </span>
+            </Tooltip>
+          )}
+
+          {first.route_deviation_reason && (
+            <Tooltip
+              tooltipContent={t(`work_item.service_log.route_deviation.${first.route_deviation_reason}`)}
+              position="top"
+            >
+              <span className="rounded bg-orange-500/15 px-1.5 py-0.5 text-[11px] font-medium text-orange-600">
+                {t("work_item.service_log.badges.billed_as_standalone")}
+              </span>
+            </Tooltip>
+          )}
+
           {canModify && (
             <>
               <button

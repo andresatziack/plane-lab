@@ -96,7 +96,17 @@ from .service_issue_allowance import (
     ServiceIssueAllowance,
     ServiceIssueAllowanceStatus,
 )
-from .service_log import ServiceLog, ServiceLogEntryMode, ServiceLogSource
+from .service_log import (
+    INTERNAL_WORK_FAILURES,
+    PRICING_PENDENCY_FAILURES,
+    ServiceLog,
+    ServiceLogEntryMode,
+    ServiceLogSource,
+    ServicePricingFailure,
+    ServiceRateBasis,
+    ServiceRouteDeviation,
+)
+from .service_pricing import ServiceClientHourTypeRate, ServiceClientPrice
 from .session import Session
 from .social_connection import SocialLoginConnection
 from .state import State, StateGroup, DEFAULT_STATES

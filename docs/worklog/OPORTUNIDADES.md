@@ -51,7 +51,7 @@ Note que `is_epic` no modelo indica que a mesma entidade serve de base para Epic
 
 **Custo estimado: baixo.** É a relação melhor esforço/retorno de toda esta lista.
 
-## A2. Exportação de apontamentos — a vaga já tem o seu nome
+## A2. Exportação de apontamentos — FEITA na Fase 6
 
 ```python
 # apps/api/plane/db/models/exporter.py:26
@@ -65,12 +65,34 @@ em volta dela está pronta e funcionando:
 - `ExporterHistory` com status, filtros e URL do arquivo
 - `plane/utils/exporters/formatters.py`
 
-**Consequência prática para a Fase 9:** o requisito de "exportação em CSV" **não
-deve construir nada novo**. Deve criar o handler para o tipo `issue_worklogs` no
-pipeline existente, e ganha de graça: fila, histórico, status, retry, download.
+**Consequência prática:** o requisito de "exportação em CSV" **não deveria construir
+nada novo**. Deveria criar o handler para o tipo `issue_worklogs` no pipeline
+existente, e ganhar de graça fila, histórico, status, retry e download.
+
+> **Feito na Fase 6**, que precisava do CSV para o critério 11 e não esperou a
+> Fase 9. `service_log_export_task` em `plane/bgtasks/export_task.py` reusa
+> `create_zip_file` e `upload_to_s3` sem alterá-los, e usa `ExporterHistory.filters`
+> — outra coluna que existia sem consumidor — para gravar a competência exportada.
+> O schema de colunas é `plane/utils/exporters/schemas/service_log.py`, no stack
+> orientado a schema, porque um documento de faturamento precisa de ordem de coluna
+> e texto de cabeçalho explícitos.
+>
+> Duas notas para quem mexer nisso depois:
+>
+> - o endpoint tem **histórico próprio** (`/service-log-exports/`) em vez de um
+>   parâmetro `type` no endpoint de issues. Os dois compartilham o pipeline mas não
+>   a audiência: exportar issues é aberto a Member e isto carrega valor em R$, logo é
+>   ADMIN de workspace (R11). Um endpoint só, com nível de permissão dependendo de um
+>   campo do corpo, é a forma que bugs de permissão têm;
+> - `ExporterHistorySerializer` omite `type`, `reason` e `filters`. Para issues é
+>   inofensivo; para faturamento não — quem espera os números do mês precisa do
+>   motivo, não de um status `failed` e silêncio. Por isso existe
+>   `ServiceLogExportHistorySerializer`.
 
 Atenção ao TODO já registrado em `export_task.py:41` — os exports ainda não
-entram na tabela `FileAsset`.
+entram na tabela `FileAsset`. **Continua valendo**, e a exportação de apontamentos
+herdou a limitação: o único acesso é a URL pré-assinada de 7 dias, purgada em 8 por
+`exporter_expired_task`.
 
 ## A3. Estimativa em horas — parece um presente, mas é uma armadilha
 
@@ -258,8 +280,8 @@ Se fosse eu decidindo, na ordem:
 2. **B1 — timesheet semanal**, incorporado à Fase 3 ou como fase própria logo
    depois. Sem isso o dado de entrada é ruim, e todo o resto depende dele
 3. **A1 — Work Item Types**, porque é baratíssimo e abre SLA e classificação
-4. **A2 — usar o pipeline de export existente** na Fase 9, em vez de construir CSV
-   novo. É correção de rota, não trabalho extra
+4. ~~**A2 — usar o pipeline de export existente**~~ — **feito na Fase 6**, que
+   precisava do CSV para o critério 11
 5. **B4 — Fatura**, junto ou logo após a Fase 6
 6. **B2 — timer**, depois que o apontamento estiver estável
 7. **B3 — SLA**, depois de A1

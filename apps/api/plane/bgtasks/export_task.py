@@ -19,10 +19,20 @@ from django.utils import timezone
 from django.db.models import Prefetch
 
 # Module imports
-from plane.db.models import ExporterHistory, Issue, IssueComment, IssueRelation, IssueSubscriber
+from plane.db.models import (
+    ExporterHistory,
+    Issue,
+    IssueComment,
+    IssueRelation,
+    IssueSubscriber,
+    ServiceLog,
+)
 from plane.utils.exception_logger import log_exception
+from plane.utils.exporters.exporter import Exporter
+from plane.utils.exporters.schemas import ServiceLogExportSchema
 from plane.utils.porters.exporter import DataExporter
 from plane.utils.porters.serializers.issue import IssueExportSerializer
+from plane.utils.service_pool import month_bounds
 
 
 def create_zip_file(files: List[tuple[str, str | bytes]]) -> io.BytesIO:
@@ -215,6 +225,103 @@ def issue_export_task(
             files.append((filename, content))
 
         zip_buffer = create_zip_file(files)
+        upload_to_s3(zip_buffer, workspace_id, token_id, slug)
+
+    except Exception as e:
+        exporter_instance = ExporterHistory.objects.get(token=token_id)
+        exporter_instance.status = "failed"
+        exporter_instance.reason = str(e)
+        exporter_instance.save(update_fields=["status", "reason"])
+        log_exception(e)
+        return
+
+
+
+@shared_task
+def service_log_export_task(
+    provider: str,
+    workspace_id: UUID,
+    project_ids: List[str],
+    token_id: str,
+    slug: str,
+    filters: dict = None,
+):
+    """Export work logs with their hours, their value in reais and their reasons.
+
+    Fills the ``("issue_worklogs", "Issue Worklogs")`` choice that has existed on
+    ``ExporterHistory`` with no handler behind it. **Nothing new is built**: the queue, the
+    history row, the status transitions, ``create_zip_file``, ``upload_to_s3``, the
+    presigned URL and ``exporter_expired_task``'s eight-day purge all come from the
+    pipeline ``issue_export_task`` already uses. Only the queryset and the schema differ.
+
+    ``filters`` carries the competency and the client, persisted on
+    ``ExporterHistory.filters`` -- a column that has been on the model unused since before
+    this feature. A monthly billing consolidation is always *of* something, and putting the
+    selection on the row rather than only in the task arguments is what lets the history
+    say which month a finished file covers.
+
+    **The membership re-check inside the task is deliberate and is copied from
+    ``issue_export_task``.** A queued task can run long after the request that queued it,
+    by which time the initiator may have lost access to a project -- so the export is built
+    against the projects they can see *now*, not the ones they could see then. This carries
+    money, which makes that gap worth closing rather than noting.
+    """
+    try:
+        exporter_instance = ExporterHistory.objects.get(token=token_id)
+        exporter_instance.status = "processing"
+        exporter_instance.save(update_fields=["status"])
+
+        service_logs = (
+            ServiceLog.objects.filter(
+                workspace__id=workspace_id,
+                project_id__in=project_ids,
+                project__project_projectmember__member=exporter_instance.initiated_by_id,
+                project__project_projectmember__is_active=True,
+                project__archived_at__isnull=True,
+            )
+            .select_related(
+                "project",
+                "project__service_client",
+                "issue",
+                "author",
+            )
+            .order_by("project__name", "worked_on", "batch_id", "segment_index")
+            .distinct()
+        )
+
+        # `hour_type` and `billing_type` are DO_NOTHING foreign keys that may point at a soft
+        # deleted catalogue option, so they are NOT select_related: the forward descriptor
+        # resolves through the filtered manager and would raise `DoesNotExist` on exactly the
+        # historical rows an export exists to preserve. The schema reads them through
+        # `all_objects` instead.
+        filters = filters or {}
+        year = filters.get("year")
+        month = filters.get("month")
+
+        if year and month:
+            # R7: the competency of a work log is the month of the SERVICE DATE, never of the
+            # date it was typed. A retroactive entry belongs to the month it was worked.
+            first_day, last_day = month_bounds(int(year), int(month))
+            service_logs = service_logs.filter(worked_on__gte=first_day, worked_on__lte=last_day)
+
+        if filters.get("service_client_id"):
+            service_logs = service_logs.filter(
+                project__service_client_id=filters["service_client_id"]
+            )
+
+        try:
+            exporter = Exporter(format_type=provider, schema_class=ServiceLogExportSchema)
+        except ValueError as e:
+            exporter_instance = ExporterHistory.objects.get(token=token_id)
+            exporter_instance.status = "failed"
+            exporter_instance.reason = str(e)
+            exporter_instance.save(update_fields=["status", "reason"])
+            return
+
+        competence = f"-{int(year):04d}-{int(month):02d}" if year and month else ""
+        filename, content = exporter.export(f"{slug}-apontamentos{competence}", service_logs)
+
+        zip_buffer = create_zip_file([(filename, content)])
         upload_to_s3(zip_buffer, workspace_id, token_id, slug)
 
     except Exception as e:

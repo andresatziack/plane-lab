@@ -49,6 +49,98 @@ class ServiceLogEntryMode(models.TextChoices):
     INTERVAL = "interval", "Start and end time"
 
 
+class ServiceRateBasis(models.TextChoices):
+    """Which of the two pricing formulas produced ``ServiceLog.amount``.
+
+    Persisted rather than inferred, because **the two formulas multiply different hour
+    quantities** and the choice is not recoverable from the numbers: with a multiplier of
+    1.00 both produce the same product, so dividing the amount back out is ambiguous.
+
+    ``BASE_MULTIPLIER`` multiplies ``equivalent_hours`` by the client's base rate -- the
+    multiplier has already entered through the hours. ``ABSOLUTE_OVERRIDE`` multiplies
+    ``logged_hours`` by the hour type's absolute rate, because an absolute rate
+    *replaces* ``base * multiplier`` and therefore already embeds the multiplier.
+    Applying it to equivalent hours would double-charge, which is acceptance criterion
+    8's bug wearing acceptance criterion 5's clothes. See
+    ``plane.utils.service_money``.
+    """
+
+    BASE_MULTIPLIER = "base_multiplier", "Client base rate times the hour type multiplier"
+    ABSOLUTE_OVERRIDE = "absolute_override", "Absolute rate registered for the hour type"
+
+
+class ServiceRouteDeviation(models.TextChoices):
+    """Why a work log that chose the contract pool was billed in reais instead.
+
+    Decision D33: a work log whose billing type routes to the pool, on a client with no
+    contract, a suspended contract or an expired one, is **billed as avulso** rather
+    than silently consuming nothing. The chosen route and the settled route must both be
+    recoverable, plus the reason -- so ``applied_billing_route`` keeps the choice,
+    ``settled_billing_route`` records what was done, and this says why they differ.
+
+    All four values mean **commercial pendency with a deadline**, which is what
+    distinguishes them from a client who is avulso by design. Section 5 of the phase
+    brief requires the consolidation to show that difference, because one is a business
+    model and the other is somebody's overdue renewal.
+
+    ``CONTRACT_ENDED`` and ``CONTRACT_EXPIRED`` are separate on purpose: the first is an
+    explicit administrative act (``status = ENDED``), the second is a contract nobody
+    renewed in time. Both are avulso now, but only the second is somebody forgetting.
+    """
+
+    NO_CONTRACT_FOR_CLIENT = "no_contract_for_client", "The client has no contract"
+    CONTRACT_SUSPENDED = "contract_suspended", "The contract is suspended"
+    CONTRACT_ENDED = "contract_ended", "The contract was ended"
+    CONTRACT_EXPIRED = "contract_expired", "The work date is past the contract vigency"
+
+
+class ServicePricingFailure(models.TextChoices):
+    """Why a work log that should carry money carries zero.
+
+    **R$ 0,00 is true for five different reasons, and they are five different bugs.**
+    Two of them need no column -- a ``NON_BILLABLE`` route is stated by
+    ``applied_billing_route``, and a pool debit is stated by ``debited_period`` or
+    ``debited_allowance``. The three here are the ones nothing else records, and the
+    house rule that every absence asserts its reason code is what makes them columns
+    instead of a shrug.
+
+    They fall into **two classes that a financial panel must not mix**, and the split is
+    exposed as ``PRICING_PENDENCY_FAILURES`` / ``INTERNAL_WORK_FAILURES`` below:
+
+    * **Registration pendency** -- ``NO_PRICE_SHEET_FOR_CLIENT`` and
+      ``NO_PRICE_SHEET_IN_FORCE``. Real money that cannot be invoiced yet. Someone must
+      act. These two are themselves opposite mistakes: never registered, versus
+      registered with a start date later than the work.
+    * **Internal work** -- ``INTERNAL_PROJECT_NO_CLIENT``. Section 1 of Phase 1 is
+      explicit that a project with no client is internal work, "não apontável para
+      faturamento". **Nobody must act**, so the consolidation excludes it from revenue
+      rather than listing it as a zeroed pendency. A company that does real internal
+      work would otherwise face a panel full of "failures" that are not failures, and
+      the operator would learn to ignore the list -- which is how the one genuine
+      pendency goes unnoticed. Noise in a financial panel costs the panel's credibility.
+
+    None of the three blocks the work log. It is work already executed, and D27, D9 and
+    D21 say the same thing three times: absence of configuration must never cost a
+    technician their record.
+    """
+
+    INTERNAL_PROJECT_NO_CLIENT = "internal_project_no_client", "Internal project, no client to invoice"
+    NO_PRICE_SHEET_FOR_CLIENT = "no_price_sheet_for_client", "The client has no price sheet at all"
+    NO_PRICE_SHEET_IN_FORCE = "no_price_sheet_in_force", "No price sheet was in force on the service date"
+
+
+# The two classes of pricing failure, at module level so the constraints in ``Meta`` and
+# the consolidation can both reference them and cannot drift apart. See
+# ``ServicePricingFailure``: the first class is money waiting on somebody, the second is
+# work that is nobody's revenue.
+PRICING_PENDENCY_FAILURES = [
+    ServicePricingFailure.NO_PRICE_SHEET_FOR_CLIENT,
+    ServicePricingFailure.NO_PRICE_SHEET_IN_FORCE,
+]
+
+INTERNAL_WORK_FAILURES = [ServicePricingFailure.INTERNAL_PROJECT_NO_CLIENT]
+
+
 class ServiceLog(ProjectBaseModel):
     """Time a technician spent on a work item, and what it costs the client.
 
@@ -81,6 +173,15 @@ class ServiceLog(ProjectBaseModel):
     Cortesia are two such types, kept distinct because a month heavy with garantia is
     a delivery quality problem while a month heavy with cortesia is a discount that
     was chosen -- opposite management actions, so reports must never sum them.
+
+    **The money is Phase 6**, and it lives in six columns that are all R4 obligations
+    rather than conveniences: ``settled_billing_route`` and ``route_deviation_reason``
+    (what was actually done with the row, and why it differs from what was chosen --
+    decision D33), ``applied_hour_rate``, ``applied_rate_basis`` and ``amount`` (the
+    snapshot that makes acceptance criterion 6 true), and ``pricing_failure_reason``
+    (why a row that should carry money carries zero). Two check constraints make
+    "debited a pool" and "billed in reais" mutually exclusive states of one row, so
+    double-charging is refused by the database rather than by the order of an ``if``.
     """
 
     # Aliases so callers read ``ServiceLog.Source`` / ``ServiceLog.EntryMode``, the
@@ -88,6 +189,9 @@ class ServiceLog(ProjectBaseModel):
     # level because ``Meta`` below needs them; see the note on ``ServiceLogSource``.
     Source = ServiceLogSource
     EntryMode = ServiceLogEntryMode
+    RateBasis = ServiceRateBasis
+    RouteDeviation = ServiceRouteDeviation
+    PricingFailure = ServicePricingFailure
 
     # ---------------------------------------------------------------- relations
 
@@ -239,15 +343,49 @@ class ServiceLog(ProjectBaseModel):
     # may become a lookup through the foreign keys above.
     applied_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal("1.00"))
 
-    # The billing route as it stood at creation. R4 names only the multiplier, but the
-    # route is what decided whether the client was charged at all, and two billing
-    # types can share one route -- so without this snapshot a historical report cannot
-    # separate Garantia from Cortesia after a catalogue edit, and cannot explain a
-    # zero. Added by D20, which removed the boolean that used to answer this.
+    # The billing route of the billing type that was **chosen**, as it stood at
+    # creation. R4 names only the multiplier, but the route is what decided whether the
+    # client was charged at all, and two billing types can share one route -- so without
+    # this snapshot a historical report cannot separate Garantia from Cortesia after a
+    # catalogue edit, and cannot explain a zero. Added by D20, which removed the boolean
+    # that used to answer this.
+    #
+    # **This is the choice, not the outcome.** Since D33 the two can differ: a log that
+    # chose the pool is billed in reais when the client has no usable contract. What was
+    # actually done is `settled_billing_route`, and the reason they differ is
+    # `route_deviation_reason`. This column was deliberately NOT redefined to mean the
+    # outcome -- doing so would erase the choice, which is exactly the fact that lets the
+    # consolidation tell "avulso because that is the client's model" from "avulso because
+    # a renewal is overdue".
     applied_billing_route = models.CharField(
         max_length=20,
         choices=ServiceBillingType.BillingRoute.choices,
         default=ServiceBillingType.BillingRoute.DEBIT_POOL,
+    )
+
+    # The route that was actually **applied**. Equal to `applied_billing_route` except in
+    # the D33 case, where a pool route with no usable contract settles as `BILL_AMOUNT`.
+    # The biconditional between this, the column above and `route_deviation_reason` is in
+    # DDL below, so "deviated with no reason" and "reason with no deviation" are both
+    # unrepresentable rather than merely unlikely.
+    #
+    # An indexed column rather than a derivation, because it is what every revenue query
+    # groups by; deriving it would put a CASE in each report and let four reports each
+    # have their own version of the rule.
+    settled_billing_route = models.CharField(
+        max_length=20,
+        choices=ServiceBillingType.BillingRoute.choices,
+        default=ServiceBillingType.BillingRoute.DEBIT_POOL,
+    )
+
+    # Null means the chosen route was honoured. Non-null is D33's commercial pendency,
+    # and section 5 of the brief requires it to reach the consolidation: the last two
+    # values are somebody's overdue renewal, with a deadline attached.
+    route_deviation_reason = models.CharField(
+        max_length=32,
+        choices=ServiceRouteDeviation.choices,
+        null=True,
+        blank=True,
     )
 
     # The competency period this row actually debited. Step 5 of section 5 of the
@@ -291,6 +429,46 @@ class ServiceLog(ProjectBaseModel):
         "db.ServiceIssueAllowance",
         on_delete=models.DO_NOTHING,
         related_name="service_logs",
+        null=True,
+        blank=True,
+    )
+
+    # ------------------------------------------------------- the money (Phase 6)
+
+    # Rule R4 again, and acceptance criterion 6 depends entirely on these three columns:
+    # "reajustar o valor base do cliente não altera o valor de apontamentos já
+    # registrados". Nothing here may become a lookup through `project.service_client`
+    # into the price sheets -- the moment it does, last year's invoices start moving.
+    #
+    # Monetary scale (12, 2) per section 4b, never the hour scale (10, 4).
+
+    # The rate that was applied, in reais per hour. Null means no money was made, and
+    # which of the five reasons applies is always recoverable -- see
+    # `ServicePricingFailure`.
+    applied_hour_rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    # Which formula turned that rate into `amount`. Not derivable from the numbers; see
+    # `ServiceRateBasis`.
+    applied_rate_basis = models.CharField(
+        max_length=20,
+        choices=ServiceRateBasis.choices,
+        null=True,
+        blank=True,
+    )
+
+    # The money. Acceptance criterion 13 -- "nenhum centavo perdido ou criado" -- is why
+    # every total in this system is a `Sum` over **this persisted column** and never a
+    # recomputation from hours in an aggregate: section 4b fixes one rounding per work
+    # log, and rounding a sum of products is not the same number as summing rounded
+    # products.
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+    # Why a row that should carry money carries zero. Null when there is nothing to
+    # explain. Two classes, and the consolidation treats them oppositely -- see
+    # `ServicePricingFailure`.
+    pricing_failure_reason = models.CharField(
+        max_length=32,
+        choices=ServicePricingFailure.choices,
         null=True,
         blank=True,
     )
@@ -403,6 +581,95 @@ class ServiceLog(ProjectBaseModel):
                 ),
                 name="service_log_non_billable_debits_no_origin",
             ),
+            # ---------------------------------------------------- the money, Phase 6
+            #
+            # A WORK LOG DEBITS A POOL OR IS BILLED IN REAIS. NEVER BOTH.
+            #
+            # This is the monetary counterpart of what D29 achieved for hours: charging
+            # the client in reais *and* consuming their contracted hours for the same work
+            # log is refused by the database, not by the order of an `if`. It mirrors
+            # `service_log_debits_at_most_one_origin` directly, and it is the reason the
+            # pricing step can be written without a "did something already pay for this"
+            # pre-flight check that two concurrent requests would both pass.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(settled_billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT)
+                    | Q(debited_period__isnull=True, debited_allowance__isnull=True)
+                ),
+                name="service_log_billed_debits_no_pool",
+            ),
+            # The other direction: a row the pool paid for carries no money. Together with
+            # the constraint above, "hours were debited" and "reais were charged" become
+            # mutually exclusive states of one row rather than two independent columns that
+            # a future bulk update could set at once.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(settled_billing_route=ServiceBillingType.BillingRoute.DEBIT_POOL)
+                    | Q(amount=0, applied_hour_rate__isnull=True, applied_rate_basis__isnull=True)
+                ),
+                name="service_log_pool_route_carries_no_amount",
+            ),
+            # R5 and acceptance criterion 4, for money: "Garantia e Cortesia ... valor R$
+            # 0,00". The zero comes out of the route, not out of an `if` that a later code
+            # path can forget. A non-billable row also can never deviate -- there is no
+            # commercial pendency that turns a warranty repair into billable work.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(applied_billing_route=ServiceBillingType.BillingRoute.NON_BILLABLE)
+                    | Q(
+                        amount=0,
+                        applied_hour_rate__isnull=True,
+                        applied_rate_basis__isnull=True,
+                        settled_billing_route=ServiceBillingType.BillingRoute.NON_BILLABLE,
+                        route_deviation_reason__isnull=True,
+                    )
+                ),
+                name="service_log_non_billable_carries_no_amount",
+            ),
+            # Decision D33, in DDL, as a biconditional. The only legal deviation is "chose
+            # the pool, was billed in reais"; every other pair -- a deviation with no
+            # reason, a reason with no deviation, or a deviation from any other route -- is
+            # unrepresentable. The weaker one-directional form would let a row claim it was
+            # billed for a reason while showing the route it actually honoured.
+            models.CheckConstraint(
+                condition=(
+                    Q(route_deviation_reason__isnull=True, settled_billing_route=models.F("applied_billing_route"))
+                    | Q(
+                        route_deviation_reason__isnull=False,
+                        applied_billing_route=ServiceBillingType.BillingRoute.DEBIT_POOL,
+                        settled_billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT,
+                    )
+                ),
+                name="service_log_route_deviation_is_coherent",
+            ),
+            # A rate, its basis and a positive amount travel together, or none of them
+            # exist. `amount > 0` is only safe to require because `base_hour_rate > 0` and
+            # `absolute_rate > 0` are themselves constraints and `equivalent_hours` is
+            # always positive -- the same D20 chain that keeps "free" to one mechanism. If
+            # a rate of zero were ever allowed this constraint would have to weaken, which
+            # is the tell that the two decisions are connected.
+            models.CheckConstraint(
+                condition=(
+                    Q(applied_hour_rate__isnull=True, applied_rate_basis__isnull=True, amount=0)
+                    | Q(applied_hour_rate__isnull=False, applied_rate_basis__isnull=False, amount__gt=0)
+                ),
+                name="service_log_amount_requires_a_rate",
+            ),
+            # A pricing failure only exists where there was money to make: a billed row
+            # with no rate and no amount. This is what keeps the three failure codes from
+            # being pasted onto a non-billable row or a pool debit, where they would
+            # describe an absence that is not an absence.
+            models.CheckConstraint(
+                condition=(
+                    Q(pricing_failure_reason__isnull=True)
+                    | Q(
+                        settled_billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT,
+                        applied_hour_rate__isnull=True,
+                        amount=0,
+                    )
+                ),
+                name="service_log_pricing_failure_means_no_amount",
+            ),
         ]
 
         indexes = [
@@ -416,6 +683,13 @@ class ServiceLog(ProjectBaseModel):
             models.Index(fields=["workspace", "worked_on"], name="service_log_ws_worked_idx"),
             # Hours per technician over a period.
             models.Index(fields=["author", "worked_on"], name="service_log_author_worked_idx"),
+            # The billing consolidation of section 5: a workspace's billed rows for one
+            # competency month, grouped by what was actually done with them. Name kept to
+            # 29 characters because Django's models.E034 caps index names at 30.
+            models.Index(
+                fields=["workspace", "settled_billing_route", "worked_on"],
+                name="svc_log_ws_settled_worked_idx",
+            ),
         ]
 
     def delete(self, using=None, soft=True, *args, **kwargs):
