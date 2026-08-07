@@ -72,6 +72,13 @@ from plane.utils.host import base_host
 from plane.utils.issue_filters import issue_filters
 from plane.utils.order_queryset import order_issue_queryset
 from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPaginator
+from plane.utils.service_log import ServiceLogValidationError
+from plane.utils.service_portal import (
+    client_may_reach_issue,
+    filter_issue_payload_for_client,
+    is_client_portal_member,
+    validate_client_state_transition,
+)
 from plane.utils.timezone_converter import user_timezone_converter
 
 from .. import BaseAPIView, BaseViewSet
@@ -682,8 +689,43 @@ class IssueViewSet(BaseViewSet):
 
         current_instance = json.dumps(IssueDetailSerializer(issue).data, cls=DjangoJSONEncoder)
 
-        requested_data = json.dumps(self.request.data, cls=DjangoJSONEncoder)
-        serializer = IssueCreateSerializer(issue, data=request.data, partial=True, context={"project_id": project_id})
+        # ------------------------------------------------------------------
+        # Client portal: a GUEST may change the priority and the state, and nothing
+        # else. The single deliberate divergence from core Plane in this nine-phase
+        # series; see docs/worklog/DECISOES.md, D59 and D60.
+        #
+        # **Why this cannot live in a new endpoint instead.** The decorator above
+        # carries `creator=True`, which releases this whole view to whoever created the
+        # row *before* the role list is consulted. So a client's own user who opened a
+        # ticket can already PATCH the responsible party, the labels, the dates, the
+        # estimate and the parent on it. That hole is reachable today. Extension can add
+        # a safe door; it cannot close an open one -- which is why the narrowing has to
+        # happen here, on the path that is already open, and not beside it.
+        #
+        # The rule itself lives in `plane.utils.service_portal` so that a rebase of this
+        # file cannot silently widen it and so it can be tested without HTTP. Keep this
+        # block a call: everything it decides belongs over there.
+        # ------------------------------------------------------------------
+        portal_data = request.data
+
+        if is_client_portal_member(request.user, slug=slug, project_id=project_id):
+            if not client_may_reach_issue(request.user, issue):
+                return Response(
+                    {"error": "You are not allowed to edit this issue"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            try:
+                validate_client_state_transition(request.data.get("state_id"), project_id=project_id)
+            except ServiceLogValidationError as error:
+                return Response({"error": error.code}, status=status.HTTP_400_BAD_REQUEST)
+
+            portal_data = filter_issue_payload_for_client(request.data, issue)
+
+        # Dumped from the filtered payload, not the raw one, so the trail records what
+        # was applied rather than what was attempted. Mirrors `IntakeIssueViewSet`.
+        requested_data = json.dumps(portal_data, cls=DjangoJSONEncoder)
+        serializer = IssueCreateSerializer(issue, data=portal_data, partial=True, context={"project_id": project_id})
         if serializer.is_valid():
             serializer.save()
             # Check if the update is a migration description update
@@ -704,7 +746,9 @@ class IssueViewSet(BaseViewSet):
                 model_activity.delay(
                     model_name="issue",
                     model_id=str(serializer.data.get("id", None)),
-                    requested_data=request.data,
+                    # The filtered payload, for the same reason `requested_data` above is
+                    # filtered: this trail should record what was applied.
+                    requested_data=portal_data,
                     current_instance=current_instance,
                     actor_id=request.user.id,
                     slug=slug,
