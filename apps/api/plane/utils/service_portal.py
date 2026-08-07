@@ -399,7 +399,8 @@ def issue_client_totals(issue_id):
     priced, D40 -- a contract client would silently start seeing money for hours their
     pool absorbed. Naming the route keeps D58 true by construction instead of by luck.
 
-    Summed from the persisted columns, never recomputed: section 4b, and criterion 13.
+    Summed from the persisted columns, never recomputed: section 4b, and the pricing
+    phase's criterion 13 -- no monetary rounding may lose or invent a cent in a sum.
     """
     from django.db.models import Sum, Value
     from django.db.models.functions import Coalesce
