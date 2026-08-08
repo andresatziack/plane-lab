@@ -210,6 +210,51 @@ export type TServiceConsumptionReport = {
   revenue_series?: TServiceRevenuePoint[];
 };
 
+/**
+ * A contract as the portal sends it: the same statement, without the Cliente's identity.
+ *
+ * The Admin payload names the `service_client` on every contract because that dashboard spans
+ * several of them. The portal's spans exactly one -- the Cliente of the active project (D67) --
+ * so repeating the name on each contract would be telling the client who they are.
+ */
+export type TServicePortalContract = Omit<TServiceReportContract, "service_client_id" | "service_client_name">;
+
+/**
+ * What the client's own user sees about their consumption. D55, D63, D67.
+ *
+ * **Deliberately not `TServiceConsumptionReport`**, though the two are close enough to tempt a
+ * reuse. Three differences, and each of them would be a lie in the other direction:
+ *
+ * - `contracts[]` carries no `service_client_id` / `service_client_name`, which that type
+ *   declares as required.
+ * - There is no `revenue_series` and no `amount` anywhere, ever. `ReportViewer.guest()` does not
+ *   compute money, so the keys are **absent** rather than zero (R11). An optional `amount` on
+ *   this type would invite a component to render a currency card that can only ever be empty.
+ * - `logged_hours` is absent for the same reason, and this one is the sharpest: the client
+ *   legitimately sees `equivalent_hours`, so the two together give up the multiplier, which
+ *   R11(c) forbids by name. `TServiceReportBucket` still declares it optional, so read it as
+ *   "never present here" -- a chart on this payload must not offer it as a series.
+ *
+ * The window is scoped to one project server-side and cannot be widened by asking.
+ */
+export type TServicePortalReport = {
+  shape: "contract" | "standalone";
+  totals: TServiceReportTotals;
+  consumption_series: TServiceSeriesPoint[];
+  distributions: {
+    hour_type: TServiceDistributionSlice[];
+    billing_type: TServiceDistributionSlice[];
+  };
+  /** R5: never one number, for the client least of all. Always broken down by billing type. */
+  non_billable: TServiceDistributionSlice[];
+  allowances: {
+    active: TServiceReportAllowance[];
+    pending_closure: TServiceReportAllowance[];
+  };
+  /** Present only when `shape` is `"contract"`. One entry per contract, never merged. */
+  contracts?: TServicePortalContract[];
+};
+
 export type TServiceOperationalReport = {
   totals: TServiceReportTotals;
   series: TServiceSeriesPoint[];

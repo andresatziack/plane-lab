@@ -10,6 +10,7 @@ export * from "./charts";
 export * from "./consumption-tab";
 export * from "./drill-down-modal";
 export * from "./operational-tab";
+export * from "./portal-consumption-dashboard";
 export * from "./report-insight-card";
 export * from "./report-toolbar";
 export * from "./use-report-filters";

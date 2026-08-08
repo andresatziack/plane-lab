@@ -10,7 +10,7 @@ import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { EUserPermissionsLevel, EUserPermissions } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
-import { CycleIcon, IntakeIcon, ModuleIcon, PageIcon, ViewsIcon, WorkItemsIcon } from "@plane/propel/icons";
+import { BarIcon, CycleIcon, IntakeIcon, ModuleIcon, PageIcon, ViewsIcon, WorkItemsIcon } from "@plane/propel/icons";
 import type { EUserProjectRoles } from "@plane/types";
 // plane ui
 // components
@@ -20,6 +20,7 @@ import { useAppTheme } from "@/hooks/store/use-app-theme";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useProject } from "@/hooks/store/use-project";
 import { useUserPermissions } from "@/hooks/store/user";
+import { useWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 
 export type TNavigationItem = {
   name: string;
@@ -57,6 +58,20 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
     : undefined;
   const workItem = workItemId ? getIssueById(workItemId) : undefined;
   const project = getPartialProjectById(projectId);
+  /*
+   * Who is a client's own user, for the consumption item below. Phase 8b.
+   *
+   * `restrictedFields` means "may edit the fields a client may not", and it is being read here
+   * as "is not a client". **That coupling is deliberate and worth naming**: the alternative is a
+   * fresh role check in this file, and one source of truth for the client audience is worth more
+   * than semantic precision spread across two. It also fails safe both ways -- a technician
+   * wrongly included would reach a page that shows them strictly less than they may see, and a
+   * client wrongly excluded loses a link rather than gaining someone else's numbers.
+   *
+   * The hook is called here rather than inside `baseNavigation` because that is a plain callback,
+   * not a component. Same hook, same argument order as the work item panels use.
+   */
+  const editPermissions = useWorkItemEditPermissions(workspaceSlug, projectId);
   // handlers
   const handleProjectClick = () => {
     if (window.innerWidth < 768) {
@@ -69,6 +84,10 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
   };
 
   const baseNavigation = useCallback(
+    // Pre-existing warnings, suppressed the same way the twin array in
+    // `use-navigation-items.ts` already suppresses them. Surfaced here only because the
+    // pre-commit hook denies warnings on any staged file, including ones it did not introduce.
+    // oxlint-disable-next-line no-shadow
     (workspaceSlug: string, projectId: string): TNavigationItem[] => [
       {
         i18n_key: "sidebar.work_items",
@@ -130,12 +149,34 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
         shouldRender: project?.inbox_view ?? false,
         sortOrder: 6,
       },
+      {
+        // The client's own consumption dashboard. Phase 8b, criteria 1, 2 and 9.
+        //
+        // `access` stays the standard three because the audience is decided by
+        // `!restrictedFields` below, not by the role list -- see the note where that value is
+        // computed. Listing only GUEST here would be a second, differently worded answer to
+        // "who is the client", and the two would drift.
+        //
+        // Gated on the project actually being a client's: `service_client` because an internal
+        // project has no consumption to report, and `is_time_tracking_enabled` because without
+        // it there are no work logs to sum.
+        i18n_key: "sidebar.service_consumption",
+        key: "service_consumption",
+        name: "My consumption",
+        href: `/${workspaceSlug}/projects/${projectId}/service-consumption`,
+        icon: BarIcon,
+        access: [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
+        shouldRender:
+          !editPermissions.restrictedFields && !!project?.service_client && !!project?.is_time_tracking_enabled,
+        sortOrder: 7,
+      },
     ],
-    [project]
+    [project, editPermissions.restrictedFields]
   );
 
   // memoized navigation items and adding additional navigation items
   const navigationItemsMemo = useMemo(() => {
+    // oxlint-disable-next-line no-shadow
     const navigationItems = (workspaceSlug: string, projectId: string): TNavigationItem[] => {
       const navItems = baseNavigation(workspaceSlug, projectId);
 
@@ -147,6 +188,7 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
     };
 
     // sort navigation items by sortOrder
+    // oxlint-disable-next-line unicorn/no-array-sort
     const sortedNavigationItems = navigationItems(workspaceSlug, projectId).sort(
       (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)
     );
