@@ -32,6 +32,7 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db.models import Sum
+from django.utils import timezone
 
 # Module imports
 from plane.db.models import (
@@ -195,6 +196,45 @@ def test_the_roles_are_the_three_core_integers(seeded):
 
     for handle in ("marcel", "adriano", "rafael"):
         assert roles[f"{handle}@planedev.satziack.com"] == ROLE_GUEST
+
+
+def test_the_instance_is_marked_set_up_with_an_admin(db, settings):
+    """The front door, which a correct database is useless without.
+
+    The web app gates on ``Instance.is_setup_done`` and renders "Set up your instance"
+    instead of a login form while it is false. A seed that produced the whole scenario and
+    left this flag alone would hand over credentials that cannot be typed anywhere -- which
+    is exactly what happened the first time this was deployed, and is why the assertion
+    exists.
+
+    An ``Instance`` row is created here on purpose: the suite never boots the API, so
+    ``register_instance`` has not run and the seed's own skip path would otherwise be the
+    only thing tested.
+    """
+    from plane.license.models import Instance, InstanceAdmin
+
+    Instance.objects.create(
+        instance_name="Test instance",
+        instance_id="test-instance",
+        current_version="1.0.0",
+        latest_version="1.0.0",
+        last_checked_at=timezone.now(),
+    )
+
+    settings.DEBUG = True
+    call_command("seed_service_demo", "--workspace", SLUG, "--password", "demo-password-1234")
+
+    instance = Instance.objects.first()
+    assert instance.is_setup_done is True
+    assert InstanceAdmin.objects.filter(instance=instance, user=_user("admin"), role=20).exists()
+
+
+def test_the_seed_survives_a_database_with_no_instance_row(db, settings):
+    """The skip path. Registration happens on API boot, which a seeded database may predate."""
+    settings.DEBUG = True
+    call_command("seed_service_demo", "--workspace", SLUG, "--password", "demo-password-1234")
+
+    assert Workspace.objects.filter(slug=SLUG).exists()
 
 
 def test_the_scenario_users_can_actually_log_in(seeded):
