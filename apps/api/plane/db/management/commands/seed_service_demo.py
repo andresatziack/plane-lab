@@ -289,7 +289,16 @@ class Command(BaseCommand):
         user.save()
 
         profile, _ = Profile.objects.get_or_create(user=user)
-        Profile.objects.filter(pk=profile.pk).update(is_onboarded=True, is_tour_completed=True)
+        # `language` is set explicitly even though the model default is now `pt-BR`, and the
+        # reason is `get_or_create`: on a re-seed the profile already exists, so the default
+        # never runs and an account created before migration 0134 would keep `en` forever. The
+        # same reasoning as the password reset above -- a re-seed whose result depends on when
+        # the row was first written is a re-seed that cannot be trusted to produce the
+        # scenario. This is also what stops the demo from needing the manual language switch
+        # that Phase 10 had to do by hand.
+        Profile.objects.filter(pk=profile.pk).update(
+            is_onboarded=True, is_tour_completed=True, language="pt-BR"
+        )
 
         self.password_of[handle] = password
         self.credentials.append((label, f"{first_name} {last_name}", email, password))
