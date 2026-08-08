@@ -122,13 +122,18 @@ def test_the_command_refuses_to_run_with_debug_off(db, settings):
 # ---------------------------------------------------------------------------
 
 
-def test_three_clientes_each_with_a_project(seeded):
-    """Marubeni, Terlogs and Vale, and Vale belongs to no portal user: the leak canary."""
+def test_four_clientes_each_with_a_project(seeded):
+    """Marubeni, Terlogs, Vale and Bonfim.
+
+    Vale belongs to no portal user: the leak canary. Bonfim is the fourth, added by Phase 10
+    item 10, and it is the only one **without a contract** -- see
+    ``test_bonfim_has_no_contract_and_that_is_the_point``.
+    """
     assert set(
         ServiceClient.objects.filter(workspace=seeded).values_list("name", flat=True)
-    ) == {"Marubeni", "Terlogs", "Vale"}
+    ) == {"Marubeni", "Terlogs", "Vale", "Bonfim Alimentos"}
 
-    for name in ("Marubeni", "Terlogs", "Vale"):
+    for name in ("Marubeni", "Terlogs", "Vale", "Bonfim Alimentos"):
         assert Project.objects.filter(workspace=seeded, service_client__name=name).exists()
 
     # D18: the shareholding link exists and carries no billing behaviour. Both halves are
@@ -356,9 +361,14 @@ def test_the_two_non_billable_routes_stay_two_rows(seeded):
 
     The positive control is in the same fixture -- the ad hoc log below has a value in
     reais -- because "amount is zero" is also what a broken pricing lookup produces.
+
+    Scoped to Marubeni's project since Phase 10 item 10: Bonfim now has a Garantia log and
+    three Avulso ones, so the unscoped ``get()`` this test used to do raises
+    ``MultipleObjectsReturned``. Scoping keeps the assertions about the rows they were always
+    about; Bonfim's own equivalents are asserted in the ad hoc section below.
     """
-    warranty = ServiceLog.objects.get(billing_type__name="Garantia")
-    courtesy = ServiceLog.objects.get(billing_type__name="Cortesia")
+    warranty = ServiceLog.objects.get(billing_type__name="Garantia", project__identifier="MRB")
+    courtesy = ServiceLog.objects.get(billing_type__name="Cortesia", project__identifier="MRB")
 
     assert warranty.billing_type_id != courtesy.billing_type_id
     assert (
@@ -385,7 +395,7 @@ def test_the_two_non_billable_routes_stay_two_rows(seeded):
     # is not: the column follows the *route*, and only NON_BILLABLE zeroes it
     # (`service_log_debited_hours_follows_billing_route`). What tells "billed in reais"
     # apart from "debited a pool" is ``debited_period``, so that is what is asserted.
-    ad_hoc = ServiceLog.objects.get(billing_type__name="Avulso")
+    ad_hoc = ServiceLog.objects.get(billing_type__name="Avulso", project__identifier="MRB")
     assert ad_hoc.applied_hour_rate == Decimal("180.00")
     assert ad_hoc.amount == Decimal("360.00")
     assert ad_hoc.debited_hours == Decimal("2.0000")
@@ -622,3 +632,315 @@ def test_a_re_run_restores_a_role_that_criterion_seven_demoted(seeded, settings)
 
     membership.refresh_from_db()
     assert membership.role == ROLE_MEMBER
+
+
+
+# ---------------------------------------------------------------------------
+# Bonfim: the Cliente without a contract. Phase 10, item 10
+# ---------------------------------------------------------------------------
+
+
+BONFIM = "Bonfim Alimentos"
+
+
+def _bonfim_logs():
+    return ServiceLog.objects.filter(project__identifier="BNF")
+
+
+def test_bonfim_has_no_contract_and_that_is_the_point(seeded):
+    """**The assertion item 10 exists for**, and the one a future change is most likely to
+    break by being helpful.
+
+    Every other Cliente holds a contract, which is why the ad hoc half of the product had no
+    example: ``shape == "standalone"``, ``revenue_series``, and pricing from a sheet rather
+    than debiting from a pool were all reachable only from code.
+
+    Stated as an absence **with the positive control beside it** -- the other three Clientes
+    do have contracts -- because "no contract found" is also what a seed that failed to
+    create any Cliente produces.
+    """
+    bonfim = ServiceClient.objects.get(workspace=seeded, name=BONFIM)
+
+    assert not ServiceContract.objects.filter(service_client=bonfim).exists()
+
+    # The positive control: the mechanism works, and Bonfim's emptiness is a choice.
+    for name in ("Marubeni", "Terlogs", "Vale"):
+        other = ServiceClient.objects.get(workspace=seeded, name=name)
+        assert ServiceContract.objects.filter(service_client=other).exists(), name
+
+
+def test_bonfim_has_no_contract_period_either(seeded):
+    """A period belongs to a contract, so a Cliente without one must own no period.
+
+    Separate from the test above because they fail for different reasons: a contract could be
+    removed and leave orphan periods, and a period is what would make the portal render a
+    statement table for a Cliente that has no statement.
+    """
+    assert not ServiceContractPeriod.objects.filter(
+        contract__service_client__name=BONFIM
+    ).exists()
+
+
+def test_bonfim_is_configured_like_any_client_project(seeded):
+    """The difference from the other three is the missing contract, **not** a missing setting.
+
+    A project with `guest_view_all_features` off or time tracking off would produce the same
+    empty portal for an entirely different reason, and debugging that on a demo box is the
+    hour item 10 is meant to save.
+    """
+    project = Project.objects.get(workspace=seeded, identifier="BNF")
+
+    assert project.service_client.name == BONFIM
+    assert project.guest_view_all_features is True
+    assert project.is_time_tracking_enabled is True
+
+
+def test_bonfim_is_ad_hoc_by_default(seeded):
+    """``default_billing_type`` says what a work log form pre-selects here.
+
+    It takes no part in settlement -- ``resolve_default_billing_type`` is only consulted by
+    the form -- so this is about the demo being self-describing rather than about a number.
+    """
+    bonfim = ServiceClient.objects.get(workspace=seeded, name=BONFIM)
+
+    assert bonfim.default_billing_type is not None
+    assert bonfim.default_billing_type.name == "Avulso"
+    assert (
+        bonfim.default_billing_type.billing_route == ServiceBillingType.BillingRoute.BILL_AMOUNT
+    )
+
+
+def test_the_multiplier_is_a_price_here_and_the_three_rates_are_exact(seeded):
+    """**The demonstration item 10 was asked for**, and the master context's own argument for
+    modelling hours in three quantities: "1h trabalhada fora do expediente custa R$ 300,00 em
+    vez de R$ 200,00 para o cliente avulso".
+
+    One configured base rate (R$ 240,00) and one configured multiplier per hour type produce
+    three prices for the same hour:
+
+    ======================  =====  ========  ==========  =========  ==========
+    hour type               mult.  logged    equivalent  rate       amount
+    ======================  =====  ========  ==========  =========  ==========
+    Horário comercial       1.00   2.0000    2.0000      R$ 240,00  R$ 480,00
+    Fora do expediente      1.50   1.0000    1.5000      R$ 240,00  R$ 360,00
+    Domingos e feriados     2.00   2.0000    4.0000      R$ 240,00  R$ 960,00
+    ======================  =====  ========  ==========  =========  ==========
+
+    Note the after-hours row: **1h of work billed as R$ 360,00**, which is 1,5 x 240. That is
+    the sentence the master context wrote -- "1h fora do expediente custa R$ 300,00 em vez de
+    R$ 200,00 para o cliente avulso" -- in data, for the first time in the series.
+
+    **And note that ``applied_hour_rate`` is R$ 240,00 on all three rows.** I expected it to
+    be the base times the multiplier and it is not; the multiplier has *already entered
+    through the hours*, and ``ServiceRateBasis.BASE_MULTIPLIER`` says which formula produced
+    the amount. Asserting the rate on every row rather than only the amount is what pins
+    that: multiplying a rate that already embedded the multiplier by equivalent hours would
+    double-charge, and every amount here would still look like a plausible price.
+    """
+    by_hour_type = {
+        log.hour_type.name: log
+        for log in _bonfim_logs().exclude(billing_type__name="Garantia").select_related("hour_type")
+    }
+
+    business = by_hour_type["Horário comercial"]
+    assert business.applied_multiplier == Decimal("1.00")
+    assert business.logged_hours == Decimal("2.0000")
+    assert business.equivalent_hours == Decimal("2.0000")
+    assert business.amount == Decimal("480.00")
+
+    after_hours = by_hour_type["Fora do expediente"]
+    assert after_hours.applied_multiplier == Decimal("1.50")
+    assert after_hours.logged_hours == Decimal("1.0000")
+    assert after_hours.equivalent_hours == Decimal("1.5000")
+    assert after_hours.amount == Decimal("360.00")
+
+    sunday = by_hour_type["Domingos e feriados"]
+    assert sunday.applied_multiplier == Decimal("2.00")
+    assert sunday.logged_hours == Decimal("2.0000")
+    assert sunday.equivalent_hours == Decimal("4.0000")
+    assert sunday.amount == Decimal("960.00")
+
+    # The snapshotted sheet rate (R4), identical on every row, and the formula that used it.
+    # This is the assertion that would catch a rate pre-multiplied by the hour type.
+    for label, log in (("business", business), ("after_hours", after_hours), ("sunday", sunday)):
+        assert log.applied_hour_rate == Decimal("240.00"), label
+        assert log.applied_rate_basis == ServiceLog.RateBasis.BASE_MULTIPLIER, label
+        assert log.amount == log.equivalent_hours * log.applied_hour_rate, label
+
+
+def test_no_bonfim_log_debits_a_pool(seeded):
+    """R6's third branch: no allowance, no contract, therefore a value in reais.
+
+    ``debited_period`` and ``debited_allowance`` are what distinguish "billed" from
+    "debited" -- not ``debited_hours``, which follows the *route* and is non-zero on a billed
+    row (see the note in ``test_the_two_non_billable_routes_stay_two_rows``).
+    """
+    logs = list(_bonfim_logs())
+
+    # The positive control: there are rows to make this claim about.
+    assert len(logs) == 4, [log.description for log in logs]
+
+    for log in logs:
+        assert log.debited_period_id is None, log.description
+        assert log.debited_allowance_id is None, log.description
+        assert not ServiceHourLedgerEntry.objects.filter(
+            service_log=log, entry_type=ServiceLedgerEntryType.DEBIT
+        ).exists(), log.description
+
+
+def test_the_billable_bonfim_logs_are_priced_and_the_warranty_one_is_not(seeded):
+    """R5 on the ad hoc path, which is a different demonstration from the contracted one.
+
+    On a Cliente with a contract, a reader looking at a zero-value warranty row can wonder
+    whether the pool absorbed it. Here there is no pool, so ``R$ 0,00`` can only mean the
+    route refused to charge -- and the three priced rows next to it are the control that the
+    pricing lookup is working at all.
+    """
+    warranty = _bonfim_logs().get(billing_type__name="Garantia")
+
+    assert warranty.applied_billing_route == ServiceBillingType.BillingRoute.NON_BILLABLE
+    assert warranty.logged_hours == Decimal("1.5000")
+    assert warranty.equivalent_hours == Decimal("1.5000")
+    assert warranty.debited_hours == Decimal("0.0000")
+    assert warranty.amount == Decimal("0.00")
+
+    billed = _bonfim_logs().exclude(billing_type__name="Garantia")
+    assert billed.count() == 3
+    for log in billed:
+        assert log.settled_billing_route == ServiceBillingType.BillingRoute.BILL_AMOUNT
+        assert log.amount > Decimal("0.00"), log.description
+
+
+def test_bonfim_revenue_is_the_sum_of_the_persisted_amounts(seeded):
+    """R$ 1.800,00 across two competencies, and it is a **sum of persisted values**.
+
+    480 + 360 + 960 = 1800. Section 4b: money is rounded once per work log, at derivation,
+    and every total is the sum of what was stored -- never hours times a rate recomputed at
+    report time, which is how the lines of an invoice stop adding up to its total.
+    """
+    total = _bonfim_logs().aggregate(total=Sum("amount"))["total"]
+
+    assert total == Decimal("1800.00")
+
+
+def test_bonfim_spans_two_competencies(seeded):
+    """So the ticket table of item 7 has more than one chip, and its competency filter has
+    something to tell apart.
+
+    The Avulso path groups by ``worked_on`` -- the service date, R7 -- because there is no
+    period whose competency could disagree with it (D48).
+    """
+    months = {log.worked_on.strftime("%Y-%m") for log in _bonfim_logs()}
+
+    assert months == {"2026-07", "2026-08"}
+
+
+def test_patricia_reaches_bonfim_and_nothing_else(seeded):
+    """The Avulso portal user, scoped the way every portal user is: by project membership,
+    with the Cliente derived and stored nowhere (master context 2b).
+
+    The second assertion is the one that matters -- she must not reach a contracted Cliente,
+    or the "no contract" dashboard would not be hers.
+    """
+    projects = {str(pid) for pid in client_project_ids(_user("patricia"), slug=SLUG)}
+    bonfim_project = Project.objects.get(workspace=seeded, identifier="BNF")
+
+    assert projects == {str(bonfim_project.id)}
+
+    for identifier in ("MRB", "TLG", "VALE"):
+        other = Project.objects.get(workspace=seeded, identifier=identifier)
+        assert str(other.id) not in projects, identifier
+
+
+def test_vale_is_still_the_cliente_no_portal_user_reaches(seeded):
+    """Item 10 added a fourth Cliente and a fifth portal user, and the leak canary has to
+    survive that. A new GUEST wired to the wrong project would quietly retire the one test
+    that proves isolation is real rather than incidental."""
+    vale = Project.objects.get(workspace=seeded, identifier="VALE")
+
+    reachable = set()
+    for handle in ("marcel", "adriano", "rafael", "patricia"):
+        reachable |= {str(pid) for pid in client_project_ids(_user(handle), slug=SLUG)}
+
+    # The positive control: these users do reach projects, so the absence below is meaningful.
+    assert reachable
+    assert str(vale.id) not in reachable
+
+
+
+def test_bonfim_gives_the_consumption_dashboard_a_standalone_shape_with_revenue(seeded):
+    """**Item 10's actual purpose, asserted through the code the dashboard calls.**
+
+    The point was never "a fourth Cliente exists"; it was that the ad hoc dashboard had no
+    example. So this exercises the report layer itself -- ``headline_totals`` and
+    ``revenue_series`` with an Admin viewer -- rather than re-reading the work log rows the
+    tests above already cover.
+
+    Three things a contracted Cliente cannot demonstrate:
+
+    * the dashboard resolves to ``standalone`` because no contract covers the window, which
+      is the branch ``ServiceConsumptionReportEndpoint`` picks from the data rather than from
+      the caller;
+    * ``revenue_series`` is non-empty and carries money, which for a contracted Cliente is
+      near-zero because the hours went to a pool instead;
+    * the headline total in reais equals the sum of the persisted amounts, which is section
+      4b's rule that a total is never recomputed from hours.
+
+    The **negative control is Marubeni**, in the same fixture: it holds a contract, so asking
+    the same question about it must produce the contract shape. Without that control this test
+    would pass on a report layer that answered "standalone" for everybody.
+    """
+    from plane.utils.service_reports import ReportViewer, headline_totals, revenue_series
+    from plane.utils.service_reports_filters import ServiceLogFilterSet
+
+    admin_viewer = ReportViewer.admin()
+    bonfim = ServiceClient.objects.get(workspace=seeded, name=BONFIM)
+    marubeni = ServiceClient.objects.get(workspace=seeded, name="Marubeni")
+
+    bonfim_filters = ServiceLogFilterSet(service_client_ids=(bonfim.id,))
+
+    totals = headline_totals(seeded.id, bonfim_filters, admin_viewer)
+    assert totals["amount"] == "1800.00"
+    assert "R$" in totals["amount_display"]
+
+    # 4 work logs across 3 tickets -- one ticket carries the business-hours and the
+    # after-hours entry, which is what puts the two prices on one screen. Both counts are
+    # asserted because they are different questions, and `issues` is the number item 7's
+    # ticket table must agree with: its `total_count` is this same
+    # `Count("issue_id", distinct=True)` over the same descriptor.
+    assert totals["entries"] == 4
+    assert totals["issues"] == 3
+
+    series = revenue_series(seeded.id, bonfim_filters, admin_viewer)
+    assert series, "the ad hoc Cliente produced no revenue series at all"
+
+    # Each point carries `origins` plus `total_amount`; the amount does not live at the top
+    # level of a point. Two competencies, and they must sum to the persisted total.
+    assert {point["competence"] for point in series} == {"2026-07", "2026-08"}
+    billed = sum(Decimal(point["total_amount"]) for point in series)
+    assert billed == Decimal("1800.00")
+
+    # **The origin that had no example before item 10.** D36 splits revenue four ways, and
+    # `standalone_log` -- billed work for a Cliente holding no contract for that competency --
+    # was unreachable in the seeded scenario, because every Cliente had a contract. Marubeni's
+    # ad hoc log classifies as `out_of_scope_log` instead, which is a different bucket and a
+    # different conversation.
+    standalone = sum(
+        Decimal(point["origins"]["standalone_log"]["amount"]) for point in series
+    )
+    assert standalone == Decimal("1800.00")
+
+    out_of_scope = sum(
+        Decimal(point["origins"]["out_of_scope_log"]["amount"]) for point in series
+    )
+    assert out_of_scope == Decimal("0.00"), (
+        "Bonfim holds no contract, so none of its revenue can be out-of-scope work"
+    )
+
+    # The shape the endpoint would answer, resolved the way it resolves it: from whether a
+    # contract exists for the Cliente, not from anything the caller said.
+    assert not ServiceContract.objects.filter(service_client=bonfim).exists()
+
+    # The negative control. Same question, contracted Cliente, opposite answer -- so a report
+    # layer that called everything "standalone" fails here.
+    assert ServiceContract.objects.filter(service_client=marubeni).exists()
