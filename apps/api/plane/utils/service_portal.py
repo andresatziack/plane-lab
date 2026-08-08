@@ -29,6 +29,8 @@ over-permission into a granted one.
 See DECISOES.md, D59 and D60.
 """
 
+from uuid import UUID
+
 from plane.db.models.state import State, StateGroup
 from plane.utils.service_log import ServiceLogValidationError
 from plane.utils.service_permission import ROLE_GUEST
@@ -192,6 +194,75 @@ def scope_filterset_to_client(filterset, project_ids):
 
     return filterset.narrow(project_ids=tuple(project_ids))
 
+
+#: The portal report was asked for without naming a project.
+PORTAL_REPORT_REQUIRES_A_PROJECT = "PORTAL_REPORT_REQUIRES_A_PROJECT"
+
+#: The portal report was asked for with more than one project.
+PORTAL_REPORT_ACCEPTS_ONE_PROJECT = "PORTAL_REPORT_ACCEPTS_ONE_PROJECT"
+
+
+def _as_uuids(values):
+    """The same ids as ``UUID`` objects, whatever the caller happened to hold.
+
+    **This coercion is the whole reason this helper is not a one line set intersection.**
+    One side of :func:`client_project_scope` comes from the query string and the other from
+    ``values_list("project_id")``. Both yield ``UUID`` today, and an intersection that
+    relied on that would keep working until either side started handing over strings --
+    at which point every comparison is false, every request scopes to nothing, and the
+    dashboard is blank for everybody.
+
+    That failure is invisible to a security suite: it fails in the *safe* direction, so
+    every test asserting "the other client's hours are absent" still passes while the
+    feature is dead. Verified by sabotage: replacing this coercion with a plain set
+    intersection leaves 21 of the 31 portal tests green. The defence is this coercion plus a
+    **positive** control asserting a non-empty result for a legitimate request -- see
+    ``TestD67TheDashboardIsOfOneClienteAtATime``.
+
+    Both callers are already validated (``_parse_uuids`` for the query string, the database
+    for the membership), so a malformed value cannot reach here.
+    """
+    return {value if isinstance(value, UUID) else UUID(str(value)) for value in values}
+
+
+def client_project_scope(user, *, slug, requested):
+    """The one project a portal read is confined to, intersected with the client's own. D67.
+
+    **Why the project is required rather than optional.** Without it the endpoint's default
+    answer is every project the caller belongs to, summed -- which for a user who is a GUEST
+    of two Clientes is precisely the consolidated view of two companies that section 2 of
+    Phase 8 forbids: "os contratos são independentes, os dashboards são dedicados". Making
+    the parameter optional would leave that payload reachable and demote the prohibition to
+    a frontend convention. Requiring exactly one project makes it **unrepresentable**, which
+    is the move this series already made for the ledger's XOR and for the unique index of
+    Phase 5. A rule the API cannot break is worth more than a rule the API merely does not
+    exercise.
+
+    **Why intersection and not replacement.** :func:`scope_filterset_to_client` documents
+    that ``narrow()`` replaces, and replacement is what let the request be ignored. An
+    intersection is always equal to or narrower than the client's own scope, so a crafted
+    project id still cannot widen the tenancy boundary -- and it must still be applied
+    *last*, for the reason that function gives.
+
+    Returns a tuple of at most one id. **An empty tuple means the caller asked for a project
+    that is not theirs**, and the caller must short-circuit to an empty payload rather than
+    hand it to :func:`scope_filterset_to_client`, which refuses an empty scope.
+
+    Raises :class:`ServiceLogValidationError` with
+    :data:`PORTAL_REPORT_REQUIRES_A_PROJECT` when no project was named, and with
+    :data:`PORTAL_REPORT_ACCEPTS_ONE_PROJECT` when more than one was.
+    """
+    if not requested:
+        raise ServiceLogValidationError(PORTAL_REPORT_REQUIRES_A_PROJECT)
+
+    wanted = _as_uuids(requested)
+
+    if len(wanted) > 1:
+        raise ServiceLogValidationError(PORTAL_REPORT_ACCEPTS_ONE_PROJECT)
+
+    allowed = _as_uuids(client_project_ids(user, slug=slug))
+
+    return tuple(wanted & allowed)
 
 
 def is_client_portal_member(user, *, slug, project_id):

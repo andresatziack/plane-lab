@@ -59,7 +59,8 @@ from plane.utils.service_reports import (
     non_billable_breakdown,
     revenue_series,
 )
-from plane.utils.service_portal import client_project_ids, scope_filterset_to_client
+from plane.utils.service_log import ServiceLogValidationError
+from plane.utils.service_portal import client_project_scope, scope_filterset_to_client
 from plane.utils.service_reports_filters import (
     CompetenceBasis,
     ServiceLogFilterSet,
@@ -462,7 +463,14 @@ class ServiceReportLogsEndpoint(ServiceReportBaseView, BasePaginator):
 
 
 class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
-    """What the client sees about their own consumption. D55, D63. Criteria 2 and 22.
+    """What the client sees about their own consumption. D55, D63, D67. Criteria 2 and 22.
+
+    **``?project_ids=`` is required and takes exactly one project.** The client's dashboard is
+    the dashboard *of one Cliente*, because section 2 of Phase 8 says the contracts are
+    independent and the dashboards dedicated. Marcel, a GUEST of both Marubeni and Terlogs,
+    gets Marubeni's numbers inside Marubeni and Terlogs' inside Terlogs -- never one payload
+    containing both. Requiring the parameter is what makes the consolidated payload
+    unrepresentable rather than merely unused; see :func:`client_project_scope` and D67.
 
     **Criterion 22 is inherited, not decided here.** ``ReportViewer.guest()`` was built and
     tested at the domain layer by Phase 9 precisely so this route would not get to rediscover
@@ -510,18 +518,27 @@ class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
         except ServiceReportFilterError as error:
             return _bad_filter(error)
 
-        # Resolved first, narrowed last. Both halves matter and both fail silently:
+        # Intersected here, narrowed last. Three things matter and all three fail silently:
         #
         # `narrow()` is `dataclasses.replace`, so it REPLACES rather than intersects -- the
         # scope has to be applied after anything that arrived in the query string, or a
         # crafted `?project_ids=` would widen the tenancy boundary with no error anywhere.
         #
         # And narrowing with an empty tuple selects EVERY project in the workspace, because
-        # `ServiceLogFilterSet.queryset` applies each lookup only `if values:`. A client with
-        # no projects would receive the whole workspace. `scope_filterset_to_client` raises
-        # rather than accept an empty scope, and this is the short circuit that keeps it from
-        # ever being called with one. See D63.
-        project_ids = client_project_ids(request.user, slug=slug)
+        # `ServiceLogFilterSet.queryset` applies each lookup only `if values:`. A caller whose
+        # requested project is not theirs would receive the whole workspace.
+        # `scope_filterset_to_client` raises rather than accept an empty scope, and this is the
+        # short circuit that keeps it from ever being called with one. See D63.
+        #
+        # And the project is REQUIRED, so that "every project this caller belongs to, summed"
+        # is not a payload this endpoint can produce at all -- see `client_project_scope` and
+        # D67. That is what keeps section 2 of Phase 8 from depending on frontend discipline.
+        try:
+            project_ids = client_project_scope(
+                request.user, slug=slug, requested=filterset.project_ids
+            )
+        except ServiceLogValidationError as error:
+            return Response({"error": error.code}, status=status.HTTP_400_BAD_REQUEST)
 
         if not project_ids:
             return Response(self._empty_payload(filterset), status=status.HTTP_200_OK)
@@ -580,12 +597,16 @@ class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
         return Response(payload, status=status.HTTP_200_OK)
 
     def _empty_payload(self, filterset):
-        """What a caller with no projects gets: the shape, with nothing in it.
+        """What a caller outside the requested project gets: the shape, with nothing in it.
 
-        200 and not 403. The caller is a legitimate workspace member who has not been given a
-        project yet, which is a state of the data and not a permission failure -- and a portal
+        200 and not 403, for two populations. A legitimate workspace member who has not been
+        given a project yet is a state of the data and not a permission failure -- and a portal
         that answers 403 on its own dashboard sends its user to support rather than to their
-        administrator. Returns the full key set so the frontend has no special case.
+        administrator. And a caller naming a project that is not theirs learns nothing from an
+        empty dashboard that they could not learn from the project route itself, which already
+        refuses them; answering 404 here would only add a second, differently worded refusal.
+
+        Returns the full key set so the frontend has no special case.
         """
         return {
             "shape": "standalone",
