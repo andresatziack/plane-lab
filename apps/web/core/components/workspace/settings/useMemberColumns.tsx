@@ -11,7 +11,11 @@ import { useTranslation } from "@plane/i18n";
 import { renderFormattedDate } from "@plane/utils";
 import { MemberHeaderColumn } from "@/components/project/member-header-column";
 import type { RowData } from "@/components/workspace/settings/member-columns";
-import { AccountTypeColumn, NameColumn } from "@/components/workspace/settings/member-columns";
+import {
+  AccountTypeColumn,
+  NameColumn,
+  ServicePermissionsColumn,
+} from "@/components/workspace/settings/member-columns";
 import { useMember } from "@/hooks/store/use-member";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 import type { IMemberFilters } from "@/store/member/utils";
@@ -106,6 +110,17 @@ export const useMemberColumns = () => {
         />
       ),
       tdRender: (rowData: RowData) => <AccountTypeColumn rowData={rowData} workspaceSlug={workspaceSlug} />,
+    },
+
+    {
+      // The work log grants of Phase 7, next to the account type because they answer the same
+      // question. Phase 8b, criterion 15. No `thRender`: the members store has no filter for
+      // these, and a header that looked sortable but was not would be worse than a plain label.
+      key: "Work log grants",
+      content: t("workspace_settings.settings.members.details.service_permissions"),
+      tdRender: (rowData: RowData) => (
+        <ServicePermissionsColumn rowData={rowData} workspaceSlug={workspaceSlug as string} />
+      ),
     },
 
     {
