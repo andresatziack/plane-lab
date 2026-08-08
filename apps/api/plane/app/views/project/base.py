@@ -188,6 +188,13 @@ class ProjectViewSet(BaseViewSet):
             "page_view",
             "inbox_view",
             "guest_view_all_features",
+            # Both of these decide whether the sidebar offers the client's consumption item, and
+            # the sidebar renders from *this* payload. Without them the item only appeared after
+            # visiting the project, because that is when `retrieve` -- which serialises every
+            # field -- finally filled them in. `guest_view_all_features` was added here when the
+            # portal needed it and its two companions were missed.
+            "service_client",
+            "is_time_tracking_enabled",
             "project_lead",
             "network",
             "created_at",

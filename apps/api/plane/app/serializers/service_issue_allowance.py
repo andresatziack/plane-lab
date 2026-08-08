@@ -10,6 +10,7 @@ from rest_framework import serializers
 
 # Module imports
 from plane.db.models import ServiceIssueAllowance
+from plane.utils.service_log_time import format_hours
 
 from .base import BaseSerializer
 from .user import UserAdminLiteSerializer
@@ -55,6 +56,25 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
     closed_by_detail = UserAdminLiteSerializer(source="closed_by", read_only=True)
     issue_name = serializers.CharField(source="issue.name", read_only=True)
 
+    # R3: the decimal is what persists, and a human reads hours. Sent alongside rather than
+    # instead, because the raw value is what a caller compares and sorts by -- the same split
+    # ``amount_display`` makes for money on ``ServiceLogSerializer``.
+    #
+    # Without these the allowance panel rendered "4.0000 / 50.0000" for four hours of fifty,
+    # which is the scale of the database leaking into a client's screen.
+    credited_hours_display = serializers.SerializerMethodField()
+    consumed_hours_display = serializers.SerializerMethodField()
+    balance_hours_display = serializers.SerializerMethodField()
+
+    def get_credited_hours_display(self, obj):
+        return format_hours(obj.credited_hours)
+
+    def get_consumed_hours_display(self, obj):
+        return format_hours(obj.consumed_hours)
+
+    def get_balance_hours_display(self, obj):
+        return format_hours(obj.balance_hours)
+
     def __init__(self, *args, **kwargs):
         """Drop the rate unless the context says the caller may see money. See the docstring."""
         super().__init__(*args, **kwargs)
@@ -73,8 +93,11 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
             "reference",
             "notes",
             "credited_hours",
+            "credited_hours_display",
             "consumed_hours",
+            "consumed_hours_display",
             "balance_hours",
+            "balance_hours_display",
             "consumed_pct",
             "overage_hours",
             # Money, Phase 6. Removed from the payload for a non-Admin by `__init__`.

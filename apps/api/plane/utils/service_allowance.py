@@ -49,7 +49,7 @@ from plane.db.models import (
     ServiceLedgerEntryType,
     ServiceLog,
 )
-from plane.utils.service_log_time import ZERO_HOURS, quantize_hours as _quantize
+from plane.utils.service_log_time import ZERO_HOURS, format_hours, quantize_hours as _quantize
 from plane.utils.service_money import format_money, overage_amount, quantize_money
 from plane.utils.service_pool import (
     ServicePoolValidationError,
@@ -832,12 +832,19 @@ def allowance_summary(allowance, *, inherited_from_issue_id=None):
         "reference": allowance.reference,
         "notes": allowance.notes,
         "status": allowance.status,
+        # Raw for arithmetic, ``_display`` for reading. R3: decimals persist, humans see hours.
+        # Without the twin the panel rendered "50.0000" where the allowance is fifty hours.
         "credited_hours": str(_quantize(allowance.credited_hours)),
+        "credited_hours_display": format_hours(allowance.credited_hours),
         "consumed_hours": str(_quantize(allowance.consumed_hours)),
+        "consumed_hours_display": format_hours(allowance.consumed_hours),
         "balance_hours": str(_quantize(allowance.balance_hours)),
+        "balance_hours_display": format_hours(allowance.balance_hours),
         "consumed_pct": (str(consumed_pct.quantize(Decimal("0.01"))) if consumed_pct is not None else None),
         "overage_hours": str(_quantize(allowance.overage_hours)),
+        "overage_hours_display": format_hours(allowance.overage_hours),
         "expired_hours": str(_quantize(allowance.expired_hours)),
+        "expired_hours_display": format_hours(allowance.expired_hours),
         "closed_at": allowance.closed_at.isoformat() if allowance.closed_at else None,
         "is_inherited": inherited_from_issue_id is not None,
         "inherited_from_issue_id": (str(inherited_from_issue_id) if inherited_from_issue_id else None),

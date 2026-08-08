@@ -181,15 +181,15 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
               {contract.statement.map((row) => (
                 <tr key={row.period_id} className="border-b border-subtle/60">
                   <td className="py-2 pr-3 text-secondary">{row.competence}</td>
-                  <td className="py-2 pr-3 text-right text-secondary">{row.granted_hours}</td>
-                  <td className="py-2 pr-3 text-right text-secondary">{row.consumed_hours}</td>
+                  <td className="py-2 pr-3 text-right text-secondary">{row.granted_hours_display}</td>
+                  <td className="py-2 pr-3 text-right text-secondary">{row.consumed_hours_display}</td>
                   <td
                     className={cn(
                       "py-2 pr-3 text-right",
                       Number(row.balance_hours) < 0 ? "text-danger" : "text-primary"
                     )}
                   >
-                    {row.balance_hours}
+                    {row.balance_hours_display}
                   </td>
                   <td
                     className={cn(
@@ -197,12 +197,12 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
                       Number(row.overage_hours) > 0 ? "text-danger" : "text-tertiary"
                     )}
                   >
-                    {row.overage_hours}
+                    {row.overage_hours_display}
                   </td>
                   <td className="py-2 text-11 text-tertiary">
                     {/* The origin competency of each carried parcel: what a single balance figure
                         cannot answer, and what a client asks first when the number surprises them. */}
-                    {row.parcels.map((parcel) => `${parcel.origin_competence}: ${parcel.hours}`).join(" · ") || "—"}
+                    {row.parcels.map((parcel) => `${parcel.origin_competence}: ${parcel.hours_display}`).join(" · ") || "—"}
                   </td>
                 </tr>
               ))}
@@ -259,7 +259,7 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
                   )}
                   <span className="flex-1 truncate text-13 text-secondary">{allowance.issue_name}</span>
                   <span className="text-13 text-tertiary">
-                    {allowance.consumed_hours} / {allowance.credited_hours}
+                    {allowance.consumed_hours_display} / {allowance.credited_hours_display}
                   </span>
                   <span
                     className={cn(

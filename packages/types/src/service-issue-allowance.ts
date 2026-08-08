@@ -34,9 +34,13 @@ export interface IServiceIssueAllowance {
   readonly notes: string;
 
   readonly credited_hours: string;
+  /** The same figure rendered by R3's formatter: `"50.0000"` becomes `"50h"`. Render this one. */
+  readonly credited_hours_display: string;
   readonly consumed_hours: string;
+  readonly consumed_hours_display: string;
   /** Credited minus consumed. **Negative is a legitimate state** -- see section 3. */
   readonly balance_hours: string;
+  readonly balance_hours_display: string;
   /** Null before any credit exists: zero of zero is not zero. */
   readonly consumed_pct: string | null;
 
@@ -67,12 +71,23 @@ export interface IServiceIssueAllowanceSummary {
   readonly reference: string;
   readonly notes: string;
   readonly status: TServiceIssueAllowanceStatus;
+  /**
+   * Each quantity twice: the decimal to compute with, and the `_display` twin R3's formatter
+   * already rendered. The panel renders the twin; `balance_hours` stays the one that answers
+   * "is this overrun", because `"−2h".startsWith("-")` is a string test on a formatted value
+   * and the raw decimal is the honest place for it.
+   */
   readonly credited_hours: string;
+  readonly credited_hours_display: string;
   readonly consumed_hours: string;
+  readonly consumed_hours_display: string;
   readonly balance_hours: string;
+  readonly balance_hours_display: string;
   readonly consumed_pct: string | null;
   readonly overage_hours: string;
+  readonly overage_hours_display: string;
   readonly expired_hours: string;
+  readonly expired_hours_display: string;
   readonly closed_at: string | null;
   readonly is_inherited: boolean;
   readonly inherited_from_issue_id: string | null;
