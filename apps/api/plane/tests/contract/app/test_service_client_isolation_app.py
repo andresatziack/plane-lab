@@ -54,6 +54,28 @@ from plane.db.models import (
 #:
 #: Every other ``service-*`` route must refuse a GUEST. Adding an entry here is a visibility
 #: decision: it says "a client may call this, and I have checked what it returns".
+#: **Matched against the END of a route, not anywhere inside it.** Phase 10 found out why the
+#: difference matters, and it matters a lot: under the substring match this set had until then,
+#: these markers exempted **twelve** of the sixty swept routes instead of three.
+#:
+#: ``issues/<uuid:issue_id>/`` was the expensive one. As a substring it matched every per-issue
+#: service route -- ``service-logs/``, ``service-logs/preview/``, ``service-logs/totals/``,
+#: ``service-logs/batches/<batch_id>/``, ``.../author/``, ``service-allowance/``,
+#: ``service-pool/`` and ``service-requester/`` -- so the whole per-work-item service surface
+#: was skipped by the sweep from the day the marker was added. ``ServiceLogViewSet``'s docstring
+#: says "GUEST is on no endpoint here, including reads"; the test that was supposed to prove it
+#: was not looking. The routes did refuse, which is why nothing broke -- the isolation was real
+#: and merely unproven, and "real but unproven" is indistinguishable from "absent" until the day
+#: it regresses.
+#:
+#: The second hole was found by tripping it: Phase 10's ``service-reports/portal/issues/``
+#: contains ``service-reports/portal/``, so a brand new route that admits GUEST was exempted
+#: **automatically, with nobody deciding anything** -- the exact failure this file's docstring
+#: says it exists to prevent ("the failure mode being guarded against is not a wrong decision;
+#: it is an *absent* one").
+#:
+#: A tail match makes each entry name exactly one route, so a sub-route of an exempt route is a
+#: new decision rather than an inherited one.
 CLIENT_REACHABLE = {
     # Which Clientes this user belongs to, derived from project membership. Identity only --
     # no billing configuration, no contract, no rate. Phase 1.
@@ -61,12 +83,20 @@ CLIENT_REACHABLE = {
     # The portal dashboard. `_viewer` is fixed to ReportViewer.guest(), so no money and no
     # logged hours are computed, and the scope is the caller's own projects. D55, D63.
     "service-reports/portal/": "the client's own consumption, guest projection, own projects",
+    # The chamados behind those numbers, paginated. Same guest projection and same
+    # one-Cliente scope, inherited from `ServicePortalBaseView` rather than restated, plus a
+    # per-issue visibility gate. No money for any role on this route. Phase 10, item 7.
+    "service-reports/portal/issues/": "the client's own chamados, guest projection, one project",
     # The client's work logs for one work item, through ServiceLogClientSerializer: no raw
     # duration, no logged hours, no multiplier, no rate, and money only on rows whose
     # settled route billed them. D58, D65.
     "service-logs/client/": "the client's own work logs, R11 allowlist",
     # The work item itself. Core Plane's own scoping plus this phase's field allowlist:
     # a client may change the priority and the state and nothing else. D59, D60.
+    #
+    # Kept as documentation of the decision, and it now exempts **nothing here**: the sweep
+    # only collects routes containing `service-`, and the work item route does not. Its
+    # refusals are tested in `test_issue_client_portal_app.py`, where the field allowlist is.
     "issues/<uuid:issue_id>/": "the work item, narrowed to priority and state",
 }
 
@@ -300,8 +330,12 @@ class TestCriterion16TheServiceSurfaceRefusesAClientByDefault:
         ``CLIENT_REACHABLE`` with a stated reason.
 
         This is the test that makes a *forgotten* decision fail. A tenth phase adding
-        ``service-invoices/`` gets a red test until somebody says what a client may see."""
-        exempt = any(marker in route for marker in CLIENT_REACHABLE)
+        ``service-invoices/`` gets a red test until somebody says what a client may see.
+
+        ``endswith`` and not ``in``: see the note on :data:`CLIENT_REACHABLE`. A substring
+        match let one marker exempt eight routes nobody had signed off on, and let a new
+        sub-route of an exempt route inherit the exemption silently."""
+        exempt = any(route.endswith(marker) for marker in CLIENT_REACHABLE)
 
         url = _fill(
             route,
@@ -325,14 +359,59 @@ class TestCriterion16TheServiceSurfaceRefusesAClientByDefault:
             )
 
     @pytest.mark.django_db
-    def test_the_named_exceptions_are_the_four_expected_ones(self):
+    def test_the_named_exceptions_are_the_expected_ones(self):
         """Pinned so that widening the allowlist is a visible diff rather than a quiet one."""
         assert set(CLIENT_REACHABLE) == {
             "service-clients/me/",
             "service-reports/portal/",
+            "service-reports/portal/issues/",
             "service-logs/client/",
             "issues/<uuid:issue_id>/",
         }
+
+    def test_an_exemption_does_not_extend_to_sub_routes(self):
+        """**The regression test for how this sweep was quietly not working.**
+
+        Two concrete cases, both exempt before Phase 10 and neither of them decided by anybody:
+
+        * ``.../issues/<uuid:issue_id>/service-logs/`` -- the internal work log CRUD, exempted
+          because the marker ``issues/<uuid:issue_id>/`` appeared in the *middle* of it. Eight
+          routes went the same way, which is the entire per-work-item service surface.
+        * ``service-reports/portal/issues/`` -- exempt merely for sitting under
+          ``service-reports/portal/``, so a new route admitting GUEST needed no decision at all.
+
+        Asserted against the real routing table rather than against literal strings, so it keeps
+        meaning something as routes are added.
+        """
+        routes = _service_routes()
+
+        def exempt(route):
+            return any(route.endswith(marker) for marker in CLIENT_REACHABLE)
+
+        internal_log_routes = [
+            route
+            for route in routes
+            if route.endswith("service-logs/") or "service-logs/batches/" in route
+        ]
+
+        # The positive control: these routes exist, so the loop below is about them rather than
+        # about an empty list quietly passing.
+        assert internal_log_routes, routes
+
+        for route in internal_log_routes:
+            assert not exempt(route), (
+                f"{route} is exempt from the client sweep. It is the internal work log "
+                f"surface, whose own docstring says GUEST reaches none of it."
+            )
+
+        portal_issues = [
+            route for route in routes if route.endswith("service-reports/portal/issues/")
+        ]
+        assert portal_issues, routes
+        # This one IS exempt -- but only because it is named in CLIENT_REACHABLE in its own
+        # right, which is the deliberate edit this file's docstring asks for.
+        assert exempt(portal_issues[0])
+        assert "service-reports/portal/issues/" in CLIENT_REACHABLE
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(

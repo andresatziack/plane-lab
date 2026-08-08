@@ -152,7 +152,21 @@
       "consumed_hours_hint": "Já convertidas pelo tipo de atendimento de cada chamado.",
       "series_title": "Consumo por mês",
       "empty": "Ainda não há horas registradas neste período.",
-      "window_hint": "Mostrando as últimas 12 competências."
+      "window_hint": "Mostrando as últimas 12 competências.",
+      "tickets": {
+        "title": "Chamados",
+        "hint": "Os chamados que produziram os números acima.",
+        "summary": "{count} chamados, {hours} consumidas. Clique numa barra ou num mês para filtrar.",
+        "ticket": "Chamado",
+        "state": "Estado",
+        "last_worked_on": "Último apontamento",
+        "empty": "Nenhum chamado neste período.",
+        "clear_filter": "Limpar filtro",
+        "filter_hint": "Clique num mês ou numa barra para filtrar os chamados abaixo.",
+        "previous": "Anterior",
+        "next": "Próxima",
+        "page_of": "Mostrando {shown} de {total}"
+      }
     }
   }
 }

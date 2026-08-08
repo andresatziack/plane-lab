@@ -84,6 +84,13 @@ export type TBarItem<T extends string> = {
 export type TBarChartProps<K extends string, T extends string> = TAxisChartProps<K, T> & {
   bars: TBarItem<T>[];
   barSize?: number;
+  /**
+   * Called with the datum of the clicked bar, when a caller wants the chart to be a control.
+   *
+   * Optional and additive: every existing caller renders a chart that is read-only, and
+   * omitting this keeps that exactly as it was -- no cursor change, no handler attached.
+   */
+  onBarClick?: (datum: TChartData<K, T>) => void;
 };
 
 // ============================================================

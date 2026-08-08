@@ -12,6 +12,7 @@ import { Loader } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { ServiceReportsService } from "@/services/service-reports.service";
 import { DistributionChart, DistributionTable, HoursSeriesChart, StackedCompetenceChart } from "./charts";
+import { PortalIssuesTable } from "./portal-issues-table";
 import { ReportInsightCard } from "./report-insight-card";
 import { competenceRange } from "./use-report-filters";
 
@@ -38,12 +39,23 @@ const WINDOW_MONTHS = 11;
  *   both would give up the multiplier, which R11(c) forbids by name. `ConsumptionTab` adds that
  *   series when the key is present; here it is never offered, so a payload that started carrying
  *   it could not leak it through this screen.
- * - **No drill-down.** Every bucket carries its descriptor, but the endpoint that replays it,
- *   `service-reports/logs/`, is ADMIN and MEMBER only -- a client clicking through would get a
- *   403. A control that can only fail is worse than no control, so the tables and chips here are
- *   not clickable.
+ * - **No drill-down into work logs.** Every bucket carries its descriptor, but the endpoint that
+ *   replays it, `service-reports/logs/`, is ADMIN and MEMBER only -- a client clicking through
+ *   would get a 403. A control that can only fail is worse than no control, so the distribution
+ *   tables here are still not clickable.
  * - **No toolbar.** It carries a Cliente selector and a CSV export, and the client chooses no
  *   company: the project they are in *is* the choice (D67).
+ *
+ * **Phase 10, item 7 changed the third of those.** The portal now has its own list route,
+ * `service-reports/portal/issues/`, so the competency chips became buttons and the contract bars
+ * became clickable: both select a competency, and the selection narrows the ticket table at the
+ * end of the page. The work-log drill-down is still absent -- what the client can now reach is
+ * the list of *chamados*, not the list of apontamentos behind one bucket. Those remain reachable
+ * one at a time, on each ticket, through `ServiceLogClientEndpoint`.
+ *
+ * The chips are clickable **as well as** the bars, and not redundantly: the bar chart exists only
+ * for a client holding a contract, so an Avulso client would otherwise have no way to filter at
+ * all. The chips are the control that is always present; the bars are the one the user asked for.
  *
  * **Accepted limitation:** the window is the last twelve competencies, fixed. A contract longer
  * than that has months the client cannot reach from this screen. Not a criterion of this phase,
@@ -53,6 +65,12 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
   const { workspaceSlug, projectId } = props;
   const { t } = useTranslation();
   const [expandedAllowance, setExpandedAllowance] = useState<string | null>(null);
+  // The competency the ticket table is narrowed to. `null` is the whole window. Held here rather
+  // than in the table because two controls set it -- the chips and the contract bars -- and both
+  // live in this component.
+  const [selectedCompetence, setSelectedCompetence] = useState<string | null>(null);
+  const toggleCompetence = (competence: string) =>
+    setSelectedCompetence((current) => (current === competence ? null : competence));
 
   // Fixed, and not `useReportFilters`: that hook exists to hold a toolbar's state, and there is
   // no toolbar here. `competence_basis` is never set -- the server decides it from what is being
@@ -141,14 +159,37 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
             ]}
           />
           <div className="mt-3 flex flex-wrap gap-2">
-            {/* Plain spans, not buttons: the drill-down endpoint refuses a client. */}
-            {data.consumption_series.map((point) => (
-              <span key={point.competence} className="rounded border border-subtle px-2 py-1 text-11 text-tertiary">
-                {point.competence}: {point.equivalent_hours_display}
-              </span>
-            ))}
+            {/* Buttons now, not spans. They were spans because the only drill-down endpoint
+                refused a client; the portal has its own list route since item 7, so the control
+                can no longer only fail. They narrow the ticket table rather than opening a modal.
+
+                This is also the control that works for **every** client: the bar chart below
+                exists only when there is a contract, so an Avulso client has these and nothing
+                else. */}
+            {data.consumption_series.map((point) => {
+              const isSelected = selectedCompetence === point.competence;
+
+              return (
+                <button
+                  key={point.competence}
+                  type="button"
+                  onClick={() => toggleCompetence(point.competence)}
+                  aria-pressed={isSelected}
+                  className={cn(
+                    "rounded border px-2 py-1 text-11 transition-colors",
+                    isSelected
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "hover:border-accent/50 border-subtle text-tertiary hover:text-secondary"
+                  )}
+                >
+                  {point.competence}: {point.equivalent_hours_display}
+                </button>
+              );
+            })}
           </div>
-          <p className="mt-3 text-11 text-tertiary">{t("service_reports.portal.window_hint")}</p>
+          <p className="mt-3 text-11 text-tertiary">
+            {t("service_reports.portal.window_hint")} {t("service_reports.portal.tickets.filter_hint")}
+          </p>
         </section>
       ) : null}
 
@@ -159,12 +200,16 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
           <h3 className="mb-3 text-14 font-medium text-primary">
             {contract.code} — {contract.name}
           </h3>
+          {/* Clicking a column selects its competency and narrows the ticket table at the end of
+              the page. Toggling, so a second click on the same month clears the filter rather
+              than leaving the reader with no way back except finding the "clear" link. */}
           <StackedCompetenceChart
             data={rows}
             series={[
               { key: "consumed", label: t("service_reports.consumption.consumed") },
               { key: "overage", label: t("service_reports.consumption.overage") },
             ]}
+            onCompetenceClick={toggleCompetence}
           />
           <table className="mt-4 w-full text-13">
             <thead>
@@ -202,7 +247,8 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
                   <td className="py-2 text-11 text-tertiary">
                     {/* The origin competency of each carried parcel: what a single balance figure
                         cannot answer, and what a client asks first when the number surprises them. */}
-                    {row.parcels.map((parcel) => `${parcel.origin_competence}: ${parcel.hours_display}`).join(" · ") || "—"}
+                    {row.parcels.map((parcel) => `${parcel.origin_competence}: ${parcel.hours_display}`).join(" · ") ||
+                      "—"}
                   </td>
                 </tr>
               ))}
@@ -314,6 +360,16 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
           </ul>
         </section>
       ) : null}
+
+      {/* Last on the page, and rendered even when the window is empty: "no chamados in this
+          period" is an answer, and a section that vanishes teaches a reader it does not exist. */}
+      <PortalIssuesTable
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+        filters={filters}
+        competence={selectedCompetence}
+        onClearCompetence={() => setSelectedCompetence(null)}
+      />
     </div>
   );
 });

@@ -329,7 +329,7 @@ def client_may_reach_issue(user, issue):
     return ServiceIssueRequester.objects.filter(issue_id=issue.id, requester=user).exists()
 
 
-def client_visible_issues_q(user):
+def client_visible_issues_q(user, *, prefix=""):
     """The queryset form of :func:`client_may_reach_issue`, minus the project-wide clause.
 
     Callers apply this only once they have established that the project does *not* grant
@@ -340,10 +340,24 @@ def client_visible_issues_q(user):
     genuinely different mechanisms -- one filters rows in the database, the other answers
     about an instance already in memory -- and the risk worth guarding against is that they
     stop agreeing. ``test_service_portal.py`` asserts that they do.
+
+    ``prefix`` relocates the rule onto a queryset that reaches ``Issue`` through a relation
+    -- ``prefix="issue__"`` for a ``ServiceLog`` queryset, which is what the portal's ticket
+    table needs, since it groups work logs by work item rather than listing work items.
+    **A keyword with a default rather than a second function**, precisely because this
+    docstring's own claim is that there is one definition of this question: a
+    ``client_visible_service_logs_q`` sitting next to this would be the second copy the
+    warning above is about, and the one that stops agreeing after the next change.
+
+    Safe against join fan-out at either prefix: ``Issue.service_requester`` is a
+    ``OneToOneField`` (D62), so neither clause multiplies rows and an aggregate over the
+    filtered queryset cannot double count.
     """
     from django.db.models import Q
 
-    return Q(created_by=user) | Q(service_requester__requester=user)
+    return Q(**{f"{prefix}created_by": user}) | Q(
+        **{f"{prefix}service_requester__requester": user}
+    )
 
 
 

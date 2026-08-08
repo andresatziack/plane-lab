@@ -39,6 +39,7 @@ from plane.db.models import (
     Project,
     ServiceContract,
     ServiceIssueAllowance,
+    ServiceLog,
     Workspace,
     WorkspaceMember,
 )
@@ -56,11 +57,18 @@ from plane.utils.service_reports import (
     distribution,
     headline_totals,
     hours_series,
+    issue_row,
+    issue_rows,
     non_billable_breakdown,
     revenue_series,
 )
 from plane.utils.service_log import ServiceLogValidationError
-from plane.utils.service_portal import client_project_scope, scope_filterset_to_client
+from plane.utils.service_portal import (
+    client_project_scope,
+    client_visible_issues_q,
+    is_client_portal_member,
+    scope_filterset_to_client,
+)
 from plane.utils.service_reports_filters import (
     CompetenceBasis,
     ServiceLogFilterSet,
@@ -462,7 +470,82 @@ class ServiceReportLogsEndpoint(ServiceReportBaseView, BasePaginator):
 
 
 
-class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
+class ServicePortalBaseView(ServiceReportBaseView):
+    """The client's projection and the client's tenancy, for **every** portal route. D63, D67.
+
+    Extracted when the portal gained its second route (the ticket table, Phase 10 item 7),
+    and the extraction is the point rather than a tidy-up. Phase 10's own finding is that
+    every defect it found lived *between* two places that should have agreed -- a component
+    mounted in the detail and not in the peek, an ACL key computed one way and indexed
+    another. A second portal endpoint that restated ``_viewer`` and re-ran the scope sequence
+    by hand would be that shape exactly: two copies of R11's projection and two copies of a
+    tenancy boundary, correct on the day they were written.
+
+    So both live here, once, and a new portal route gets them by inheriting.
+    """
+
+    def _viewer(self, request, slug):
+        """Always the client's projection. **Overridden, never inherited.** D63.
+
+        The inherited implementation resolves workspace-Admin membership and falls back to
+        ``ReportViewer.member()``, which carries ``logged_hours`` -- and a Member projection
+        handed to a client is worse than a 403, because the client sees ``equivalent_hours``
+        legitimately and the two together give up the multiplier (R11(c)).
+
+        Unconditional, so a Member or an Admin calling a portal route sees exactly what the
+        client sees. That is the point: it makes the portal auditable from the inside without
+        a role-conditional branch for R11 to be wrong in, the same reasoning as
+        ``ServiceLogClientEndpoint``.
+        """
+        return ReportViewer.guest()
+
+    def _portal_scope(self, request, slug, filterset):
+        """The client's one project, and the descriptor already confined to it. D63, D67.
+
+        Returns ``(scoped_filterset, project_ids, refusal)``:
+
+        * a **refusal** ``Response`` when the request named no project or named more than one;
+        * ``scoped_filterset is None`` when the caller named a project that is not theirs,
+          which the routes answer with an empty 200 rather than a 403 -- see
+          ``_empty_payload``;
+        * otherwise the filterset **already narrowed**, plus the tuple of exactly one id.
+
+        **Returning the narrowed filterset rather than just the ids is the whole reason this
+        is a method.** Three things have to happen in one order and all three fail silently
+        when they do not:
+
+        1. ``narrow()`` is ``dataclasses.replace``, so it REPLACES rather than intersects --
+           the scope has to be applied after anything that arrived in the query string, or a
+           crafted ``?project_ids=`` widens the tenancy boundary with no error anywhere.
+        2. Narrowing with an empty tuple selects EVERY project in the workspace, because
+           ``ServiceLogFilterSet.queryset`` applies each lookup only ``if values:``. A caller
+           whose requested project is not theirs would receive the whole workspace.
+           ``scope_filterset_to_client`` raises rather than accept an empty scope, and the
+           short circuit above is what keeps it from ever being called with one.
+        3. The project is REQUIRED, so "every project this caller belongs to, summed" is not
+           a payload any portal route can produce -- see ``client_project_scope`` and D67.
+           That is what keeps section 2 of Phase 8 from depending on frontend discipline.
+
+        Handing back ids and leaving the narrowing to the caller would make step 1 a thing
+        each new route has to remember. Handing back the narrowed descriptor makes forgetting
+        it impossible.
+        """
+        try:
+            project_ids = client_project_scope(
+                request.user, slug=slug, requested=filterset.project_ids
+            )
+        except ServiceLogValidationError as error:
+            return None, (), Response(
+                {"error": error.code}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not project_ids:
+            return None, (), None
+
+        return scope_filterset_to_client(filterset, project_ids), project_ids, None
+
+
+class ServiceClientPortalReportEndpoint(ServicePortalBaseView):
     """What the client sees about their own consumption. D55, D63, D67. Criteria 2 and 22.
 
     **``?project_ids=`` is required and takes exactly one project.** The client's dashboard is
@@ -489,21 +572,6 @@ class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
     contract have I used", and it contains nothing R11 withholds.
     """
 
-    def _viewer(self, request, slug):
-        """Always the client's projection. **Overridden, never inherited.** D63.
-
-        The inherited implementation resolves workspace-Admin membership and falls back to
-        ``ReportViewer.member()``, which carries ``logged_hours`` -- and a Member projection
-        handed to a client is worse than a 403, because the client sees ``equivalent_hours``
-        legitimately and the two together give up the multiplier (R11(c)).
-
-        Unconditional, so a Member or an Admin calling this route sees exactly what the client
-        sees. That is the point: it makes the portal auditable from the inside without a
-        role-conditional branch for R11 to be wrong in, the same reasoning as
-        ``ServiceLogClientEndpoint``.
-        """
-        return ReportViewer.guest()
-
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):
         workspace = self._workspace(slug)
@@ -518,32 +586,17 @@ class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
         except ServiceReportFilterError as error:
             return _bad_filter(error)
 
-        # Intersected here, narrowed last. Three things matter and all three fail silently:
-        #
-        # `narrow()` is `dataclasses.replace`, so it REPLACES rather than intersects -- the
-        # scope has to be applied after anything that arrived in the query string, or a
-        # crafted `?project_ids=` would widen the tenancy boundary with no error anywhere.
-        #
-        # And narrowing with an empty tuple selects EVERY project in the workspace, because
-        # `ServiceLogFilterSet.queryset` applies each lookup only `if values:`. A caller whose
-        # requested project is not theirs would receive the whole workspace.
-        # `scope_filterset_to_client` raises rather than accept an empty scope, and this is the
-        # short circuit that keeps it from ever being called with one. See D63.
-        #
-        # And the project is REQUIRED, so that "every project this caller belongs to, summed"
-        # is not a payload this endpoint can produce at all -- see `client_project_scope` and
-        # D67. That is what keeps section 2 of Phase 8 from depending on frontend discipline.
-        try:
-            project_ids = client_project_scope(
-                request.user, slug=slug, requested=filterset.project_ids
-            )
-        except ServiceLogValidationError as error:
-            return Response({"error": error.code}, status=status.HTTP_400_BAD_REQUEST)
+        # Resolved and narrowed in one call, in the one order that is safe -- see
+        # `ServicePortalBaseView._portal_scope`, which documents the three silent failures.
+        scoped, project_ids, refusal = self._portal_scope(request, slug, filterset)
 
-        if not project_ids:
+        if refusal is not None:
+            return refusal
+
+        if scoped is None:
             return Response(self._empty_payload(filterset), status=status.HTTP_200_OK)
 
-        filterset = scope_filterset_to_client(filterset, project_ids)
+        filterset = scoped
 
         client_ids = list(
             Project.objects.filter(id__in=project_ids, service_client_id__isnull=False)
@@ -616,3 +669,131 @@ class ServiceClientPortalReportEndpoint(ServiceReportBaseView):
             "allowances": {"active": [], "pending_closure": []},
             "consumption_series": [],
         }
+
+
+class ServiceClientPortalIssuesEndpoint(ServicePortalBaseView, BasePaginator):
+    """The **chamados** behind the client's numbers, paginated. Phase 10, item 7.
+
+    The portal dashboard showed totals, a series, a statement, a breakdown by hour type and
+    the active allowances -- and no list of the work items that produced any of it. So a
+    client could see that 37,5h had been consumed and had no way to ask *which tickets*. This
+    is that list.
+
+    **A paginated table rather than a modal.** Decided with the user: the ticket list is the
+    section a client actually wants, and hiding it behind a click on a chart would put the
+    primary answer behind a gesture nobody discovers. The chart click still exists, but it
+    *filters* the table rather than revealing it -- so the information is reachable without
+    knowing the gesture, and the gesture is a refinement instead of a prerequisite.
+
+    **Paginated, and it is the only portal section that is.** Every other section is bounded
+    by something -- competencies in the window, hour types in the catalogue, open allowances.
+    A ticket list is bounded by nothing, so this is the one place the portal has to page.
+
+    Everything ``ServiceClientPortalReportEndpoint`` guarantees is inherited rather than
+    restated: the guest projection and the one-Cliente tenancy both come from
+    ``ServicePortalBaseView``. What this route adds is per-**issue** visibility, which the
+    dashboard never needed because a total does not name the tickets it summed -- see
+    ``_visible_logs``.
+
+    No money, for anybody, including an Admin auditing the route. See :func:`issue_row`: a
+    per-issue amount is not a figure D58 licenses, because a ticket half absorbed by an
+    allowance and half billed has no single amount corresponding to an invoice line.
+    """
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    def get(self, request, slug):
+        workspace = self._workspace(slug)
+
+        if workspace is None:
+            return _not_found()
+
+        viewer = self._viewer(request, slug)
+
+        try:
+            filterset = self._filterset(request)
+        except ServiceReportFilterError as error:
+            return _bad_filter(error)
+
+        scoped, project_ids, refusal = self._portal_scope(request, slug, filterset)
+
+        if refusal is not None:
+            return refusal
+
+        if scoped is None:
+            return self._empty_page(request, filterset, viewer)
+
+        rows = issue_rows(
+            workspace.id,
+            scoped,
+            viewer,
+            queryset=self._visible_logs(request, slug, project_ids[0]),
+        )
+
+        return self.paginate(
+            request=request,
+            queryset=rows,
+            on_results=lambda results: [issue_row(row, scoped, viewer) for row in results],
+            # The same descriptor's totals, so the table's own header can state "N chamados,
+            # X h" without a second request -- and so the count is checkable against the
+            # dashboard above it. `totals["issues"]` is `Count("issue_id", distinct=True)` over
+            # this selection, which is by construction the row count of this table.
+            extra_stats={"totals": headline_totals(workspace.id, scoped, viewer)},
+        )
+
+    def _visible_logs(self, request, slug, project_id):
+        """The work logs this caller may see, before the descriptor narrows them further.
+
+        **Why the dashboard did not need this and the table does.** A total does not name the
+        work items it summed, so a client seeing "37,5h" learns nothing about a ticket they
+        were not shown. A *list* names them. So the per-issue gate that
+        ``ServiceLogClientEndpoint`` applies when reached by issue id has to be applied here
+        too, in its queryset form.
+
+        The gate is the project flag first and the narrowing second, which is the shape core
+        Plane's own guest-scope sites have and the shape ``client_may_reach_issue`` documents:
+        a project with ``guest_view_all_features`` shows its clients everything in it, and
+        that flag is *required* for a Cliente's project by the master context (section 2b) --
+        without it Marcel would not see the tickets his colleagues opened. So in the
+        configuration this product prescribes, this narrowing is inert. It exists for the
+        project that was configured wrongly, where the alternative is a client reading the
+        titles of tickets belonging to other people at their own company.
+
+        Applied only to a caller who is actually a client's user on this project. A Member or
+        an Admin calling this route gets the client's *projection* by design (auditability),
+        but not the client's *visibility*: narrowing an Admin to the tickets they personally
+        created would make the audit view lie about what the client sees.
+        """
+        logs = ServiceLog.objects.filter(workspace__slug=slug, project_id=project_id)
+
+        if not is_client_portal_member(request.user, slug=slug, project_id=project_id):
+            return logs
+
+        if Project.objects.filter(id=project_id, guest_view_all_features=True).exists():
+            return logs
+
+        return logs.filter(client_visible_issues_q(request.user, prefix="issue__"))
+
+    def _empty_page(self, request, filterset, viewer):
+        """What a caller outside the requested project gets: a real page, with no rows.
+
+        200 and not 403, for the two populations ``_empty_payload`` names, and built by
+        paginating an empty queryset rather than by hand. That matters: the envelope
+        ``BasePaginator`` produces has ten keys around ``results``, and a literal dict written
+        here would be a second definition of the page shape -- correct until the paginator's
+        changed and this had not. An empty queryset gives the identical envelope by
+        construction.
+
+        ``totals`` mirrors ``_empty_payload``'s: the counts and the descriptor, and no hour
+        keys, because there is no selection to have summed. Computing ``headline_totals`` on
+        the **unnarrowed** filterset here would be the leak this whole sequence exists to
+        prevent -- an empty scope means the descriptor still selects every project in the
+        workspace.
+        """
+        return self.paginate(
+            request=request,
+            queryset=ServiceLog.objects.none().values("issue_id"),
+            on_results=lambda results: [],
+            extra_stats={
+                "totals": {"entries": 0, "issues": 0, "filters": filterset.to_params()}
+            },
+        )
