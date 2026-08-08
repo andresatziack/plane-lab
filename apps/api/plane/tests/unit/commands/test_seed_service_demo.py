@@ -35,6 +35,7 @@ from django.db.models import Sum
 
 # Module imports
 from plane.db.models import (
+    Profile,
     Project,
     ProjectMember,
     ServiceBillingType,
@@ -212,6 +213,78 @@ def test_the_scenario_users_can_actually_log_in(seeded):
         assert user.is_email_verified is True
         assert user.profile.is_onboarded is True
         assert user.profile.last_workspace_id == seeded.id
+
+
+def test_every_seeded_profile_is_in_pt_br(seeded):
+    """Phase 10, item 9. The scenario is Brazilian and so is the interface it hands over.
+
+    Before this, the demo's Portuguese was set by hand in each profile after the seed ran --
+    which meant a fresh box served English until somebody remembered, and Phase 10's own
+    handoff had to say so.
+
+    Asserted for **every** account and not just one, because the seed writes them through the
+    same helper and a per-account regression would be invisible in a spot check.
+    """
+    for handle in ("admin", "tecnico", "tecnico2", "marcel", "adriano", "rafael"):
+        assert _user(handle).profile.language == "pt-BR", handle
+
+
+def test_the_seed_sets_the_language_rather_than_inheriting_the_model_default(seeded, settings):
+    """**The failure the model default alone does not cover, and the reason item 9 has three
+    parts instead of one.**
+
+    ``_user`` uses ``get_or_create``, so on a re-seed the profile already exists and the
+    column default never runs. An account first written before migration 0134 would keep
+    ``en`` through every future seed.
+
+    Simulated exactly: force a profile back to ``en``, re-run, and require the seed to have
+    corrected it. A seed that relied on the default passes the test above and fails this one.
+    """
+    marcel = _user("marcel")
+    Profile.objects.filter(user=marcel).update(language="en")
+
+    # The negative control: it really is `en` before the re-seed, so the assertion after it
+    # is about the seed and not about a write that never happened.
+    assert Profile.objects.get(user=marcel).language == "en"
+
+    settings.DEBUG = True
+    call_command("seed_service_demo", "--workspace", SLUG, "--password", "demo-password-1234")
+
+    assert Profile.objects.get(user=marcel).language == "pt-BR"
+
+
+def test_a_deliberate_non_english_choice_is_still_overwritten_by_the_seed(seeded, settings):
+    """Characterisation, not endorsement -- it pins a limitation so nobody reads the seed as
+    gentler than it is.
+
+    The **migration** only moves profiles still on ``en``, leaving a deliberate choice alone.
+    The **seed** is blunter: it rewrites the language of every scenario account on every run,
+    the same way it rewrites their passwords. That is correct for a throwaway demo box, whose
+    whole purpose is to be reproducible, and it would be wrong on a real instance -- which is
+    why the seed refuses to run without ``DEBUG``.
+    """
+    marcel = _user("marcel")
+    Profile.objects.filter(user=marcel).update(language="ja")
+
+    settings.DEBUG = True
+    call_command("seed_service_demo", "--workspace", SLUG, "--password", "demo-password-1234")
+
+    assert Profile.objects.get(user=marcel).language == "pt-BR"
+
+
+def test_a_brand_new_profile_gets_pt_br_without_the_seed(db):
+    """The second of item 9's three parts, and the one the seed cannot deliver: everybody the
+    seed does not create.
+
+    An invited GUEST, a technician added next month, an account made through the instance
+    admin -- none of them goes through ``seed_service_demo``, and all of them go through the
+    column default. Asserted against a plain ``Profile.objects.create``, which is what
+    ``plane/authentication/adapter/base.py`` does on first login.
+    """
+    user = User.objects.create(email="newcomer@planedev.satziack.com", username="newcomer")
+    profile = Profile.objects.create(user=user)
+
+    assert profile.language == "pt-BR"
 
 
 # ---------------------------------------------------------------------------

@@ -248,7 +248,23 @@ class Profile(TimeAuditModel):
     mobile_onboarding_step = models.JSONField(default=get_mobile_default_onboarding)
     mobile_timezone_auto_set = models.BooleanField(default=False)
     # language
-    language = models.CharField(max_length=255, default="en")
+    #
+    # `pt-BR` and not upstream's `en`: this fork is a service desk for a Brazilian operation,
+    # and every account on it -- technician, admin and the client's own users -- reads
+    # Portuguese. Leaving the upstream default meant every new account started in English and
+    # somebody had to know where the profile setting lives, which for a GUEST invited to a
+    # client portal is a support call on their first login.
+    #
+    # Changed here rather than only in the seed, because the seed creates the demo scenario and
+    # the default governs everyone the seed does not: an invited GUEST, a technician added
+    # later, an account created through the instance admin.
+    #
+    # **This is not the only thing that decides what the browser renders**, and the difference
+    # is visible: `packages/i18n`'s `FALLBACK_LANGUAGE` is still `en`, and the app paints its
+    # first frame from `localStorage` or that fallback, before the profile has been fetched. So
+    # the login screen is English and the app switches to Portuguese once the profile lands.
+    # See the note in the Phase 10 PR for item 9.
+    language = models.CharField(max_length=255, default="pt-BR")
     start_of_the_week = models.PositiveSmallIntegerField(choices=START_OF_THE_WEEK_CHOICES, default=SUNDAY)
     goals = models.JSONField(default=dict)
     background_color = models.CharField(max_length=255, default=get_random_color)
