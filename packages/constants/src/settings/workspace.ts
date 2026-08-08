@@ -83,8 +83,29 @@ export const WORKSPACE_SETTINGS: Record<TWorkspaceSettingsTabs, TWorkspaceSettin
   },
 };
 
+/**
+ * Who may open each settings screen, keyed by path.
+ *
+ * **Every item contributes its section root as well as its href**, and that is not
+ * redundancy. The guard in `settings/(workspace)/layout.tsx` resolves the key from the
+ * *pathname*, and an item whose href points at a section -- `worklog`, whose href is
+ * `/settings/worklog/hour-types` -- has several pathnames sharing one ACL. Keyed only by
+ * href, the lookup for `/settings/worklog` and for `/settings/worklog/billing-types`
+ * returned `undefined`, which the guard reads as "not allowed" and so **denied every role,
+ * including ADMIN**. That screen was unreachable for everybody.
+ *
+ * Deriving the root here rather than widening the guard keeps one answer to "who may see
+ * this": the item's own `access` list, whatever depth its href has.
+ */
 export const WORKSPACE_SETTINGS_ACCESS = Object.fromEntries(
-  Object.entries(WORKSPACE_SETTINGS).map(([_, { href, access }]) => [href, access])
+  Object.values(WORKSPACE_SETTINGS).flatMap(({ href, access }) => {
+    const segments = href.replace(/^\//, "").split("/");
+    const entries: [string, typeof access][] = [[href, access]];
+
+    if (segments.length > 2) entries.push([`/${segments.slice(0, 2).join("/")}`, access]);
+
+    return entries;
+  })
 );
 
 export const GROUPED_WORKSPACE_SETTINGS: Record<WORKSPACE_SETTINGS_CATEGORY, TWorkspaceSettingsItem[]> = {

@@ -18,6 +18,7 @@ import { useProject } from "@/hooks/store/use-project";
 import { useServiceCatalog } from "@/hooks/store/use-service-catalog";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 // local imports
+import { ServiceMemberPermissionService } from "@/services/service-member-permission.service";
 import type { TServiceLogBatch } from "@/store/issue/issue-details/service-log.store";
 import { CreditServiceAllowanceModal } from "./credit-service-allowance-modal";
 import { DeleteServiceLogModal } from "./delete-service-log-modal";
@@ -26,6 +27,8 @@ import { ServiceLogListItem } from "./service-log-list-item";
 import { ServiceLogModal } from "./service-log-modal";
 import { ServiceLogTotals } from "./service-log-totals";
 import { toEditPayload } from "./service-log.helpers";
+
+const serviceMemberPermissionService = new ServiceMemberPermissionService();
 
 type Props = {
   workspaceSlug: string;
@@ -67,6 +70,25 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
   // route in this feature. A project admin is not a workspace admin in this fork. The
   // server is the real guard; this only avoids offering a button that would be refused.
   const canCreditAllowance = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
+
+  /*
+   * May this viewer change somebody else's work log?
+   *
+   * **Asked of the server, not derived from the role.** `can_manage_others` is `is_admin OR the
+   * granted flag`, so an admin holds it with no row and a member holds it only when an admin
+   * granted it -- a role check here would get the second case wrong, and Phase 7 exists to make
+   * that second case possible. `/service-member-permissions/me/` returns the resolved answer and
+   * is the same function `validate_can_change` calls on the write path.
+   *
+   * Until it arrives this stays false, so the buttons appear rather than disappear: offering an
+   * edit that is then refused is a worse failure than a button showing up a moment late.
+   */
+  const { data: capabilities } = useSWR(
+    workspaceSlug ? `SERVICE_LOG_CAPABILITIES_${workspaceSlug}` : null,
+    workspaceSlug ? () => serviceMemberPermissionService.fetchMine(workspaceSlug) : null,
+    { revalidateIfStale: false, revalidateOnFocus: false }
+  );
+  const canManageOthersLogs = Boolean(capabilities?.can_manage_others);
 
   useSWR(
     workspaceSlug && projectId && issueId ? `SERVICE_LOGS_${workspaceSlug}_${projectId}_${issueId}` : null,
@@ -150,9 +172,17 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
             <ServiceLogListItem
               key={batch.batchId}
               batch={batch}
-              // Section 6: "por ora, apenas o autor". The server enforces it too --
-              // this only avoids showing a button that would be refused.
-              canModify={!disabled && batch.segments[0].author === currentUser?.id}
+              /*
+               * The author, or anybody holding `can_manage_others`.
+               *
+               * Phase 3 wrote "por ora, apenas o autor" and Phase 7 lifted it -- the backend's
+               * `may_edit` returns true for `can_manage_others` before it ever looks at the
+               * author. This condition kept the Phase 3 half, so an **admin saw the list and no
+               * buttons**: the server would have accepted the edit and the UI never offered it.
+               *
+               * The server is still the guard; this only decides what to offer.
+               */
+              canModify={!disabled && (canManageOthersLogs || batch.segments[0].author === currentUser?.id)}
               onEdit={() => setEditingBatch(batch)}
               onDelete={() => setDeletingBatch(batch)}
             />
