@@ -631,3 +631,525 @@ class TestTheAdminReportsStillRefuseAClient:
         response = _get(outsider, workspace)
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+
+
+# ---------------------------------------------------------------------------
+# The ticket table -- Phase 10, item 7
+# ---------------------------------------------------------------------------
+
+
+PORTAL_ISSUES_URL = "/api/workspaces/{slug}/service-reports/portal/issues/"
+
+
+def _rows(response):
+    return response.data["results"]
+
+
+@pytest.fixture
+def marubeni_tickets(db, projects, workspace, technician, hour_type, billing_type):
+    """Three Marubeni tickets across two competencies, so paging and filtering are testable.
+
+    Distinct ``worked_on`` dates rather than three logs on one day, because the table's order
+    is ``-last_worked_on`` and an order that is not **total** lets offset pagination repeat or
+    skip a row. Equal dates would make the page-boundary test pass or fail on the database's
+    incidental row order, which is the kind of test that goes green for the wrong reason.
+    """
+    built = {}
+    project = projects["marubeni"]
+
+    for key, worked_on in (
+        ("march_old", date(2026, 3, 2)),
+        ("march_new", date(2026, 3, 20)),
+        ("april", date(2026, 4, 5)),
+    ):
+        issue = _issue(project, workspace, technician)
+        built[key] = ServiceLog.objects.create(
+            issue=issue,
+            project=project,
+            workspace=workspace,
+            author=technician,
+            hour_type=hour_type,
+            billing_type=billing_type,
+            worked_on=worked_on,
+            description=f"Work on {key}",
+            raw_duration_minutes=60,
+            logged_hours=Decimal(LOGGED),
+            equivalent_hours=Decimal(EQUIVALENT),
+            debited_hours=Decimal(EQUIVALENT),
+            applied_multiplier=Decimal("1.50"),
+            applied_billing_route=ROUTE.BILL_AMOUNT,
+            settled_billing_route=ROUTE.BILL_AMOUNT,
+            applied_hour_rate=Decimal("200.00"),
+            applied_rate_basis=ServiceLog.RateBasis.BASE_MULTIPLIER,
+            amount=Decimal("300.00"),
+            batch_id=uuid4(),
+        )
+
+    return built
+
+
+@pytest.mark.contract
+class TestTheTicketTableCarriesTheGuestProjection:
+    """Item 7's table is a second portal route, so R11 has a second place to be got wrong.
+
+    Every absence assertion in this class is paired with a positive control, because after
+    D67 an empty page is what a broken scope intersection produces for *every* request -- and
+    an empty page satisfies "no money" and "no logged_hours" perfectly.
+    """
+
+    @pytest.mark.django_db
+    def test_a_client_reaches_the_ticket_table(self, workspace, marcel, projects, logs):
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+
+    @pytest.mark.django_db
+    def test_the_client_receives_their_ticket(self, workspace, marcel, projects, logs):
+        """**The positive control for this whole class.** Without it every assertion below is
+        also satisfied by a table that returns nothing at all."""
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        rows = _rows(response)
+        assert len(rows) == 1
+        assert rows[0]["equivalent_hours"] == EQUIVALENT
+        assert rows[0]["entries"] == 1
+        assert rows[0]["name"] == "Server is down"
+        # The readable key the frontend links by. Without both halves there is no `/browse/`
+        # URL to build, and the table would be a list of titles with nowhere to go.
+        assert rows[0]["project_identifier"] == "MARU"
+        assert rows[0]["sequence_id"]
+
+    @pytest.mark.django_db
+    def test_the_page_carries_no_logged_hours_anywhere(self, workspace, marcel, projects, logs):
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert _hour_keys(response.data, "logged_hours") == []
+        assert _hour_keys(response.data, "logged_hours_display") == []
+        # The paired positive control: the row IS there and DOES carry the client's quantity,
+        # so the absence above is a projection and not an empty page.
+        assert _hour_keys(response.data, "equivalent_hours") == [EQUIVALENT, EQUIVALENT]
+
+    @pytest.mark.django_db
+    def test_the_page_carries_no_money_anywhere(self, workspace, marcel, projects, logs):
+        """The work log behind this ticket settled as BILL_AMOUNT and carries R$300, so a
+        per-issue amount would have something to report here -- which is what makes this
+        assertion meaningful rather than vacuous."""
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert _money_keys(response.data) == set()
+
+    @pytest.mark.django_db
+    def test_an_admin_gets_the_same_moneyless_projection(
+        self, workspace, create_user, projects, logs
+    ):
+        """No money **for anybody** on this route, unlike every other report where the amount
+        is gated on the viewer. D58: a per-issue sum is not a figure the client's money rule
+        licenses, so it is not computed at all -- and an operator auditing the portal should
+        see precisely what the client sees."""
+        response = _get(
+            create_user, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"]
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert _money_keys(response.data) == set()
+        assert _hour_keys(response.data, "logged_hours") == []
+        # Positive control: the admin really did reach the rows.
+        assert len(_rows(response)) == 1
+
+    @pytest.mark.django_db
+    def test_the_same_admin_does_see_money_on_the_admin_route(
+        self, workspace, create_user, projects, logs
+    ):
+        """The control that proves the assertion above is about the route and not about the
+        user's permissions."""
+        response = _get(create_user, workspace, url=CONSUMPTION_URL)
+
+        assert "amount" in response.data["totals"]
+
+    @pytest.mark.django_db
+    def test_the_row_count_is_the_dashboards_issue_count(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """**The invariant that makes this table trustworthy.** ``totals["issues"]`` on the
+        dashboard is ``Count("issue_id", distinct=True)`` over the same descriptor, so the
+        table's ``total_count`` must equal it by construction. Listing issues and summing their
+        logs separately -- the obvious alternative implementation -- is what would let these
+        two numbers drift, and a client comparing them is the one who would find out."""
+        table = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+        dashboard = _get(marcel, workspace, project=projects["marubeni"])
+
+        assert table.data["total_count"] == dashboard.data["totals"]["issues"]
+        assert table.data["total_count"] == 4
+
+    @pytest.mark.django_db
+    def test_the_tables_hours_sum_to_the_dashboards_total(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """Criterion 1's shape for this section: the list agrees with the number above it.
+        Same descriptor, so this is arithmetic rather than luck."""
+        table = _get(
+            marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"], per_page=100
+        )
+        dashboard = _get(marcel, workspace, project=projects["marubeni"])
+
+        summed = sum(Decimal(row["equivalent_hours"]) for row in _rows(table))
+
+        assert summed == Decimal(dashboard.data["totals"]["equivalent_hours"])
+
+    @pytest.mark.django_db
+    def test_each_row_carries_a_descriptor_that_replays_to_itself(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """D50 one dimension further. The row's own ``filters`` must select exactly that
+        ticket, so the table is drillable by the same mechanism every other bucket is."""
+        table = _get(
+            marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"], per_page=100
+        )
+
+        for row in _rows(table):
+            assert row["filters"]["issue_ids"] == row["issue_id"]
+
+    @pytest.mark.django_db
+    def test_the_extra_stats_totals_are_the_client_projection_too(
+        self, workspace, marcel, projects, logs
+    ):
+        """``extra_stats`` is a second payload on the same response and an easy place to leak
+        the Member projection, since it is built by ``headline_totals`` rather than by the row
+        projector."""
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        totals = response.data["extra_stats"]["totals"]
+        assert totals["equivalent_hours"] == EQUIVALENT
+        assert "logged_hours" not in totals
+        assert "amount" not in totals
+
+
+@pytest.mark.contract
+class TestTheTicketTableIsOfOneClienteAtATime:
+    """D67 again, at the second portal route. Inherited from ``ServicePortalBaseView`` rather
+    than reimplemented -- and asserted here anyway, because "it inherits it" is a claim about
+    code and these are claims about the HTTP boundary."""
+
+    @pytest.mark.django_db
+    def test_the_project_is_required(self, workspace, marcel_multi, logs):
+        response = _get(marcel_multi, workspace, url=PORTAL_ISSUES_URL)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.data
+        assert response.data["error"] == "PORTAL_REPORT_REQUIRES_A_PROJECT"
+
+    @pytest.mark.django_db
+    def test_more_than_one_project_is_refused(self, workspace, marcel_multi, projects, logs):
+        response = _get(
+            marcel_multi,
+            workspace,
+            url=PORTAL_ISSUES_URL,
+            project_ids=f"{projects['marubeni'].id},{projects['terlogs'].id}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.data
+        assert response.data["error"] == "PORTAL_REPORT_ACCEPTS_ONE_PROJECT"
+
+    @pytest.mark.django_db
+    def test_the_multi_project_guest_sees_each_cliente_inside_itself(
+        self, workspace, marcel_multi, projects, logs
+    ):
+        """Two tickets exist, one per Cliente. A table returning both is the consolidated view
+        section 2 of Phase 8 forbids, whatever produced it."""
+        for key in ("marubeni", "terlogs"):
+            response = _get(
+                marcel_multi, workspace, url=PORTAL_ISSUES_URL, project=projects[key]
+            )
+
+            rows = _rows(response)
+            assert len(rows) == 1, key
+            assert rows[0]["project_identifier"] == key[:4].upper(), key
+
+    @pytest.mark.django_db
+    def test_a_client_cannot_reach_the_other_clientes_tickets(
+        self, workspace, adriano, projects, logs
+    ):
+        """Adriano belongs only to Terlogs. Naming Marubeni's project must not produce
+        Marubeni's ticket."""
+        response = _get(adriano, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert _rows(response) == []
+        # The positive control: he does reach his own.
+        own = _get(adriano, workspace, url=PORTAL_ISSUES_URL, project=projects["terlogs"])
+        assert len(_rows(own)) == 1
+
+    @pytest.mark.django_db
+    def test_an_empty_scope_does_not_return_the_whole_workspace(
+        self, workspace, orphan, projects, marubeni_tickets, logs
+    ):
+        """**The sharpest failure this route could have had.** An empty scope means the
+        descriptor is still unnarrowed, so computing the page or its ``extra_stats`` from it
+        would select every project in the workspace -- 200, correct-looking envelope, another
+        company's ticket titles. Four Marubeni tickets and one Terlogs ticket exist here, so a
+        leak has something unmistakable to report."""
+        response = _get(orphan, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert _rows(response) == []
+        assert response.data["total_count"] == 0
+        assert response.data["extra_stats"]["totals"]["entries"] == 0
+        assert response.data["extra_stats"]["totals"]["issues"] == 0
+        assert _money_keys(response.data) == set()
+
+    @pytest.mark.django_db
+    def test_the_empty_page_has_the_same_envelope_as_a_full_one(
+        self, workspace, orphan, marcel, projects, logs
+    ):
+        """Built by paginating an empty queryset rather than by hand, so the ten keys around
+        ``results`` cannot drift from the paginator's."""
+        empty = _get(orphan, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"]).data
+        full = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"]).data
+
+        assert set(empty) == set(full)
+
+
+@pytest.mark.contract
+class TestTheTablePagesAndFilters:
+    """The two behaviours the screen depends on: it pages, and a chart click narrows it."""
+
+    @pytest.mark.django_db
+    def test_the_page_size_is_honoured_and_the_next_page_is_announced(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        response = _get(
+            marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"], per_page=2
+        )
+
+        assert len(_rows(response)) == 2
+        assert response.data["total_count"] == 4
+        assert response.data["next_page_results"] is True
+
+    @pytest.mark.django_db
+    def test_walking_the_pages_yields_every_ticket_exactly_once(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """**What a non-total sort order breaks.** Offset pagination re-runs the query per
+        page, so two rows the ``ORDER BY`` cannot separate may land on both pages or on
+        neither. Asserting the union is a *set of the right size* is what catches that; a
+        per-page length assertion would not."""
+        seen = []
+        cursor = None
+
+        for _ in range(4):
+            params = {"per_page": 2}
+            if cursor:
+                params["cursor"] = cursor
+            response = _get(
+                marcel,
+                workspace,
+                url=PORTAL_ISSUES_URL,
+                project=projects["marubeni"],
+                **params,
+            )
+            seen.extend(row["issue_id"] for row in _rows(response))
+            if not response.data["next_page_results"]:
+                break
+            cursor = response.data["next_cursor"]
+
+        assert len(seen) == 4
+        assert len(set(seen)) == 4
+
+    @pytest.mark.django_db
+    def test_the_newest_activity_comes_first(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """``last_worked_on`` descending: a ticket list is scanned for what moved recently."""
+        response = _get(
+            marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"], per_page=100
+        )
+
+        dates = [row["last_worked_on"] for row in _rows(response)]
+        assert dates == sorted(dates, reverse=True)
+        assert dates[0] == "2026-04-05"
+
+    @pytest.mark.django_db
+    def test_a_competence_filter_narrows_the_table(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """**This is the chart click.** Clicking a bar sends that bucket's own descriptor, and
+        a competency is the only thing the bar identifies. Three Marubeni tickets are in
+        2026-03 and one in 2026-04."""
+        march = _get(
+            marcel,
+            workspace,
+            url=PORTAL_ISSUES_URL,
+            project=projects["marubeni"],
+            per_page=100,
+            competence_from="2026-03",
+            competence_to="2026-03",
+        )
+
+        assert march.data["total_count"] == 3
+        assert all(row["last_worked_on"].startswith("2026-03") for row in _rows(march))
+
+    @pytest.mark.django_db
+    def test_the_other_competence_returns_the_other_ticket(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """The mirror, so a filter that silently did nothing fails here rather than passing the
+        test above by returning everything."""
+        april = _get(
+            marcel,
+            workspace,
+            url=PORTAL_ISSUES_URL,
+            project=projects["marubeni"],
+            per_page=100,
+            competence_from="2026-04",
+            competence_to="2026-04",
+        )
+
+        assert april.data["total_count"] == 1
+        assert _rows(april)[0]["last_worked_on"] == "2026-04-05"
+
+    @pytest.mark.django_db
+    def test_a_filtered_tables_totals_are_filtered_too(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """``extra_stats`` is computed from the same narrowed descriptor, so the header of a
+        filtered table cannot report the unfiltered total."""
+        march = _get(
+            marcel,
+            workspace,
+            url=PORTAL_ISSUES_URL,
+            project=projects["marubeni"],
+            competence_from="2026-03",
+            competence_to="2026-03",
+        )
+
+        assert march.data["extra_stats"]["totals"]["issues"] == 3
+        assert march.data["extra_stats"]["totals"]["entries"] == 3
+
+    @pytest.mark.django_db
+    def test_a_bad_filter_is_a_named_400_not_a_500(self, workspace, marcel, projects, logs):
+        response = _get(
+            marcel,
+            workspace,
+            url=PORTAL_ISSUES_URL,
+            project=projects["marubeni"],
+            competence_from="not-a-competence",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.data
+        assert response.data["error"] == "INVALID_COMPETENCE"
+
+
+@pytest.mark.contract
+class TestPerIssueVisibilityReachesTheTable:
+    """The gate the dashboard never needed. A total does not name the tickets it summed; a
+    list does, so ``client_may_reach_issue``'s queryset form has to apply here.
+
+    In the configuration this product prescribes -- ``guest_view_all_features = True`` on a
+    Cliente's project, per the master context section 2b -- this narrowing is inert. These
+    tests are about the project configured without it, where the alternative is a client
+    reading the titles of tickets belonging to other people at their own company.
+    """
+
+    @pytest.mark.django_db
+    def test_a_client_without_project_wide_visibility_sees_only_their_own_tickets(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """Every ticket here was opened by the technician, so with the flag off the correct
+        answer is none of them."""
+        Project.objects.filter(id=projects["marubeni"].id).update(guest_view_all_features=False)
+
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert _rows(response) == []
+
+    @pytest.mark.django_db
+    def test_the_same_request_with_the_flag_on_returns_them(
+        self, workspace, marcel, projects, marubeni_tickets, logs
+    ):
+        """**The positive control, and the reason the test above is not vacuous.** The fixture
+        sets the flag on, so this is the same request differing only in the flag -- which is
+        what distinguishes "the gate works" from "the table is broken"."""
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert response.data["total_count"] == 4
+
+    @pytest.mark.django_db
+    def test_a_ticket_opened_on_the_clients_behalf_is_visible_without_the_flag(
+        self, workspace, marcel, projects, technician, hour_type, billing_type
+    ):
+        """D62's clause, at this route. A technician opened it and recorded Marcel as the
+        requester, so he must see it even with project-wide visibility off -- otherwise
+        recording a requester is a feature that reports success and does nothing."""
+        from plane.db.models import ServiceIssueRequester
+
+        Project.objects.filter(id=projects["marubeni"].id).update(guest_view_all_features=False)
+
+        log = _log(projects["marubeni"], workspace, technician, hour_type, billing_type)
+        ServiceIssueRequester.objects.create(
+            issue=log.issue,
+            requester=marcel,
+            project=projects["marubeni"],
+            workspace=workspace,
+            created_by=technician,
+        )
+
+        response = _get(marcel, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        rows = _rows(response)
+        assert len(rows) == 1
+        assert rows[0]["issue_id"] == str(log.issue_id)
+
+    @pytest.mark.django_db
+    def test_an_admin_is_not_narrowed_by_the_clients_visibility(
+        self, workspace, create_user, projects, marubeni_tickets, logs
+    ):
+        """An Admin gets the client's *projection* by design, but not the client's *visibility*:
+        narrowing them to tickets they personally created would make the audit view lie about
+        what the client sees."""
+        Project.objects.filter(id=projects["marubeni"].id).update(guest_view_all_features=False)
+
+        response = _get(
+            create_user, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"]
+        )
+
+        assert response.data["total_count"] == 4
+
+
+@pytest.mark.contract
+class TestTheAdminRoutesStillRefuseTheClientAfterItem7:
+    @pytest.mark.django_db
+    def test_the_two_portal_routes_are_the_only_ones_that_admit_a_client(
+        self, workspace, marcel, projects, logs
+    ):
+        """The refusal list of ``TestTheAdminReportsStillRefuseAClient`` restated as its
+        complement, so adding a route without deciding its audience shows up here."""
+        allowed = ("portal/", "portal/issues/")
+
+        for path in allowed:
+            response = _api(marcel).get(
+                f"/api/workspaces/{workspace.slug}/service-reports/{path}"
+                f"?project_ids={projects['marubeni'].id}"
+            )
+            assert response.status_code == status.HTTP_200_OK, (path, response.data)
+
+        for path in ("consumption", "operational", "attention", "billing", "logs"):
+            response = _api(marcel).get(
+                f"/api/workspaces/{workspace.slug}/service-reports/{path}/"
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (path, response.data)
+
+    @pytest.mark.django_db
+    def test_an_outsider_is_refused_the_ticket_table(self, workspace, projects, logs):
+        outsider = User.objects.create(
+            email=f"out-{uuid4().hex[:8]}@plane.so", username=f"out_{uuid4().hex[:8]}"
+        )
+        outsider.set_password("test-password")
+        outsider.save()
+
+        response = _get(outsider, workspace, url=PORTAL_ISSUES_URL, project=projects["marubeni"])
+
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        )

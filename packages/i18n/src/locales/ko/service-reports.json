@@ -152,7 +152,21 @@
       "consumed_hours_hint": "Already converted by the service type of each call.",
       "series_title": "Consumption by month",
       "empty": "No hours recorded for this period yet.",
-      "window_hint": "Showing the last 12 competencies."
+      "window_hint": "Showing the last 12 competencies.",
+      "tickets": {
+        "title": "Calls",
+        "hint": "The calls that produced the numbers above.",
+        "summary": "{count} calls, {hours} consumed. Click a bar or a month to filter.",
+        "ticket": "Call",
+        "state": "State",
+        "last_worked_on": "Last entry",
+        "empty": "No calls in this period.",
+        "clear_filter": "Clear filter",
+        "filter_hint": "Click a month or a bar to filter the calls below.",
+        "previous": "Previous",
+        "next": "Next",
+        "page_of": "Showing {shown} of {total}"
+      }
     }
   }
 }

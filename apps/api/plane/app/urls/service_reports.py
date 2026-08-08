@@ -7,6 +7,7 @@ from django.urls import path
 from plane.app.views import (
     ServiceAttentionReportEndpoint,
     ServiceBillingReportEndpoint,
+    ServiceClientPortalIssuesEndpoint,
     ServiceClientPortalReportEndpoint,
     ServiceConsumptionReportEndpoint,
     ServiceOperationalReportEndpoint,
@@ -53,5 +54,15 @@ urlpatterns = [
         "workspaces/<str:slug>/service-reports/portal/",
         ServiceClientPortalReportEndpoint.as_view(),
         name="service-report-portal",
+    ),
+    # The chamados behind those numbers, paginated. The portal's second route, and the only
+    # portal section that pages: every other one is bounded by competencies in the window or
+    # entries in a catalogue, and a ticket list is bounded by nothing. Shares the guest
+    # projection and the one-Cliente scope with the route above through
+    # `ServicePortalBaseView`, rather than restating either. Phase 10, item 7.
+    path(
+        "workspaces/<str:slug>/service-reports/portal/issues/",
+        ServiceClientPortalIssuesEndpoint.as_view(),
+        name="service-report-portal-issues",
     ),
 ]

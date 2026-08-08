@@ -98,6 +98,14 @@ type StackedProps = {
   data: { competence: string; [series: string]: string | number }[];
   series: { key: string; label: string }[];
   className?: string;
+  /**
+   * Called with the competency of the clicked column, when the chart is a control.
+   *
+   * Passed through to propel's `onBarClick`, which reports a click anywhere in the category's
+   * column rather than only on the rectangle -- so a month with two overage hours is as
+   * clickable as a month with forty.
+   */
+  onCompetenceClick?: (competence: string) => void;
 };
 
 /**
@@ -109,7 +117,7 @@ type StackedProps = {
  * produce a total that does not add up.
  */
 export const StackedCompetenceChart = React.memo(function StackedCompetenceChart(props: StackedProps) {
-  const { data, series, className } = props;
+  const { data, series, className, onCompetenceClick } = props;
 
   const bars = useMemo(
     () =>
@@ -132,6 +140,14 @@ export const StackedCompetenceChart = React.memo(function StackedCompetenceChart
       yAxis={{ key: series[0]?.key ?? "value", allowDecimals: true }}
       legend={{ align: "left", verticalAlign: "bottom", layout: "horizontal" }}
       showTooltip
+      onBarClick={
+        onCompetenceClick
+          ? (datum) => {
+              const competence = (datum as { competence?: string }).competence;
+              if (competence) onCompetenceClick(competence);
+            }
+          : undefined
+      }
     />
   );
 });

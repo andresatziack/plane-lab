@@ -53,7 +53,7 @@ looks identical to one that never held the key, right up until somebody logs it.
 from decimal import ROUND_HALF_UP, Decimal
 
 # Django imports
-from django.db.models import Count, DecimalField, F, Q, Sum, Value
+from django.db.models import Count, DecimalField, F, Max, Q, Sum, Value
 from django.db.models.functions import Coalesce
 
 # Module imports
@@ -688,6 +688,101 @@ def distribution(workspace_id, filterset, viewer, *, dimension):
         )
         for row in grouped
     ]
+
+
+# ---------------------------------------------------------------------------
+# Work items -- the tickets behind the numbers
+# ---------------------------------------------------------------------------
+
+
+#: The work item columns a ticket row is grouped by. Every one of them is either the
+#: identity of the ticket or something the client already sees on the ticket itself, which
+#: is the test applied to each: ``state`` is in the payload because a client may *change* it
+#: (D59/D60), and there is no column here that R11 withholds.
+#:
+#: ``project__identifier`` and ``sequence_id`` travel together because the readable key --
+#: ``MRB-3`` -- is composed of the two, and the frontend links by that key rather than by
+#: ``issue_id``: ``/browse/MRB-3/`` is the URL a client can read, paste and recognise.
+_ISSUE_ROW_GROUP = (
+    "issue_id",
+    "issue__sequence_id",
+    "issue__name",
+    "issue__project__identifier",
+    "issue__state__name",
+    "issue__state__group",
+)
+
+
+def issue_rows(workspace_id, filterset, viewer, *, queryset=None):
+    """The work items behind a descriptor, one row each, as a **queryset**. Phase 10, item 7.
+
+    Returned unevaluated because this is the one report a client pages through: the ticket
+    list of a year's consumption is unbounded in a way no other section of the portal is, and
+    materialising it to slice in Python would defeat the module's own rule that every total is
+    a ``GROUP BY``. The view hands the queryset to ``BasePaginator`` and projects each page
+    through :func:`issue_row`.
+
+    **Grouped from the work logs, not from ``Issue``.** The question the table answers is
+    "which chamados produced these numbers", so its population must be *the same rows the
+    numbers came from*, filtered by the same descriptor. Listing issues and summing their logs
+    separately would let a ticket appear with no hours in the window, or -- worse -- let the
+    row count disagree with ``headline_totals["issues"]``, which is ``Count("issue_id",
+    distinct=True)`` over this exact selection. Grouping the descriptor's own rows makes those
+    two numbers the same query, which is D50 applied one dimension further.
+
+    ``last_worked_on`` is the ordering key and also the column the client is shown, because
+    "when was this last touched" is the question a ticket list is scanned for. The tiebreaks
+    make the order **total**, which offset pagination requires: without a deterministic sort a
+    row can appear on two pages or on none as the paginator walks the offsets.
+
+    ``queryset`` narrows the underlying work logs before grouping, and it is how the view
+    applies the client's per-issue visibility (``client_visible_issues_q``) and how an empty
+    tenancy scope is expressed as ``ServiceLog.objects.none()`` rather than as a hand-built
+    envelope. Money is never aggregated here at all -- see :func:`issue_row`.
+    """
+    return (
+        filterset.queryset(workspace_id, queryset=queryset)
+        .values(*_ISSUE_ROW_GROUP)
+        .annotate(
+            entries=Count("id"),
+            last_worked_on=Max("worked_on"),
+            **_hour_aggregates(viewer),
+        )
+        .order_by("-last_worked_on", "-issue__sequence_id", "issue_id")
+    )
+
+
+def issue_row(row, filterset, viewer):
+    """One work item as the ticket table shows it, with the descriptor that produced it.
+
+    **No money, for any viewer, deliberately -- and that is not the same rule as everywhere
+    else in this module.** Elsewhere the amount is gated on ``viewer.can_see_money``; here it
+    is never computed, so an Admin auditing the portal route sees no amount either. The reason
+    is D58: the client's money is a property of the **individual work log's settled route**,
+    and a per-issue sum would answer a question D58 does not license -- a ticket whose logs
+    were half absorbed by an allowance and half billed has no single amount that corresponds
+    to an invoice line. The client's money lives on the work log rows of one ticket, where
+    each figure is a line they will be charged for.
+
+    ``filters`` narrows to this one work item, so the row is drillable by the same mechanism
+    every other bucket is (D50) -- and so the hours in the row and the hours in the ticket's
+    own work log list are provably the same selection.
+    """
+    return bucket(
+        viewer=viewer,
+        filters=filterset.narrow(issue_ids=(row["issue_id"],)),
+        hours={field: row[field] for field in viewer.hour_fields},
+        entries=row["entries"],
+        issue_id=str(row["issue_id"]),
+        sequence_id=row["issue__sequence_id"],
+        name=row["issue__name"],
+        project_identifier=row["issue__project__identifier"],
+        state_name=row["issue__state__name"],
+        state_group=row["issue__state__group"],
+        last_worked_on=(
+            row["last_worked_on"].isoformat() if row["last_worked_on"] is not None else None
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

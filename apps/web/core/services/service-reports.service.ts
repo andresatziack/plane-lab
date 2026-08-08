@@ -11,6 +11,7 @@ import type {
   TServiceBillingReport,
   TServiceConsumptionReport,
   TServiceOperationalReport,
+  TServicePortalIssuesPage,
   TServicePortalReport,
   TServiceReportFilters,
   TServiceReportLogsPage,
@@ -158,6 +159,36 @@ export class ServiceReportsService extends APIService {
   ): Promise<TServiceReportLogsPage> {
     return this.get(`/api/workspaces/${workspaceSlug}/service-reports/logs/`, {
       params: { ...filters, ...pagination },
+    })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
+   * The **chamados** behind the client's numbers, paginated. Phase 10, item 7.
+   *
+   * The portal's own list route. Not `fetchLogs`: that one is ADMIN and MEMBER only, which is
+   * why the portal had no drill-down at all until this existed -- a client clicking through
+   * would have got a 403.
+   *
+   * `projectId` is separate from `filters` for the same reason as `fetchPortal`: the tenancy is
+   * the caller's contract, not a filter they compose, and the server refuses a request naming no
+   * project or more than one. A project the caller does not belong to answers 200 with an empty
+   * page, which is a real paginator envelope and not a special case.
+   *
+   * The rows carry **no money for anybody**, including an Admin auditing the route. See
+   * `TServicePortalIssueRow`.
+   */
+  async fetchPortalIssues(
+    workspaceSlug: string,
+    projectId: string,
+    filters: Partial<TServiceReportFilters> = {},
+    pagination: { cursor?: string; per_page?: number } = {}
+  ): Promise<TServicePortalIssuesPage> {
+    return this.get(`/api/workspaces/${workspaceSlug}/service-reports/portal/issues/`, {
+      params: { ...filters, ...pagination, project_ids: projectId },
     })
       .then((response) => response?.data)
       .catch((error) => {

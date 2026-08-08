@@ -364,3 +364,54 @@ export type TServiceReportLogsPage = {
   next_page_results: boolean;
   extra_stats: { totals: TServiceReportTotals };
 };
+
+/**
+ * One work item in the client's ticket table. Phase 10, item 7.
+ *
+ * A `TServiceReportBucket` -- so it carries `entries`, `filters` and the hour pair with its
+ * `_display` twin -- plus the identity of the ticket. It intersects `TServiceReportBucket`
+ * rather than restating those fields, which is what keeps the drill-down descriptor honest: the
+ * row is a bucket of the same descriptor grouped one dimension further.
+ *
+ * **No `amount`, and unlike the rest of the portal that is not only about the client.** The
+ * server never computes it here for any role, because a per-issue sum is not a figure D58
+ * licenses: a ticket half absorbed by an allowance and half billed has no single amount that
+ * corresponds to an invoice line. The client's money is on the work log rows of one ticket.
+ *
+ * `logged_hours` is absent for the reason the portal payload's docstring gives, and it is
+ * absent by construction on the server -- never computed, so no flag restores it.
+ */
+export type TServicePortalIssueRow = TServiceReportBucket & {
+  issue_id: string;
+  /** With `project_identifier`, the readable key a client can read and paste: `MRB-3`. */
+  sequence_id: number;
+  name: string;
+  project_identifier: string;
+  state_name: string | null;
+  state_group: string | null;
+  /** ISO date of the most recent work log on this ticket. The table's sort key. */
+  last_worked_on: string | null;
+};
+
+/**
+ * A page of the client's ticket table.
+ *
+ * Carries `next_cursor` / `prev_cursor`, which `TServiceReportLogsPage` omits because the modal
+ * that consumes it shows one page and never advances. This table does, so the cursors are part
+ * of its contract.
+ *
+ * `extra_stats.totals` is computed from the **same** descriptor as the rows, so a filtered
+ * table's header reports the filtered total and not the window's.
+ */
+export type TServicePortalIssuesPage = {
+  results: TServicePortalIssueRow[];
+  count: number;
+  total_count: number;
+  total_results: number;
+  total_pages: number;
+  next_cursor: string;
+  prev_cursor: string;
+  next_page_results: boolean;
+  prev_page_results: boolean;
+  extra_stats: { totals: TServiceReportTotals };
+};

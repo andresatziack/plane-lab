@@ -42,6 +42,7 @@ export const BarChart = React.memo(function BarChart<K extends string, T extends
     customTicks,
     showTooltip = true,
     customTooltipContent,
+    onBarClick,
   } = props;
   // states
   const [activeBar, setActiveBar] = useState<string | null>(null);
@@ -97,6 +98,23 @@ export const BarChart = React.memo(function BarChart<K extends string, T extends
     [bars, getBarColor]
   );
 
+  /**
+   * Forward a click on a category to the caller, with that category's datum.
+   *
+   * Bound on the chart rather than on each `Bar`, and that is the useful choice rather than the
+   * convenient one: recharts reports the active category for a click anywhere in its column, so
+   * a competency whose bar is two pixels tall is still clickable. Binding per `Bar` would make
+   * the smallest values -- the ones a reader most wants to interrogate -- the hardest to hit.
+   * It also means one handler for a stack instead of one per series.
+   */
+  const handleCategoryClick = useCallback(
+    (state: any) => {
+      const datum = state?.activePayload?.[0]?.payload;
+      if (datum) onBarClick?.(datum);
+    },
+    [onBarClick]
+  );
+
   const renderBars = useMemo(
     () =>
       bars.map((bar) => (
@@ -131,14 +149,15 @@ export const BarChart = React.memo(function BarChart<K extends string, T extends
             left: margin?.left === undefined ? 20 : margin.left,
           }}
           barSize={barSize}
-          className="recharts-wrapper"
+          className={onBarClick ? "recharts-wrapper cursor-pointer" : "recharts-wrapper"}
+          onClick={onBarClick ? handleCategoryClick : undefined}
         >
           <CartesianGrid stroke="var(--border-color-subtle)" vertical={false} />
           <XAxis
             dataKey={xAxis.key}
-            tick={(props) => {
+            tick={(tickProps) => {
               const TickComponent = customTicks?.x || CustomXAxisTick;
-              return <TickComponent {...props} />;
+              return <TickComponent {...tickProps} />;
             }}
             tickLine={false}
             axisLine={false}
@@ -161,9 +180,9 @@ export const BarChart = React.memo(function BarChart<K extends string, T extends
               dx: yAxis.dx ?? -16,
               className: AXIS_LABEL_CLASSNAME,
             }}
-            tick={(props) => {
+            tick={(tickProps) => {
               const TickComponent = customTicks?.y || CustomYAxisTick;
-              return <TickComponent {...props} />;
+              return <TickComponent {...tickProps} />;
             }}
             tickCount={tickCount.y}
             allowDecimals={!!yAxis.allowDecimals}

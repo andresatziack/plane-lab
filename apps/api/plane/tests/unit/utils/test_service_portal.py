@@ -218,3 +218,33 @@ class TestD62TheTwoFormsOfTheVisibilityRuleAgree:
             pk = id
 
         assert "guest_view_all_features" not in str(client_visible_issues_q(_User()))
+
+    def test_the_prefixed_form_relocates_both_clauses_and_neither_is_left_behind(self):
+        """``prefix="issue__"`` puts the same rule on a ``ServiceLog`` queryset, which is what
+        the portal's ticket table needs -- it groups work logs by work item rather than listing
+        work items.
+
+        **Both clauses, asserted separately, because a half-applied prefix still filters.** A
+        prefix applied to only one side produces a Q that Django accepts, that narrows
+        something, and that is wrong in the permissive direction on the unprefixed clause --
+        the failure that reads as working code. Asserting the unprefixed spellings are *gone*
+        is what distinguishes "relocated" from "partly relocated".
+        """
+        from plane.utils.service_portal import client_visible_issues_q
+
+        class _User:
+            id = "11111111-1111-1111-1111-111111111111"
+            pk = id
+
+        rendered = str(client_visible_issues_q(_User(), prefix="issue__"))
+
+        assert "issue__created_by" in rendered
+        assert "issue__service_requester__requester" in rendered
+        assert "OR" in rendered
+
+        # The positive control for the negative assertions below: the unprefixed form is what
+        # these spellings look like when they have NOT been relocated.
+        unprefixed = str(client_visible_issues_q(_User()))
+        assert "('created_by'" in unprefixed
+        assert "('created_by'" not in rendered
+        assert "('service_requester__requester'" not in rendered
