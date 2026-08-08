@@ -101,6 +101,16 @@ CLIENT_MARUBENI = "Marubeni"
 CLIENT_TERLOGS = "Terlogs"
 CLIENT_VALE = "Vale"
 
+# The fourth Cliente, and the only one with **no contract at all**. Phase 10, item 10.
+#
+# The other three hold contracts, which meant the entire ad hoc half of the product had no
+# example: `shape == "standalone"` on the consumption dashboard, `revenue_series`, and the
+# whole "1h fora do expediente custa R$ 360 em vez de R$ 240" reading of the multiplier were
+# reachable only by code. A demo that cannot show the money path cannot be used to check it.
+#
+# Its absence of a contract is the feature. Do not give it one.
+CLIENT_BONFIM = "Bonfim Alimentos"
+
 # Service dates. All weekdays, so duration mode leaves the hour type to the technician
 # exactly as R10 prescribes -- which is why every log below names its hour type.
 _JUN = "2026-06"
@@ -186,6 +196,7 @@ class Command(BaseCommand):
             self._marubeni_scenario(workspace, admin)
             self._terlogs_scenario(workspace, admin)
             self._vale_scenario(workspace, admin)
+            self._bonfim_scenario(workspace, admin)
             self._allowance_scenario(workspace, admin)
             self._requesters(workspace)
         finally:
@@ -373,12 +384,29 @@ class Command(BaseCommand):
             label="2º GUEST da Marubeni — vê só o chamado em que é Solicitante",
         )
 
+        # The Avulso Cliente's portal user. Phase 10, item 10.
+        #
+        # Needed for the same reason Marcel is: a payload nobody can log in and look at is a
+        # payload verified only by test. Her portal is the one with **no contract**, so it
+        # exercises the branches a contracted client never reaches -- `shape ==
+        # "standalone"`, no statement table, no contract bar chart -- and it is the only
+        # place the competency chips of item 7 are the *sole* filter control, because the
+        # bars they sit beside do not exist without a contract.
+        self.bonfim_guest = self._user(
+            "patricia",
+            "Patrícia",
+            "Lemos",
+            domain,
+            fixed_password,
+            label="GUEST cliente Avulso — Bonfim, sem contrato",
+        )
+
     # ------------------------------------------------------------------ clients
 
     def _clients_and_projects(self, workspace):
         self.clients = {}
 
-        for name in (CLIENT_MARUBENI, CLIENT_TERLOGS, CLIENT_VALE):
+        for name in (CLIENT_MARUBENI, CLIENT_TERLOGS, CLIENT_VALE, CLIENT_BONFIM):
             client, _ = ServiceClient.objects.get_or_create(
                 workspace=workspace,
                 name=name,
@@ -394,6 +422,18 @@ class Command(BaseCommand):
         marubeni = self.clients[CLIENT_MARUBENI]
         terlogs = self.clients[CLIENT_TERLOGS]
         vale = self.clients[CLIENT_VALE]
+        bonfim = self.clients[CLIENT_BONFIM]
+
+        # Bonfim is Avulso by default, and this is the field that says so. It only decides
+        # what a work log form pre-selects (`resolve_default_billing_type`) -- it takes no
+        # part in settlement, so it cannot change a number in this scenario. Set on Bonfim
+        # only: giving the contracted Clientes an explicit default would be correct too, but
+        # it would also be a change to three scenarios whose figures are quoted in the
+        # handover script, for no gain in what item 10 is demonstrating.
+        ad_hoc = self.billing_types[BILLING_AD_HOC]
+        if bonfim.default_billing_type_id != ad_hoc.id:
+            bonfim.default_billing_type = ad_hoc
+            bonfim.save(update_fields=["default_billing_type", "updated_at"])
 
         # The shareholding link. Carries no billing behaviour -- that is D18, and having
         # it in the demo is what lets someone check that it carries none.
@@ -412,6 +452,9 @@ class Command(BaseCommand):
             ),
             "terlogs": self._project(workspace, "Terlogs — Suporte", "TLG", terlogs, guest_view_all=True),
             "vale": self._project(workspace, "Vale — Suporte", "VALE", vale, guest_view_all=True),
+            # The Avulso Cliente. Configured exactly like a contracted one -- the difference
+            # is the absence of a contract, not of a setting.
+            "bonfim": self._project(workspace, "Bonfim — Suporte", "BNF", bonfim, guest_view_all=True),
             # No Cliente, no time tracking, no client visibility: the raw material for
             # criterion 8's bulk assignment, where the modal offers to set both flags.
             "infra": self._project(workspace, "Infra Interna", "INFRA", None, guest_view_all=False),
@@ -477,6 +520,7 @@ class Command(BaseCommand):
             self.projects["marubeni_projetos"],
             self.projects["terlogs"],
             self.projects["vale"],
+            self.projects["bonfim"],
         ]
 
         for technician in (self.technician, self.spare_technician):
@@ -485,6 +529,9 @@ class Command(BaseCommand):
         self._member(workspace, self.marcel, ROLE_GUEST, [self.projects["marubeni"], self.projects["terlogs"]])
         self._member(workspace, self.adriano, ROLE_GUEST, [self.projects["terlogs"]])
         self._member(workspace, self.requester_guest, ROLE_GUEST, [self.projects["marubeni_projetos"]])
+        # Bonfim only. Vale stays the Cliente no portal user reaches, so the leak canary of
+        # the isolation tests is unchanged by item 10.
+        self._member(workspace, self.bonfim_guest, ROLE_GUEST, [self.projects["bonfim"]])
 
     def _member(self, workspace, user, role, projects):
         membership, created = WorkspaceMember.objects.get_or_create(
@@ -533,7 +580,19 @@ class Command(BaseCommand):
         useless demo. The rate of each hour type is derived from the base by the
         multiplier, never registered twice (D16).
         """
-        rates = {CLIENT_MARUBENI: Decimal("180.00"), CLIENT_TERLOGS: Decimal("200.00")}
+        # Bonfim's sheet is not optional decoration: it holds **no contract**, so every one
+        # of its logs takes the ad hoc route and prices against this rate. Without a sheet
+        # each one would settle at zero with `NO_PRICE_SHEET_IN_FORCE`, which is the correct
+        # behaviour and exactly the useless demo item 10 exists to replace.
+        #
+        # 240,00 is deliberately the highest of the three, so a value seen on screen names
+        # its own Cliente: 1h at 1.5x is R$ 360,00 and at 2.0x is R$ 480,00, and neither
+        # figure collides with anything Marubeni (180) or Terlogs (200) can produce.
+        rates = {
+            CLIENT_MARUBENI: Decimal("180.00"),
+            CLIENT_TERLOGS: Decimal("200.00"),
+            CLIENT_BONFIM: Decimal("240.00"),
+        }
 
         for client_name, base_rate in rates.items():
             client = self.clients[client_name]
@@ -870,6 +929,92 @@ class Command(BaseCommand):
         issue, created = self._issue(project, "Inventário de ativos da planta")
         if created:
             self._log(issue, minutes=480, worked_on=date(2026, 8, 6))
+
+    def _bonfim_scenario(self, workspace, admin):
+        """Bonfim: **no contract**, everything priced in reais. Phase 10, item 10.
+
+        The ad hoc half of the product had no example before this. Three consequences, and
+        all three are things somebody has to be able to *look at*:
+
+        * the consumption dashboard answers ``shape == "standalone"`` and carries
+          ``revenue_series`` for an Admin -- branches that no seeded Cliente reached;
+        * the multiplier becomes a price rather than a quota. 1h of the same work costs
+          R$ 240,00 in business hours, R$ 360,00 after hours and R$ 480,00 on a Sunday, from
+          one configured rate and one configured multiplier. That is the master context's
+          own justification for modelling hours this way, and until now it was arithmetic in
+          a document;
+        * the client portal has a contract-less shape: no statement, no contract bars, and
+          therefore the competency chips of item 7 as the only way to filter the ticket
+          table.
+
+        **No ``resolve_period`` and no contract, on purpose.** Every other scenario opens a
+        period first; this one must not, because a period belongs to a contract and the
+        absence of one is the whole point. If a future change makes this method need a
+        period, the change is wrong.
+
+        Two competencies, so the ticket table has more than one chip and the competency
+        filter has something to distinguish. Durations are multiples of 15 minutes, so R2's
+        rounding is a no-op and the reais below are exact rather than approximately right.
+        """
+        project = self.projects["bonfim"]
+
+        self.stdout.write("cenário Bonfim (Avulso, sem contrato):")
+
+        # ---- July: business hours and after hours on one ticket, so the two rates sit
+        # side by side on the same screen. 2h at 240 = R$ 480,00; 1h at 1.5x = R$ 360,00.
+        issue, created = self._issue(
+            project,
+            "Falha no faturamento eletrônico",
+            description="Cliente sem contrato: cada apontamento gera valor em reais.",
+        )
+        if created:
+            self._log(
+                issue,
+                minutes=120,
+                worked_on=date(2026, 7, 15),
+                billing_type_name=BILLING_AD_HOC,
+                description="2h em horário comercial: 2h equivalentes, R$ 480,00.",
+            )
+            self._log(
+                issue,
+                minutes=60,
+                worked_on=date(2026, 7, 15),
+                hour_type_name=HOUR_TYPE_AFTER_HOURS,
+                billing_type_name=BILLING_AD_HOC,
+                description="1h fora do expediente: 1,5h equivalentes, R$ 360,00.",
+            )
+
+        # ---- August: a Sunday call at 2.0, the most expensive hour the catalogue can
+        # produce, on its own ticket so the figure is unambiguous. 2h at 2.0x = R$ 960,00.
+        issue, created = self._issue(project, "Parada da linha de envase no domingo")
+        if created:
+            self._log(
+                issue,
+                minutes=120,
+                worked_on=date(2026, 8, 2),  # a Sunday
+                hour_type_name=HOUR_TYPE_SUNDAY,
+                billing_type_name=BILLING_AD_HOC,
+                description="Plantão de domingo: 2h apontadas, 4h equivalentes, R$ 960,00.",
+            )
+
+        # ---- And one non-billable, so R5 has an example on the ad hoc path too. A Cliente
+        # without a contract still gets warranty work, and the row must show the effort with
+        # zero debited and no value -- which is a different demonstration from the
+        # contracted case, where the reader can wonder whether the pool absorbed it.
+        issue, created = self._issue(project, "Correção da integração que entregamos")
+        if created:
+            self._log(
+                issue,
+                minutes=90,
+                worked_on=date(2026, 8, 4),
+                billing_type_name=BILLING_WARRANTY,
+                description="Retrabalho sob garantia num cliente sem contrato: R$ 0,00.",
+            )
+
+        self.stdout.write(
+            f"  {CLIENT_BONFIM}: sem contrato, preço base R$ 240,00/h, "
+            f"apontamentos Avulso em {_JUL} e {_AUG}"
+        )
 
     def _allowance_scenario(self, workspace, admin):
         """A per-work-item allowance with two credits, and a log that debits it.
