@@ -5,7 +5,7 @@
  */
 
 import { observer } from "mobx-react";
-import { Building2 } from "lucide-react";
+import { Building2, UserRound } from "lucide-react";
 // i18n
 import { useTranslation } from "@plane/i18n";
 // ui
@@ -44,6 +44,7 @@ import { IssueCycleSelect } from "./cycle-select";
 import { IssueLabel } from "./label";
 import { IssueModuleSelect } from "./module-select";
 import { IssueServiceClientProperty } from "./service-client-property";
+import { IssueServiceRequesterProperty } from "./service-requester-property";
 import type { TIssueOperations } from "./root";
 
 type Props = {
@@ -109,6 +110,17 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
             {projectId && projectDetails?.service_client && (
               <SidebarPropertyListItem icon={Building2} label={t("common.service_client")}>
                 <IssueServiceClientProperty workspaceSlug={workspaceSlug} projectId={projectId} />
+              </SidebarPropertyListItem>
+            )}
+
+            {/* Who, on the client's side, asked for this. D62.
+                Hidden from the client rather than disabled, which is a departure from the
+                convention two lines up: every other gate here disables a control the client can
+                see. This one grants portal visibility, so showing a client who else can read
+                their ticket -- and that somebody decides it -- is information, not affordance. */}
+            {editPermissions.restrictedFields && projectId && projectDetails?.service_client && (
+              <SidebarPropertyListItem icon={UserRound} label={t("work_item.service_requester.label")}>
+                <IssueServiceRequesterProperty workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} />
               </SidebarPropertyListItem>
             )}
 
