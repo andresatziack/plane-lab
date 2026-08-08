@@ -4,7 +4,9 @@
  * See the LICENSE file for details.
  */
 
+export * from "./assign-projects-modal";
 export * from "./delete-service-client-modal";
+export * from "./service-client-flags-fields";
 export * from "./service-client-form";
 export * from "./service-client-modal";
 export * from "./service-clients-list";

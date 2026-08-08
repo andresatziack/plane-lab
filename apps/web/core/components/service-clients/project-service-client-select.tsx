@@ -15,6 +15,8 @@ import { CustomSelect, EModalPosition, EModalWidth, ModalCore } from "@plane/ui"
 // hooks
 import { useProject } from "@/hooks/store/use-project";
 import { useServiceClient } from "@/hooks/store/use-service-client";
+// components
+import { ServiceClientFlagsFields } from "./service-client-flags-fields";
 
 type Props = {
   workspaceSlug: string;
@@ -126,44 +128,14 @@ export const ProjectServiceClientSelect = observer(function ProjectServiceClient
           <p className="text-sm text-secondary">
             {t("project_settings.service_client.confirm.description", { name: pendingClientName })}
           </p>
-          <div className="space-y-3 rounded-md border border-subtle bg-surface-2 p-3">
-            {/* The hint sits outside the label on purpose: it is supporting text,
-                not part of the control's accessible name. */}
-            <div>
-              <label htmlFor="enable-guest-view-all" className="flex cursor-pointer items-start gap-2">
-                <input
-                  id="enable-guest-view-all"
-                  type="checkbox"
-                  checked={enableGuestViewAll}
-                  onChange={(event) => setEnableGuestViewAll(event.target.checked)}
-                  className="mt-0.5"
-                />
-                <span className="text-sm font-medium text-primary">
-                  {t("project_settings.service_client.confirm.guest_view_all")}
-                </span>
-              </label>
-              <p className="text-xs mt-0.5 pl-6 text-tertiary">
-                {t("project_settings.service_client.confirm.guest_view_all_hint")}
-              </p>
-            </div>
-            <div>
-              <label htmlFor="enable-time-tracking" className="flex cursor-pointer items-start gap-2">
-                <input
-                  id="enable-time-tracking"
-                  type="checkbox"
-                  checked={enableTimeTracking}
-                  onChange={(event) => setEnableTimeTracking(event.target.checked)}
-                  className="mt-0.5"
-                />
-                <span className="text-sm font-medium text-primary">
-                  {t("project_settings.service_client.confirm.time_tracking")}
-                </span>
-              </label>
-              <p className="text-xs mt-0.5 pl-6 text-tertiary">
-                {t("project_settings.service_client.confirm.time_tracking_hint")}
-              </p>
-            </div>
-          </div>
+          {/* Shared with the bulk assignment. Same two flags, same copy, one place. */}
+          <ServiceClientFlagsFields
+            guestViewAll={enableGuestViewAll}
+            onGuestViewAllChange={setEnableGuestViewAll}
+            timeTracking={enableTimeTracking}
+            onTimeTrackingChange={setEnableTimeTracking}
+            idPrefix="project-"
+          />
           <div className="flex items-center justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={() => setIsConfirmOpen(false)}>
               {t("common.cancel")}
