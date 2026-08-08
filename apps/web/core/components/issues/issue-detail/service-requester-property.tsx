@@ -91,16 +91,15 @@ export const IssueServiceRequesterProperty = observer(function IssueServiceReque
   /*
    * The current value has to be in the option list, always.
    *
-   * `MemberDropdown` resolves its label by looking `value` up in `memberIds`, so a value absent
-   * from that list renders as the *placeholder* -- and the placeholder here reads "No requester".
-   * A work item with an attribution therefore displayed exactly like one without, next to an
-   * avatar of the very person it claimed was not set.
-   *
    * `guestIds` comes from the project member map, which loads asynchronously, and this component
    * is reached from routes where `ProjectAuthWrapper` has not fetched it -- `/browse/<KEY>/` is
-   * one. Waiting for the fetch would still leave the window; including the value closes it for
-   * good, and also covers the legitimate case of a requester who has since stopped being a GUEST
-   * of the project, whose name should still render on the ticket they asked for.
+   * one. Including the value covers that window, and also the legitimate case of a requester who
+   * has since stopped being a GUEST of the project: they must still appear as the selected option
+   * on the ticket they asked for, rather than vanishing from the list that contains them.
+   *
+   * **This does not decide the button's label, and an earlier revision of this comment said it
+   * did.** That claim sent Phase 10 after the wrong mechanism -- see the note on
+   * `showUserDetails` below, which is what actually renders the name.
    */
   const memberIds = requesterId && !guestIds.includes(requesterId) ? [...guestIds, requesterId] : guestIds;
 
@@ -147,6 +146,25 @@ export const IssueServiceRequesterProperty = observer(function IssueServiceReque
       value={requesterId}
       onChange={handleChange}
       memberIds={memberIds}
+      /*
+       * **Without this the button reads "Sem solicitante" forever**, whatever the value is.
+       *
+       * `MemberDropdownBase` defaults `showUserDetails` to `false`, and its `getDisplayName`
+       * returns the placeholder *unconditionally* in that case -- it never looks the value up at
+       * all. The avatar is not gated the same way: it comes straight from `value`, which is why
+       * the button showed the requester's initial beside the words "no requester", and why the
+       * contradiction looked like a data problem instead of a missing prop.
+       *
+       * Nothing else in the app passes this flag, because every other `MemberDropdown` either
+       * uses a `*-without-text` variant, where the label is not rendered, or is `multiple`, where
+       * the count is shown instead. A single-value dropdown with a text variant is a combination
+       * this fork introduced, so it is the first caller that needs it.
+       *
+       * The name itself is already in the store -- `ButtonAvatars` builds that initial from
+       * `getUserDetails(value).display_name`, populated by the workspace member fetch -- so this
+       * flag is the whole distance between the placeholder and the person.
+       */
+      showUserDetails
       multiple={false}
       disabled={disabled || isSubmitting}
       placeholder={t("work_item.service_requester.placeholder")}
