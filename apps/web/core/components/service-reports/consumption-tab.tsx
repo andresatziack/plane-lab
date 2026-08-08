@@ -215,7 +215,8 @@ export const ConsumptionTab = React.memo(function ConsumptionTab() {
                   <td className="py-2 text-11 text-tertiary">
                     {/* Section 7's "competência de origem de cada parcela" -- the part a scalar
                         balance cannot answer. */}
-                    {row.parcels.map((parcel) => `${parcel.origin_competence}: ${parcel.hours_display}`).join(" · ") || "—"}
+                    {row.parcels.map((parcel) => `${parcel.origin_competence}: ${parcel.hours_display}`).join(" · ") ||
+                      "—"}
                   </td>
                 </tr>
               ))}
@@ -303,10 +304,11 @@ export const ConsumptionTab = React.memo(function ConsumptionTab() {
                   <span
                     className={cn(
                       "w-20 text-right text-13",
+                      // Raw to compare, `_display` to render -- the pair exists for exactly this.
                       Number(allowance.balance_hours) < 0 ? "text-danger" : "text-primary"
                     )}
                   >
-                    {allowance.balance_hours}
+                    {allowance.balance_hours_display}
                   </span>
                 </button>
                 {expandedAllowance === allowance.id ? (
@@ -347,7 +349,7 @@ export const ConsumptionTab = React.memo(function ConsumptionTab() {
               <li key={allowance.id} className="flex items-center gap-2 py-2">
                 <span className="flex-1 truncate text-13 text-secondary">{allowance.issue_name}</span>
                 <span className="text-13 text-tertiary">
-                  {t("service_reports.allowances.balance")}: {allowance.balance_hours}
+                  {t("service_reports.allowances.balance")}: {allowance.balance_hours_display}
                 </span>
               </li>
             ))}
