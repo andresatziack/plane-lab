@@ -67,21 +67,28 @@ Sugestões práticas:
 | 7    | `07-permissoes-delegacao.md`              | Permissões de apontamento, delegação, auditoria                          | 3          | feita  |
 | 8    | `08-portal-do-cliente.md`                 | GUEST estendido por project, escopo, allowlist de campos                 | 1, 7       | 20/22  |
 | 9    | `09-dashboards-consumo.md`                | Gráficos de consumo, alertas e relatórios de faturamento                 | 4, 5, 6    | feita  |
-| 8b   | `08b-telas-que-faltam.md`                 | As telas dos critérios 2 e 15, mais duas dívidas de UI                   | 8, 9       | —      |
+| 8b   | `08b-telas-que-faltam.md`                 | As telas dos critérios 2 e 15, mais duas dívidas de UI                   | 8, 9       | feita  |
+| 10   | `10-ambiente-de-demonstracao.md`          | Publicar o produto e usá-lo. Doze defeitos, e o padrão entre eles        | 8b         | feita  |
 
 A Fase 6 depende da 4 apenas para o faturamento de excedente (seção 6); as seções
 1 a 5 só precisam da Fase 3. A Fase 7 é independente das 4, 5 e 6 e pode ser feita
 em paralelo.
 
-**O núcleo está quase completo.** As nove fases estão mescladas e a suíte fecha em 2495
-passando, 0 falhando — mas a Fase 8 entregou **20 dos seus 22 critérios**: os critérios 2 e 15
-dependem de tela e ficaram em aberto. A **Fase 8b** os fecha, e é conclusão da 8, não escopo
-novo — o precedente é a Fase 2b. A ordem real de execução foi 1, 2, 2b, 3, 4, 5, 6, 7, 9, 8 —
-a 9 saiu antes da 8 porque a 8 depende da 7 e não da 9, e a projeção GUEST que a 8
-consome foi construída e provada na 9 (D55).
+**O núcleo está completo.** A ordem real de execução foi 1, 2, 2b, 3, 4, 5, 6, 7, 9, 8, 8b e
+10 — a 9 saiu antes da 8 porque a 8 depende da 7 e não da 9, e a projeção GUEST que a 8 consome
+foi construída e provada na 9 (D55). A Fase 8 tinha entregado 20 dos seus 22 critérios, os
+dois restantes dependiam de tela, e a **8b** os fechou.
 
-Não existe fase 10. Existe a **8b**, que fecha a 8. `PROXIMA-SESSAO.md` a descreve e, depois
-dela, lista três caminhos independentes sem ordem imposta entre eles.
+**A Fase 10 não estava planejada, e é a mais importante de ler antes de continuar.** Uma
+versão anterior deste arquivo dizia "não existe fase 10", o que era verdade quando foi escrito.
+A 10 publicou o produto num host acessível e o usou, e o uso encontrou **doze defeitos que
+nenhum critério de aceite das nove fases pegaria** — porque os critérios descrevem telas e os
+defeitos vivem entre elas. A seção 7 de `10-ambiente-de-demonstracao.md` é o argumento, e ele
+muda como escrever critério de aceite daqui para frente. O ambiente publicado, as credenciais e
+o ferramental de sandbox estão nas seções 1 a 3 do mesmo arquivo.
+
+`PROXIMA-SESSAO.md` continua sendo o handoff de fechamento **da série**, e lista três caminhos
+independentes sem ordem imposta entre eles; ele foi escrito antes da 10 e não a menciona.
 
 ### Depois do núcleo — roadmap acordado
 
