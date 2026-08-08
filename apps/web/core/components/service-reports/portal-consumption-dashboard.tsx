@@ -310,10 +310,11 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
                   <span
                     className={cn(
                       "w-20 text-right text-13",
+                      // Raw to compare, `_display` to render -- the pair exists for exactly this.
                       Number(allowance.balance_hours) < 0 ? "text-danger" : "text-primary"
                     )}
                   >
-                    {allowance.balance_hours}
+                    {allowance.balance_hours_display}
                   </span>
                 </button>
                 {expandedAllowance === allowance.id ? (
@@ -353,7 +354,7 @@ export const PortalConsumptionDashboard = React.memo(function PortalConsumptionD
               <li key={allowance.id} className="flex items-center gap-2 py-2">
                 <span className="flex-1 truncate text-13 text-secondary">{allowance.issue_name}</span>
                 <span className="text-13 text-tertiary">
-                  {t("service_reports.allowances.balance")}: {allowance.balance_hours}
+                  {t("service_reports.allowances.balance")}: {allowance.balance_hours_display}
                 </span>
               </li>
             ))}
