@@ -26,10 +26,16 @@ single. Two consequences worth stating, since both are easy to get wrong in a te
   request. ``TestD67`` therefore carries an explicit **positive** control asserting a
   non-empty result, without which the whole module could go green on a dead feature.
 * The multi-project guest -- Marcel, a GUEST of Marubeni *and* Terlogs, the reference scenario
-  of the entire series -- is exercised in ``TestD67TheDashboardIsOfOneClienteAtATime``. Before
-  D67 no fixture in this file implemented him: ``marcel`` was a member of one project, so the
-  class below proved isolation *between* clients and never asked what a user belonging to two
-  of them receives. That gap is the subject of criteria 1 and 2 of Phase 8b.
+  of the entire series -- is exercised in ``TestD67TheDashboardIsOfOneClienteAtATime``. No
+  fixture in *this* file implemented him before D67: ``marcel`` is a member of one project, so
+  the class below proves isolation *between* clients and never asked what a user belonging to
+  two of them receives.
+
+  **He was implemented in ``test_service_client_isolation_app.py``, and that is where the real
+  failure was**: a test there asserted his two Clientes summed into one payload -- ``entries ==
+  2``, ``3.0000`` -- as the expected answer, contradicting section 2 of the Phase 8 brief, which
+  forbids the consolidated view by name. The test was measuring tenancy, and pinned the
+  aggregation in passing. See D67.
 """
 
 from datetime import date
@@ -455,12 +461,13 @@ class TestD63TheScopeIsResolvedFirstAndNarrowedLast:
 
 @pytest.mark.contract
 class TestD67TheDashboardIsOfOneClienteAtATime:
-    """Criteria 1 and 2 of Phase 8b, and the reference scenario nobody had implemented.
+    """Criteria 1 and 2 of Phase 8b: one Cliente per payload, and the sum unreachable.
 
     Section 2 of Phase 8 forbids a consolidated view of two companies. Before D67 the portal
-    endpoint produced exactly that for a user who is a GUEST of two Clientes, and no test
-    noticed because the ``marcel`` fixture belonged to one project. The endpoint is now
-    structurally incapable of it: the project is required and single.
+    endpoint produced exactly that for a user who is a GUEST of two Clientes -- and a test in
+    ``test_service_client_isolation_app.py`` asserted it as **correct**, which is why nothing
+    caught it. The endpoint is now structurally incapable of it: the project is required and
+    single. See D67.
     """
 
     @pytest.mark.django_db

@@ -319,8 +319,16 @@ seguindo o mecanismo que a série já usou três vezes (1→2, 2→3, 3→2b).
 | **15** — "Técnico abre chamado no project do Cliente **registrando o solicitante**"                | A regra e a concessão de visibilidade fecharam na Fase 8 (D62). O técnico não tinha onde registrar                                                     | **Fechado quanto à API; por construção quanto à tela.** O comportamento está em `test_service_issue_requester_app.py`; o controle não tem teste porque `apps/web` não tem runner — ver a dívida na §9 |
 
 **O critério 2 é o achado desta fase, não o seu item mais simples.** A Fase 8 registrou "a API
-existe e é testada; não existe tela", e as duas primeiras afirmações estavam erradas para o
-cenário que o critério descreve: existia API, mas ela não sabia responder por Cliente. Um
-critério cuja verificação depende de tela pode esconder um defeito de API justamente porque
-ninguém consegue exercitá-lo — que é o argumento para não deixar critérios pendurados entre
-fases, e o motivo pelo qual esta fase existe.
+existe e é testada; não existe tela". Existia API, ela não sabia responder por Cliente, e
+**estava testada afirmando o contrário**: um teste em `test_service_client_isolation_app.py`
+fixava as duas empresas do Marcel somadas — `entries == 2`, `3.0000` — como resultado esperado,
+contra a §2 da própria Fase 8. O teste media tenancy e, de passagem, registrou a agregação.
+
+Duas consequências que valem mais que o critério:
+
+1. **Um teste pode proteger a violação de uma regra escrita.** Escopar o endpoint por Cliente
+   falharia naquele teste, e a falha pareceria a regressão. Não faltava teste; faltava alguém ler
+   a asserção contra a proibição.
+2. **Um critério cuja verificação depende de tela pode esconder um defeito de API**, justamente
+   porque ninguém consegue exercitá-lo ponta a ponta. É o argumento para não deixar critérios
+   pendurados entre fases, e o motivo pelo qual esta fase existe.

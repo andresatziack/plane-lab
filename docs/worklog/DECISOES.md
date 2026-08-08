@@ -1900,23 +1900,54 @@ XOR do livro-caixa, o índice único do critério 7 da Fase 5, a XOR das origens
 Custo aceito: os testes do portal que chamavam sem parâmetro passaram a nomear o project.
 Churn mecânico, e o preço certo.
 
-### Por que nenhum teste pegou, e por que vale registrar
+### Por que nenhum teste pegou — e a resposta é pior que "faltava teste"
 
-A classe `TestD63TheScopeIsResolvedFirstAndNarrowedLast` prova bem o isolamento **entre**
-clientes, com Marubeni e Terlogs, ida e volta. O que ela nunca fez foi a pergunta do **guest
-multi-project**: a fixture `marcel` era membro de **um** project só.
+**Havia teste, e ele afirmava o comportamento errado como certo.**
 
-O cenário de referência — Marcel na Marubeni **e** na Terlogs — está escrito no contexto
-mestre desde o começo da série, e é citado nominalmente na §2 da Fase 8 e na §3c da Fase 9. A
-fixture que leva o nome dele **nunca o implementou fielmente**. A proteção estava correta; a
-pergunta nunca foi feita.
+`test_service_client_isolation_app.py` implementa o cenário de referência **fielmente**: o
+docstring do módulo diz "Marcel is a client user in Marubeni and Terlogs", e a fixture faz
+exatamente isso. E dentro dela havia:
 
-É a mesma classe de falha que a D61 registrou no feed de atividade: um mecanismo bem
-construído, testado no eixo em que alguém pensou, e cego no eixo que ninguém formulou. A
-lição operacional é que **uma fixture com o nome de um ator do cenário de referência deveria
-implementar aquele ator**, e não uma simplificação dele — porque o nome é o que faz o leitor
-acreditar que o cenário está coberto. A 8b adicionou `marcel_multi` e o exercita nos dois
-projects.
+```python
+def test_marcels_portal_dashboard_carries_both_of_his_and_not_the_third(...):
+    """Two Clientes, two logs, 3.0h -- and never the third client's 1.5h on top."""
+    assert response.data["totals"]["entries"] == 2
+    assert response.data["totals"]["equivalent_hours"] == "3.0000"
+```
+
+Ou seja: a §2 da Fase 8 proíbe a visão consolidada pelo nome, e um teste de contrato **da
+mesma fase** a fixava como resultado esperado. Os dois documentos se contradiziam, e ninguém
+reconciliou.
+
+**O teste era o que mantinha a violação protegida.** Qualquer tentativa de escopar o endpoint
+por Cliente falharia ali, e a falha pareceria a regressão — não a correção.
+
+Por que passou em revisão: a pergunta que aquele teste fazia era **tenancy** — Marcel alcança
+a Vale, um Cliente que não é dele? Contra essa pergunta, 3.0h é a resposta certa. A agregação
+entre os **dois Clientes dele** não estava sendo testada; estava sendo **registrada**, como
+aquilo que o endpoint por acaso fazia. Um teste que mede um eixo inevitavelmente fixa todos os
+outros, e os que ele fixa sem querer não passam por decisão nenhuma.
+
+A classe `TestD63TheScopeIsResolvedFirstAndNarrowedLast`, no arquivo do portal, tinha o
+problema complementar e mais banal: a fixture chamada `marcel` era membro de **um** project só,
+então ali o cenário de referência de fato não era exercitado.
+
+A lição operacional tem duas metades, e a primeira é a que custa caro:
+
+1. **Uma asserção que fixa comportamento fora do eixo que o teste mede precisa ser lida contra
+   as regras escritas.** "3.0h" não era um número que alguém escolheu; era o que o endpoint
+   devolveu no dia em que o teste foi escrito. Quando uma fase proíbe algo pelo nome, vale
+   procurar quem já afirma o contrário.
+2. Uma fixture com o nome de um ator do cenário de referência deveria implementar aquele ator,
+   e não uma simplificação dele — porque o nome é o que faz o leitor acreditar que o cenário
+   está coberto. A 8b acrescentou `marcel_multi` ao arquivo do portal por isso.
+
+Um terceiro achado, de tabela: o canário de dinheiro daquele mesmo arquivo
+(`test_no_client_user_sees_any_money_on_any_route_they_can_reach`) passou a chamar o portal sem
+project e **continuou verde**, porque um 400 não contém valor monetário nenhum. Uma asserção de
+ausência satisfeita por uma resposta de erro é exatamente o falso-verde das convenções. Agora
+ele nomeia o project do próprio chamador e afirma `status == 200` e `entries == 1` **antes** das
+ausências — verificado por sabotagem.
 
 ### A armadilha de implementação, que passaria por toda a suíte de segurança
 

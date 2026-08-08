@@ -442,36 +442,91 @@ class TestD19OneClientUserNeverSeesAnotherCliente:
 
     @pytest.mark.django_db
     def test_adrianos_portal_dashboard_carries_no_marubeni_hours(
-        self, workspace, adriano, logs
+        self, workspace, adriano, projects, logs
     ):
         """By listing. Terlogs' log is 1.5h, and so is Marubeni's -- so the total is the
         assertion: 1.5 means the scope held, 3.0 or 4.5 means it did not."""
-        response = _api(adriano).get(f"/api/workspaces/{workspace.slug}/service-reports/portal/")
+        response = _api(adriano).get(
+            f"/api/workspaces/{workspace.slug}/service-reports/portal/"
+            f"?project_ids={projects['terlogs'].id}"
+        )
 
         assert response.status_code == status.HTTP_200_OK, _body(response)
         assert response.data["totals"]["entries"] == 1
         assert response.data["totals"]["equivalent_hours"] == "1.5000"
 
     @pytest.mark.django_db
-    def test_marcels_portal_dashboard_carries_both_of_his_and_not_the_third(
-        self, workspace, marcel, logs
+    def test_marcels_portal_dashboard_carries_one_cliente_at_a_time(
+        self, workspace, marcel, projects, logs
     ):
-        """Two Clientes, two logs, 3.0h -- and never the third client's 1.5h on top."""
-        response = _api(marcel).get(f"/api/workspaces/{workspace.slug}/service-reports/portal/")
+        """**Rewritten by D67, and this test is the reason D67 exists.**
 
-        assert response.data["totals"]["entries"] == 2
-        assert response.data["totals"]["equivalent_hours"] == "3.0000"
+        It used to be ``..._carries_both_of_his_and_not_the_third``, and it asserted
+        ``entries == 2`` and ``3.0000`` -- Marcel's two Clientes summed into one payload -- with
+        a docstring calling that the expected answer.
+
+        Section 2 of the phase brief forbids exactly that: "não construir visão consolidada das
+        duas empresas: os contratos são independentes, os dashboards são dedicados". So the
+        prohibition and this assertion contradicted each other, in the same phase, and **the
+        test is what kept the violation safe**: any attempt to scope the endpoint per Cliente
+        would have failed here and looked like the regression.
+
+        It passed review because the question being asked was tenancy -- does Marcel reach Vale,
+        a Cliente belonging to neither client user -- and against that question 3.0h is the
+        right answer. The aggregation across his own two Clientes was not being tested; it was
+        being *recorded*, as whatever the endpoint happened to do.
+
+        Now each project answers for its own Cliente, and the sum is unreachable.
+        """
+        for name in ("marubeni", "terlogs"):
+            response = _api(marcel).get(
+                f"/api/workspaces/{workspace.slug}/service-reports/portal/"
+                f"?project_ids={projects[name].id}"
+            )
+
+            assert response.status_code == status.HTTP_200_OK, _body(response)
+            assert response.data["totals"]["entries"] == 1, name
+            assert response.data["totals"]["equivalent_hours"] == "1.5000", name
+
+    @pytest.mark.django_db
+    def test_marcel_cannot_ask_for_both_of_his_clientes_at_once(self, workspace, marcel, projects):
+        """The other half of D67, and the half that makes the prohibition structural.
+
+        Intersecting the requested project with the caller's own would have been enough for the
+        frontend, and would have left the consolidated payload reachable by simply omitting the
+        parameter. Requiring exactly one project is what makes it unrepresentable.
+        """
+        both = f"{projects['marubeni'].id},{projects['terlogs'].id}"
+
+        for query, code in (
+            ("", "PORTAL_REPORT_REQUIRES_A_PROJECT"),
+            (f"?project_ids={both}", "PORTAL_REPORT_ACCEPTS_ONE_PROJECT"),
+        ):
+            response = _api(marcel).get(
+                f"/api/workspaces/{workspace.slug}/service-reports/portal/{query}"
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, _body(response)
+            assert response.data["error"] == code, query
 
     @pytest.mark.django_db
     def test_a_crafted_filter_does_not_reach_another_cliente(
         self, workspace, adriano, clients, projects, logs
     ):
         """By filter. The descriptor travels to the browser and back, so it is a record and
-        not a permission -- D63."""
+        not a permission -- D63.
+
+        Every probe now names Adriano's own project, so what is being tested is a *second*
+        filter trying to widen past it -- which is the interesting case. The bare
+        ``?project_ids=marubeni`` probe is kept because it is the direct attempt, and after D67
+        it intersects to nothing rather than being silently replaced by his own scope.
+        """
+        mine = f"project_ids={projects['terlogs'].id}"
+
         for query in (
-            f"?service_client_ids={clients['marubeni'].id}",
+            f"?{mine}&service_client_ids={clients['marubeni'].id}",
             f"?project_ids={projects['marubeni'].id}",
-            f"?service_client_ids={clients['vale'].id},{clients['marubeni'].id}",
+            f"?{mine}&service_client_ids={clients['vale'].id},{clients['marubeni'].id}",
         ):
             response = _api(adriano).get(
                 f"/api/workspaces/{workspace.slug}/service-reports/portal/{query}"
@@ -502,9 +557,20 @@ class TestD19OneClientUserNeverSeesAnotherCliente:
         Each Cliente's log has a distinct amount, so this asserts that none of the three
         values appears anywhere a client can read -- including their *own*, on the portal
         dashboard, where D58's per-row exception does not apply because the dashboard deals
-        in hours only."""
-        for user in (marcel, adriano):
-            dashboard = _api(user).get(f"/api/workspaces/{workspace.slug}/service-reports/portal/")
+        in hours only.
+
+        **Each probe names the caller's own project, and the 200 is asserted before the
+        absences.** After D67 a portal call with no project answers 400, and a 400 body contains
+        no amounts at all -- so without these two additions this canary would pass on an error
+        response, which is the false-green the conventions describe: an absence assertion that
+        holds with the feature and without it."""
+        for user, project in ((marcel, projects["marubeni"]), (adriano, projects["terlogs"])):
+            dashboard = _api(user).get(
+                f"/api/workspaces/{workspace.slug}/service-reports/portal/?project_ids={project.id}"
+            )
+
+            assert dashboard.status_code == status.HTTP_200_OK, _body(dashboard)
+            assert dashboard.data["totals"]["entries"] == 1, "the canary read an empty dashboard"
 
             for amount in ("300.00", "600.00", "900.00"):
                 assert amount not in _body(dashboard), f"{amount} leaked to the portal dashboard"

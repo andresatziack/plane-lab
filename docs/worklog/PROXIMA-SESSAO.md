@@ -71,16 +71,23 @@ feature morta com a suíte verde.
 | Atribuição de projects **em massa** a um Cliente | `service-clients/<pk>/assign-projects/`                | **Modal a partir da lista de clientes**; `assignProjects` finalmente tem chamador     |
 
 **A lição, e é o motivo de esta tabela ficar no registro:** "API completa e testada, nenhuma
-tela" era uma afirmação sobre três coisas, e uma delas não se sustentou. O endpoint do portal
-era escopado pelo usuário e não pelo project, então para um cliente presente em duas empresas
-ele somava as duas — exatamente a visão consolidada que a §2 da Fase 8 proíbe pelo nome. Estava
-testado, e o teste nunca fez a pergunta: a fixture chamada `marcel` era membro de um project só,
-enquanto o Marcel do cenário de referência é GUEST em dois.
+tela" era uma afirmação sobre três coisas, e uma delas não se sustentou. O endpoint do portal era
+escopado pelo usuário e não pelo project, então para um cliente presente em duas empresas ele
+somava as duas — exatamente a visão consolidada que a §2 da Fase 8 proíbe pelo nome.
 
-**Uma API sem consumidor é uma API sem verificação de aceitação.** Os testes de contrato provam
-as regras que alguém formulou; a tela é o que faz o cenário real ser executado ponta a ponta. Um
-critério pendurado entre fases porque "só falta a tela" pode estar escondendo um defeito de API
-justamente porque ninguém consegue exercitá-lo.
+E estava testado. **O teste afirmava a soma como correta**: `entries == 2`, `3.0000`, com um
+docstring chamando isso de resposta esperada. Ele media tenancy — Marcel alcança um terceiro
+Cliente? — e, de passagem, fixou a agregação entre os dois Clientes dele. Escopar o endpoint por
+Cliente falharia ali, e a falha pareceria a regressão.
+
+Duas lições, e a primeira é a que custa caro:
+
+- **Um teste pode proteger a violação de uma regra escrita**, e quanto melhor o teste, mais
+  convincente a proteção. Não faltava teste. Faltava alguém ler a asserção contra a proibição —
+  que é uma revisão que ninguém faz sem um motivo para desconfiar.
+- **Uma API sem consumidor é uma API sem verificação de aceitação.** Os testes de contrato provam
+  as regras que alguém formulou; a tela é o que faz o cenário real rodar ponta a ponta. Um
+  critério pendurado entre fases porque "só falta a tela" pode estar escondendo um defeito de API.
 
 **Correção de um erro de registro:** uma versão anterior deste documento afirmava que a UI não
 sugere `guest_view_all_features` ao vincular um project. **Ela sugere.**
