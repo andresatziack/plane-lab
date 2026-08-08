@@ -88,6 +88,22 @@ export const IssueServiceRequesterProperty = observer(function IssueServiceReque
 
   const requesterId = attribution && "requester" in attribution ? attribution.requester : null;
 
+  /*
+   * The current value has to be in the option list, always.
+   *
+   * `MemberDropdown` resolves its label by looking `value` up in `memberIds`, so a value absent
+   * from that list renders as the *placeholder* -- and the placeholder here reads "No requester".
+   * A work item with an attribution therefore displayed exactly like one without, next to an
+   * avatar of the very person it claimed was not set.
+   *
+   * `guestIds` comes from the project member map, which loads asynchronously, and this component
+   * is reached from routes where `ProjectAuthWrapper` has not fetched it -- `/browse/<KEY>/` is
+   * one. Waiting for the fetch would still leave the window; including the value closes it for
+   * good, and also covers the legitimate case of a requester who has since stopped being a GUEST
+   * of the project, whose name should still render on the ticket they asked for.
+   */
+  const memberIds = requesterId && !guestIds.includes(requesterId) ? [...guestIds, requesterId] : guestIds;
+
   const handleChange = async (value: string | null) => {
     if (value === requesterId) return;
 
@@ -130,7 +146,7 @@ export const IssueServiceRequesterProperty = observer(function IssueServiceReque
     <MemberDropdown
       value={requesterId}
       onChange={handleChange}
-      memberIds={guestIds}
+      memberIds={memberIds}
       multiple={false}
       disabled={disabled || isSubmitting}
       placeholder={t("work_item.service_requester.placeholder")}
