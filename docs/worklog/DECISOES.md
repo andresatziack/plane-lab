@@ -1004,17 +1004,16 @@ R11 o esconde, a um salto do endpoint que cuidadosamente o omitiu. Por isso exis
 
 ## Resumo do que muda no código
 
-| Decisão | Muda código? | Onde |
-|---|---|---|
-| D37 | **Sim** | `resolve_price_sheet` por `worked_on`; `NO_PRICE_SHEET_IN_FORCE` para data anterior à primeira folha |
-| D38 | **Sim** | `ServiceClientHourTypeRate.price` FK para a folha, não para o Cliente; sem `ends_on` |
-| D39 | **Sim** | `ServiceIssueAllowance.overage_hour_rate` + `ChangeTrackerMixin` só para ele |
-| D40 | **Sim** | `_bill_period_overage` resolve por `period.starts_on`; folha restrita ao dia 1º em DDL |
-| D41 | **Sim** | `resolve_overage_rate` levanta `OVERAGE_RATE_NOT_CONFIGURED` |
-| D42 | Não | dívida nomeada. Compensada por preview com `is_reversible: false` e pelo único parcial |
-| D43 | **Sim** | `INTERNAL_PROJECT_NO_CLIENT` fora da receita; três classes de motivo |
-| D44 | **Sim** | `settled_billing_route` nova; `applied_billing_route` mantém o significado |
-
+| Decisão | Muda código? | Onde                                                                                                 |
+| ------- | ------------ | ---------------------------------------------------------------------------------------------------- |
+| D37     | **Sim**      | `resolve_price_sheet` por `worked_on`; `NO_PRICE_SHEET_IN_FORCE` para data anterior à primeira folha |
+| D38     | **Sim**      | `ServiceClientHourTypeRate.price` FK para a folha, não para o Cliente; sem `ends_on`                 |
+| D39     | **Sim**      | `ServiceIssueAllowance.overage_hour_rate` + `ChangeTrackerMixin` só para ele                         |
+| D40     | **Sim**      | `_bill_period_overage` resolve por `period.starts_on`; folha restrita ao dia 1º em DDL               |
+| D41     | **Sim**      | `resolve_overage_rate` levanta `OVERAGE_RATE_NOT_CONFIGURED`                                         |
+| D42     | Não          | dívida nomeada. Compensada por preview com `is_reversible: false` e pelo único parcial               |
+| D43     | **Sim**      | `INTERNAL_PROJECT_NO_CLIENT` fora da receita; três classes de motivo                                 |
+| D44     | **Sim**      | `settled_billing_route` nova; `applied_billing_route` mantém o significado                           |
 
 ---
 
@@ -1063,12 +1062,12 @@ declarado. Composição livre é o correto.
 fatia de `can_manage_others`.** Reatribuir o apontamento de outra pessoa **é** editar o
 registro de outra pessoa, mesmo que o campo alterado não mexa em saldo. A regra:
 
-| Concessões | Alcance |
-| --- | --- |
-| autor + `can_reassign_author` | reatribui os próprios |
-| `can_manage_others` + `can_reassign_author` | reatribui os de qualquer um |
-| `can_manage_others` sozinha | edita os de qualquer um, **sem** trocar autor |
-| `can_reassign_author` sozinha | reatribui **só os próprios** |
+| Concessões                                  | Alcance                                       |
+| ------------------------------------------- | --------------------------------------------- |
+| autor + `can_reassign_author`               | reatribui os próprios                         |
+| `can_manage_others` + `can_reassign_author` | reatribui os de qualquer um                   |
+| `can_manage_others` sozinha                 | edita os de qualquer um, **sem** trocar autor |
+| `can_reassign_author` sozinha               | reatribui **só os próprios**                  |
 
 A última linha é o caso de uso mais comum e o motivo de a capacidade existir isolada:
 "lancei isto, mas o trabalho foi do João". Nenhuma flag empresta escopo da outra sem que
@@ -1125,7 +1124,7 @@ O custo de manter é baixo, e é isso que a torna sustentável: as concessões e
 trabalho normal não precisar de Admin, e período fechado é anormal por definição.
 
 **O limite honesto, que é dívida da D42 e não buraco novo.** Passar nesta checagem deixa o
-ADMIN *tentar* a escrita; não faz a camada de pool aceitá-la. `apply_debit` e `reverse_debit`
+ADMIN _tentar_ a escrita; não faz a camada de pool aceitá-la. `apply_debit` e `reverse_debit`
 levantam `PERIOD_IS_CLOSED` para todo mundo, ADMIN incluído. Na prática a edição de um Admin
 em período fechado funciona exatamente quando não move horas: reatribuição de autor, linha
 não faturável, ou apontamento que nunca debitou período. Edição que moveria horas falha uma
@@ -1139,10 +1138,10 @@ A primeira implementação devolvia 403 para `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHN
 argumento de que toda recusa numa rota de apontamento deveria ser 403 — uma regra só, fácil
 de enunciar. **Recusada por juntar duas coisas que o consumidor da API precisa distinguir:**
 
-| Código | Significa | O que a UI deve fazer |
-| --- | --- | --- |
-| 403 | o **ator** não tem a capacidade | esconder ou desabilitar a ação |
-| 400 | o **payload** nomeia alvo inelegível, ou está malformado | mostrar erro **no campo** |
+| Código | Significa                                                | O que a UI deve fazer          |
+| ------ | -------------------------------------------------------- | ------------------------------ |
+| 403    | o **ator** não tem a capacidade                          | esconder ou desabilitar a ação |
+| 400    | o **payload** nomeia alvo inelegível, ou está malformado | mostrar erro **no campo**      |
 
 No caso concreto: o chamador **tem** `can_delegate` e escolheu um autor que não é técnico.
 Ele está autorizado a delegar — o que está errado é o valor do campo `author_id`. Devolver
@@ -1158,13 +1157,12 @@ contrato de API — mudar com cliente em produção quebra consumidor.
 
 ## Resumo do que muda no código
 
-| Decisão | Muda código? | Onde |
-| --- | --- | --- |
-| D45 | **Sim** | `ServiceMemberPermission` novo; `resolve_capabilities` lê papel vivo; `may_reassign` compõe com `may_edit`; revogação no rebaixamento a GUEST |
-| D46 | **Sim** | `validate_closed_period_access` sem exceção para reatribuição; remediação no `PERIOD_IS_CLOSED` |
-| D47 | **Sim** | `PERMISSION_DENIED_CODES` não inclui `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN` |
-| D42 | **Reescrita** | de tarefa ("construir reabertura") para pergunta ("reabrir ou lançar ajuste?") |
-
+| Decisão | Muda código?  | Onde                                                                                                                                          |
+| ------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| D45     | **Sim**       | `ServiceMemberPermission` novo; `resolve_capabilities` lê papel vivo; `may_reassign` compõe com `may_edit`; revogação no rebaixamento a GUEST |
+| D46     | **Sim**       | `validate_closed_period_access` sem exceção para reatribuição; remediação no `PERIOD_IS_CLOSED`                                               |
+| D47     | **Sim**       | `PERMISSION_DENIED_CODES` não inclui `SERVICE_LOG_AUTHOR_MUST_BE_A_TECHNICIAN`                                                                |
+| D42     | **Reescrita** | de tarefa ("construir reabertura") para pergunta ("reabrir ou lançar ajuste?")                                                                |
 
 ---
 
@@ -1491,8 +1489,6 @@ primeiro escritor não atendido do livro-caixa.
 | D57         | **Sim**      | `MONEY_FIELDS` + `COMMERCIAL_STATE_FIELDS`; testes da Fase 6 ajustados                   |
 | Revisão D35 | **Sim**      | `ALLOWANCE_PENDING_CLOSURE`, `pending_closure_q`, sem tarefa periódica                   |
 
-
-
 ## D58 a D66 — decididas na Fase 8, porque só ali se tornaram inevitáveis
 
 A Fase 8 é a última do núcleo e a única que altera código do core do Plane. Sete das
@@ -1566,7 +1562,7 @@ Duas razões, e a segunda é a que decide:
    afiado aqui do que lá.
 
 **A ordem é a decisão, não a organização do arquivo.** A allowlist tem de existir
-*antes* de o GUEST entrar em `allowed_roles`, porque
+_antes_ de o GUEST entrar em `allowed_roles`, porque
 `allow_permission(..., creator=True, model=Issue)` libera a view inteira para quem
 criou a linha **antes de a lista de papéis ser consultada**. Um cliente que abriu um
 chamado já alcança a view hoje, com qualquer papel, e sem allowlist estaria alterando
@@ -1592,7 +1588,7 @@ nunca manda em modo de falha que ele tem de tratar.
 
 **Grupo de estado inelegível: 400 com `STATE_GROUP_NOT_PERMITTED_FOR_CLIENT`.** Por
 D47: o ator genuinamente tem a capacidade de mudar estado — é o critério 6 inteiro — e
-é o *alvo* nomeado pelo payload que é inelegível. Um 403 diria "você não pode mudar
+é o _alvo_ nomeado pelo payload que é inelegível. Um 403 diria "você não pode mudar
 estados", que é falso, e mandaria quem lê procurar um problema de permissão que não
 existe.
 
@@ -1634,7 +1630,7 @@ recusa calcular para `ReportViewer.guest()`. Duração bruta e multiplicador fic
 Member; é o vazamento para um feed lido por Guest. O teste nunca esteve errado — nunca
 lhe foi feita a pergunta do Guest.
 
-**Excluir, não reprojetar.** O conteúdo informativo inteiro da linha `service_log` *é*
+**Excluir, não reprojetar.** O conteúdo informativo inteiro da linha `service_log` _é_
 as horas apontadas, então não existe resto seguro para mostrar depois de tirar o
 número. E uma segunda projeção do mesmo apontamento seria um segundo lugar onde a R11
 pode errar, sendo que a primeira já tem testes — o argumento da D51 sobre fronteira de
@@ -1660,11 +1656,11 @@ coloca no feed. Ela se coloca no endpoint de apontamento do cliente, e é a D65.
 **Três portas, não uma.** Patchear a óbvia teria deixado duas abertas, porque duas
 classes de permissão não aplicam filtro de papel algum em método seguro:
 
-| leitor                          | como o cliente chega                                |
-| ------------------------------- | --------------------------------------------------- |
-| `IssueActivityEndpoint`         | GUEST está na própria `allow_permission`            |
+| leitor                          | como o cliente chega                                 |
+| ------------------------------- | ---------------------------------------------------- |
+| `IssueActivityEndpoint`         | GUEST está na própria `allow_permission`             |
 | `WorkspaceUserActivityEndpoint` | `WorkspaceEntityPermission`, actor id vem da **URL** |
-| `IssueActivityListAPIEndpoint`  | `ProjectEntityPermission`, API externa por token    |
+| `IssueActivityListAPIEndpoint`  | `ProjectEntityPermission`, API externa por token     |
 
 A segunda é a mais afiada: o id do ator é segmento de URL, então o cliente pede a
 atividade de um técnico nomeado diretamente.
@@ -1731,11 +1727,20 @@ Os três, porque as duas metades falham em silêncio com 200:**
    alarga, sem erro em lugar nenhum.
 2. `narrow(project_ids=())` **não aplica filtro de project algum**, porque
    `queryset()` só aplica cada lookup `if values:`. Escopo vazio virando acesso total é
-   a falha que parece impossível em revisão, precisamente porque o código *lê* como se
+   a falha que parece impossível em revisão, precisamente porque o código _lê_ como se
    estivesse escopando. `scope_filterset_to_client` levanta exceção em vez de aceitar
    escopo vazio, e a view curto-circuita para que ela nunca seja chamada com um.
 
 Cada uma é coberta por exatamente um teste, verificado por sabotagem.
+
+> **Corrigido pela D67 (Fase 8b).** O item 1 continua verdadeiro sobre `narrow()`, mas a
+> conclusão que se tirou dele — deixar a requisição ser **substituída** pelo escopo do
+> chamador — estava errada, e o que ela produzia era a visão consolidada de duas empresas
+> que a §2 da Fase 8 proíbe nominalmente. O escopo agora é a **interseção** do project
+> pedido com os projects do chamador, `project_ids` passou a ser **obrigatório e único**, e
+> o teste que afirmava `entries == 1` para quem pedia o project de outro cliente afirma
+> `entries == 0`. A propriedade de segurança que aquele teste nomeava não mudou; a asserção
+> era artefato da substituição. Leia a D67 antes desta seção.
 
 **O descritor é um registro, não uma permissão.** Todo bucket carrega
 `filters: to_params()`, e o drill-down reconstrói com `from_params(request.GET)` sem
@@ -1772,11 +1777,11 @@ booleano.
 A D57 separou dinheiro de estado comercial e tornou o segundo visível ao MEMBER. GUEST
 era outra pergunta, e é esta. Decidida, não herdada por omissão.
 
-| campo                    | cliente | por quê                                                                                              |
-| ------------------------ | ------- | ---------------------------------------------------------------------------------------------------- |
-| `settled_billing_route`  | vê      | explica qual arranjo absorveu as horas; ele já vê `debited_hours`                                     |
-| `route_deviation_reason` | vê      | quando o valor está visível, ele vai perguntar por que está sendo cobrado tendo contrato              |
-| `pricing_failure_reason` | não vê  | lacuna de configuração nossa, numa linha que ainda não é faturável; nada em que ele possa agir        |
+| campo                    | cliente | por quê                                                                                        |
+| ------------------------ | ------- | ---------------------------------------------------------------------------------------------- |
+| `settled_billing_route`  | vê      | explica qual arranjo absorveu as horas; ele já vê `debited_hours`                              |
+| `route_deviation_reason` | vê      | quando o valor está visível, ele vai perguntar por que está sendo cobrado tendo contrato       |
+| `pricing_failure_reason` | não vê  | lacuna de configuração nossa, numa linha que ainda não é faturável; nada em que ele possa agir |
 
 O caso do desvio é o que fecha a decisão: pela D58 o cliente vê o valor quando a rota
 liquidada é `BILL_AMOUNT`, e "contrato vencido" é a **resposta** para a pergunta que
@@ -1815,10 +1820,10 @@ concordado com ele. O resolvedor não lê docstring: ele sabe o que está rotead
 **A generalização, que é o valor da decisão.** As duas formas de teste falham de maneiras
 diferentes:
 
-| forma                | falha quando                                                    |
-| -------------------- | --------------------------------------------------------------- |
-| lista à mão          | alguém **acrescenta** uma rota (a lista fica silenciosamente incompleta) |
-| enumerar o roteador  | alguém acrescenta uma rota **e o teste fica vermelho**          |
+| forma               | falha quando                                                             |
+| ------------------- | ------------------------------------------------------------------------ |
+| lista à mão         | alguém **acrescenta** uma rota (a lista fica silenciosamente incompleta) |
+| enumerar o roteador | alguém acrescenta uma rota **e o teste fica vermelho**                   |
 
 A segunda transforma "esqueci de decidir" em erro. A primeira transforma em nada. E o modo
 de falha que importa nesta arquitetura não é uma decisão errada — é uma **ausente**: uma ação
@@ -1837,17 +1842,99 @@ ter escrito. A Fase 8 rodou a varredura ampliada uma vez sobre todas as rotas co
 workspace e registrou o resultado em `ACHADOS-DO-CODIGO.md`, **sem corrigir** — saber é
 informação de operador, e decidir o que fazer é outra conversa.
 
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde                                                                                      |
+| ------- | ------------ | ----------------------------------------------------------------------------------------- |
+| D58     | **Sim**      | `CLIENT_MONEY_FIELDS`, `to_representation` por linha, `issue_client_totals` filtra a rota |
+| D59     | **Sim**      | módulo `service_portal.py`; `partial_update` passa a chamar em vez de decidir             |
+| D60     | **Sim**      | `filter_issue_payload_for_client`, `validate_client_state_transition`, 400 nomeado        |
+| D61     | **Sim**      | `activity_fields_hidden_from` nos **três** leitores de atividade                          |
+| D62     | **Sim**      | migração 0133, `ServiceIssueRequester`, `client_visible_issues_q`, três sítios do core    |
+| D63     | **Sim**      | `ServiceClientPortalReportEndpoint`, `_viewer` sobrescrito, `scope_filterset_to_client`   |
+| D64     | **Sim**      | registro por campo em `issue-detail` **e** `peek-overview`                                |
+| D65     | **Sim**      | `CLIENT_COMMERCIAL_STATE_FIELDS`; `pricing_failure_reason` fora do `Meta.fields`          |
+| D66     | **Sim**      | a varredura percorre `get_resolver()`; allowlist `CLIENT_REACHABLE` nomeada no teste      |
+
+---
+
+# D67 — decidida na Fase 8b, porque a tela é que revelou o que a API respondia
+
+## D67 — O dashboard do portal é de um Cliente por vez, e o `project_ids` é obrigatório e único
+
+**O que estava errado.** `ServiceClientPortalReportEndpoint` era escopado pelo **usuário**,
+não pelo project: `client_project_ids` devolvia todos os projects do chamador e
+`scope_filterset_to_client` os aplicava com `narrow()`, que substitui. Para o Marcel real —
+GUEST na Marubeni **e** na Terlogs — uma chamada devolvia `totals`, séries, distribuições e
+bolsas somando as duas empresas, e `contracts[]` com **os dois contratos**.
+
+Isso é exatamente a visão consolidada que a §2 da Fase 8 proíbe pelo nome: "não construir
+visão consolidada das duas empresas: os contratos são independentes, os dashboards são
+dedicados". A API não estava pronta para os critérios 1 e 2 da 8b, ao contrário do que o
+briefing daquela fase registrou.
+
+**A correção tem duas metades, e a segunda é a que importa.**
+
+A primeira é a **interseção**: o project pedido cruzado com os projects do chamador, ainda
+aplicada por último. Interseção é sempre igual ou mais estreita que o escopo do cliente,
+então um id forjado continua não podendo alargar a fronteira de tenancy — os dois perigos que
+a D63 nomeia permanecem fechados, e o curto-circuito para payload vazio continua sendo o que
+impede `scope_filterset_to_client` de ser chamado com escopo vazio.
+
+A segunda é **tornar o parâmetro obrigatório e limitado a um project**:
+
+```
+sem parâmetro          -> 400 PORTAL_REPORT_REQUIRES_A_PROJECT
+um project             -> aquele project, se estiver no escopo do cliente
+um project de outro    -> interseção vazia -> curto-circuito -> payload vazio, 200
+mais de um             -> 400 PORTAL_REPORT_ACCEPTS_ONE_PROJECT
+```
+
+Sem ela a interseção resolveria o frontend e deixaria o consolidado **alcançável**: a
+resposta padrão do endpoint, sem parâmetro, continuaria sendo as duas empresas somadas, e a
+§2 passaria a depender de disciplina de quem chama. Com ela o endpoint fica estruturalmente
+incapaz de produzir o consolidado. É o mesmo movimento que esta série já fez três vezes — a
+XOR do livro-caixa, o índice único do critério 7 da Fase 5, a XOR das origens do apontamento:
+**tornar o estado errado irrepresentável em vez de apenas não usado.**
+
+Custo aceito: os testes do portal que chamavam sem parâmetro passaram a nomear o project.
+Churn mecânico, e o preço certo.
+
+### Por que nenhum teste pegou, e por que vale registrar
+
+A classe `TestD63TheScopeIsResolvedFirstAndNarrowedLast` prova bem o isolamento **entre**
+clientes, com Marubeni e Terlogs, ida e volta. O que ela nunca fez foi a pergunta do **guest
+multi-project**: a fixture `marcel` era membro de **um** project só.
+
+O cenário de referência — Marcel na Marubeni **e** na Terlogs — está escrito no contexto
+mestre desde o começo da série, e é citado nominalmente na §2 da Fase 8 e na §3c da Fase 9. A
+fixture que leva o nome dele **nunca o implementou fielmente**. A proteção estava correta; a
+pergunta nunca foi feita.
+
+É a mesma classe de falha que a D61 registrou no feed de atividade: um mecanismo bem
+construído, testado no eixo em que alguém pensou, e cego no eixo que ninguém formulou. A
+lição operacional é que **uma fixture com o nome de um ator do cenário de referência deveria
+implementar aquele ator**, e não uma simplificação dele — porque o nome é o que faz o leitor
+acreditar que o cenário está coberto. A 8b adicionou `marcel_multi` e o exercita nos dois
+projects.
+
+### A armadilha de implementação, que passaria por toda a suíte de segurança
+
+A interseção compara ids vindos da query string com ids vindos do banco. Se um lado fosse
+`UUID` e o outro `str`, **toda** interseção seria vazia: todo request curto-circuitaria para
+payload vazio e o dashboard nasceria em branco para todo mundo.
+
+Essa falha é invisível para uma suíte de segurança, porque falha na direção **segura**. Todo
+teste que afirma "as horas do outro cliente estão ausentes" continua verde com a feature
+morta. Verificado por sabotagem: substituir a coerção por uma interseção de conjuntos crua
+deixa **21 dos 31 testes do portal verdes**.
+
+Daí duas coisas, e nenhuma é opcional: a coerção explícita em `_as_uuids`, e um **controle
+positivo** afirmando resultado **não vazio** para um pedido legítimo de project único. Sem o
+controle positivo, um erro de tipo fica indistinguível de um escopo funcionando.
 
 ## Resumo do que muda no código
 
-| Decisão | Muda código? | Onde                                                                                          |
-| ------- | ------------ | --------------------------------------------------------------------------------------------- |
-| D58     | **Sim**      | `CLIENT_MONEY_FIELDS`, `to_representation` por linha, `issue_client_totals` filtra a rota      |
-| D59     | **Sim**      | módulo `service_portal.py`; `partial_update` passa a chamar em vez de decidir                  |
-| D60     | **Sim**      | `filter_issue_payload_for_client`, `validate_client_state_transition`, 400 nomeado             |
-| D61     | **Sim**      | `activity_fields_hidden_from` nos **três** leitores de atividade                               |
-| D62     | **Sim**      | migração 0133, `ServiceIssueRequester`, `client_visible_issues_q`, três sítios do core         |
-| D63     | **Sim**      | `ServiceClientPortalReportEndpoint`, `_viewer` sobrescrito, `scope_filterset_to_client`        |
-| D64     | **Sim**      | registro por campo em `issue-detail` **e** `peek-overview`                                     |
-| D65     | **Sim**      | `CLIENT_COMMERCIAL_STATE_FIELDS`; `pricing_failure_reason` fora do `Meta.fields`               |
-| D66     | **Sim**      | a varredura percorre `get_resolver()`; allowlist `CLIENT_REACHABLE` nomeada no teste            |
+| Decisão | Muda código? | Onde                                                                                     |
+| ------- | ------------ | ---------------------------------------------------------------------------------------- |
+| D67     | **Sim**      | `client_project_scope` e `_as_uuids` em `service_portal.py`; `get` do endpoint do portal |

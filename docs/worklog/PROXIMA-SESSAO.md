@@ -1,26 +1,33 @@
-# Fim do escopo do núcleo — falta a Fase 8b para fechar a Fase 8
+# Handoff de fechamento da série
 
-A Fase 8 era a última do núcleo, e **entregou 20 dos seus 22 critérios**. Os critérios **2** e
-**15** dependem de tela e não foram cumpridos (seção 5). Por isso existe **uma** fase seguinte,
-e só uma: a **8b**, que é conclusão e não escopo novo — o precedente é a própria Fase 2b.
+**A série está fechada.** Dez fases mescladas — 1, 2, 2b, 3, 4, 5, 6, 7, 9, 8 e 8b — e a 8b
+fechou os dois critérios que a Fase 8 deixou dependendo de tela. **Este documento não aponta
+para uma fase seguinte, e não existe uma.**
 
-Fora disso, este documento não aponta para fase nenhuma. Ele registra o que as nove fases
-entregaram, o que existe em API sem tela, as duas perguntas que continuam em aberto, as
-melhorias que nunca tiveram prompt escrito, e as dívidas.
+Ele registra o que as fases entregaram, o que existe em API sem tela (nada, agora), as duas
+perguntas de negócio que continuam em aberto e vão desaparecer do registro se ninguém as
+adotar, as melhorias que nunca tiveram prompt escrito, e as dívidas — incluindo a que a 8b
+criou.
 
-A versão anterior deste documento dizia que a série estava fechada e listava os dois critérios
-como dívida, chamando o dashboard de "critério 13". Estava errado nos dois pontos, e a
-correção está na seção 5.
+**Duas correções que esta versão faz**, porque texto que descreve um estado que deixou de
+existir é pior que texto ausente:
+
+- A versão anterior dizia "falta a Fase 8b para fechar a Fase 8" e chamava a 8b de próxima
+  sessão. Ela foi feita.
+- A seção 2 listava quatro superfícies com API e sem tela. **As quatro têm tela.** E a primeira
+  delas revelou, ao ganhar tela, que a API não estava pronta: o dashboard do portal respondia as
+  duas empresas de um cliente multi-empresa somadas, contra a §2 da Fase 8. Corrigido pela
+  **D67**, que é a única decisão nova da 8b.
 
 Leitura obrigatória antes de qualquer coisa continua a mesma: `.kiro/steering/worklog-contexto.md`
-(contexto mestre, com as regras R1 a R11), `DECISOES.md` (D1 a D66), `ACHADOS-DO-CODIGO.md`
+(contexto mestre, com as regras R1 a R11), `DECISOES.md` (D1 a **D67**), `ACHADOS-DO-CODIGO.md`
 (inclui a seção 15, que é informação de operador e não tarefa) e `CONVENCOES-DE-TRABALHO.md`.
 
 ---
 
 ## 1. Estado final
 
-Nove fases mescladas: 1, 2, 2b, 3, 4, 5, 6, 7, 9 e 8.
+Dez fases mescladas: 1, 2, 2b, 3, 4, 5, 6, 7, 9, 8 e 8b.
 
 | Fase | O que entregou                                                                                                               | Migração  |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------- | --------- |
@@ -34,9 +41,12 @@ Nove fases mescladas: 1, 2, 2b, 3, 4, 5, 6, 7, 9 e 8.
 | 7    | Três capacidades elevadas fora do core (D45), delegação, reatribuição de autor                                               | 0131      |
 | 9    | Dashboards de consumo, agregação em SQL, um descritor de filtro (D50), projeção por papel (D51)                              | 0132      |
 | 8    | Portal do cliente: allowlist de campos, correção do feed, projeções do cliente, solicitante, varredura de escopo             | 0133      |
+| 8b   | As quatro telas que faltavam, e a **D67**: o dashboard do portal passa a ser de um Cliente por vez                           | nenhuma   |
 
-Suíte ao fim: **2495 passando, 0 falhando** (`RECREATE_DB=1`). A linha de base medida no
-início da Fase 8 era 2273.
+Suíte ao fim: **2505 passando, 0 falhando** (`RECREATE_DB=1`). A linha de base medida no
+início da 8b era 2495, e a própria 8b não mudou modelo nenhum — os 10 testes novos são todos da
+D67, e um deles é um controle positivo que existe porque sem ele um erro de tipo deixaria a
+feature morta com a suíte verde.
 
 ### O que a Fase 8 acrescentou de estrutural, além dos critérios
 
@@ -49,26 +59,36 @@ início da Fase 8 era 2273.
 
 ---
 
-## 2. O que existe em API e não tem tela
+## 2. O que existia em API e não tinha tela — as quatro têm tela
 
-Ordem de utilidade, não de esforço.
+**Fechado pela Fase 8b.** Mantido como registro porque a primeira linha é a lição da fase.
 
-| Superfície                                       | Estado                                                                    | Onde                                                   |
-| ------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------ |
-| **Dashboard do portal do cliente**               | API completa e testada, **nenhuma tela**                                  | `GET /service-reports/portal/`                         |
-| **Concessões da Fase 7**                         | API completa, nenhum serviço no frontend, nenhuma UI                      | `service-member-permissions/`, `/me/`, `/<member_id>/` |
-| **Solicitante do chamado**                       | API completa (GET/POST/DELETE), nenhum controle no formulário             | `.../issues/<id>/service-requester/`                   |
-| Atribuição de projects **em massa** a um Cliente | `assignProjects` existe em service e store; **nenhum componente o chama** | `service-clients/<pk>/assign-projects/`                |
+| Superfície                                       | Onde                                                   | Estado                                                                                |
+| ------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| **Dashboard do portal do cliente**               | `GET /service-reports/portal/`                         | **Tela feita** — e a API **não estava pronta**, ao contrário do que se registrou. D67 |
+| **Concessões da Fase 7**                         | `service-member-permissions/`, `/me/`, `/<member_id>/` | **Coluna na tabela de membros**, sem tela nova, como a Fase 7 quis                    |
+| **Solicitante do chamado**                       | `.../issues/<id>/service-requester/`                   | **Controle no detalhe e no peek**                                                     |
+| Atribuição de projects **em massa** a um Cliente | `service-clients/<pk>/assign-projects/`                | **Modal a partir da lista de clientes**; `assignProjects` finalmente tem chamador     |
 
-As três primeiras são dívidas nomeadas na seção 5. A quarta é a atribuição em massa, cujo
-caminho de uma via já existe.
+**A lição, e é o motivo de esta tabela ficar no registro:** "API completa e testada, nenhuma
+tela" era uma afirmação sobre três coisas, e uma delas não se sustentou. O endpoint do portal
+era escopado pelo usuário e não pelo project, então para um cliente presente em duas empresas
+ele somava as duas — exatamente a visão consolidada que a §2 da Fase 8 proíbe pelo nome. Estava
+testado, e o teste nunca fez a pergunta: a fixture chamada `marcel` era membro de um project só,
+enquanto o Marcel do cenário de referência é GUEST em dois.
+
+**Uma API sem consumidor é uma API sem verificação de aceitação.** Os testes de contrato provam
+as regras que alguém formulou; a tela é o que faz o cenário real ser executado ponta a ponta. Um
+critério pendurado entre fases porque "só falta a tela" pode estar escondendo um defeito de API
+justamente porque ninguém consegue exercitá-lo.
 
 **Correção de um erro de registro:** uma versão anterior deste documento afirmava que a UI não
 sugere `guest_view_all_features` ao vincular um project. **Ela sugere.**
 `ProjectServiceClientSelect` está montado em `project/settings/service-client-section.tsx` e abre
 um modal de confirmação com as duas flags — exatamente o "sugerir e não impor" que o contexto
-mestre pede. O que não existe é a tela de atribuição **em massa**, que é outro caminho e uma
-lacuna bem menor.
+mestre pede. A tela de atribuição **em massa**, que era o que de fato faltava, foi feita na 8b e
+reusa o mesmo campo das duas flags — extraído em `ServiceClientFlagsFields` para que a cópia não
+divirja entre os dois caminhos.
 
 ---
 
@@ -190,40 +210,40 @@ do Plane (`IntakeIssue`, com `source` e `source_email` já no modelo) é onde el
 
 ---
 
-## 5. A Fase 8 fechou em 20 de 22 critérios
+## 5. A Fase 8 fechou em 22 de 22 — os dois últimos, na 8b
 
-**Dois critérios de aceite não foram cumpridos**, e isso é diferente de dívida. Registrado
-assim porque a versão anterior deste documento os listava como dívida e chamava o dashboard de
-"critério 13" — o que fez um critério numerado parecer item lateral. Critério 13 é
-_"usuário do cliente não consegue criar, editar nem excluir apontamento"_, que **está**
-cumprido.
+A Fase 8 entregou 20 dos seus 22 critérios. Os dois restantes dependiam de tela e **foram
+fechados pela Fase 8b**, pelo mecanismo de critérios herdados que a série já usara três vezes:
+marcados na origem (`08-portal-do-cliente.md`) e provados no documento que fecha
+(`08b-telas-que-faltam.md`, §10).
 
-| Critério | Enunciado                                                                                  | Estado                                                               |
-| -------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| **2**    | "cada contexto mostra os chamados **e o dashboard de contrato do Cliente correspondente**" | ❌ a API existe e é testada; **não existe tela**                     |
-| **15**   | "Técnico abre chamado no project do Cliente **registrando o solicitante**"                 | ⚠️ API completa; **o técnico não tem onde registrar** pela interface |
+| Critério | Enunciado                                                                                  | Como fechou                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| **2**    | "cada contexto mostra os chamados **e o dashboard de contrato do Cliente correspondente**" | Tela feita **e API corrigida** (D67). O registro anterior — "a API existe e é testada" — era falso para este cenário |
+| **15**   | "Técnico abre chamado no project do Cliente **registrando o solicitante**"                 | Controle no detalhe e no peek. A regra já estava provada (D62); faltava onde registrar                               |
 
-Os outros 20 estão cumpridos e provados por teste. A projeção do dashboard (critério 22, o
-herdado) está entregue — é a **tela** que falta, não a regra.
-
-**Consequência prática:** a Fase 8 não deve ser considerada encerrada. A conclusão é a
-**Fase 8b**, seguindo o precedente da própria série — a Fase 2b existe pelo mesmo motivo.
-
-O briefing está escrito: **`docs/worklog/08b-telas-que-faltam.md`**. É o prompt da próxima
-sessão. Escopo aprovado: o dashboard do portal (critério 2), o controle do solicitante
-(critério 15), a UI das concessões da Fase 7, e a atribuição de projects em massa. Sem migração,
-sem decisão nova, sem toque no core.
+**Uma ressalva honesta sobre o que "fechado" significa aqui.** Seis dos dezesseis critérios da
+8b fecham **por construção**, não por teste, porque `apps/web` não tem runner de teste — os
+scripts são `check:lint`, `check:types` e `check:format`, e não existe um `*.test.*` no app. A
+§9 da 8b classifica os dezesseis em três estados em vez de dois, exatamente para não misturar
+"provado" com "lido". A dívida correspondente está na tabela abaixo, e é a maior que a série
+deixa em aberto.
 
 ### Dívidas propriamente ditas
 
 Estas não são critério de ninguém.
 
-| Dívida                                                    | Por que ficou                                                                                                                                         | Custo                                                                                                                                                                          |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **UI das concessões da Fase 7**                           | Dívida herdada, e a primeira coisa que combinamos cortar se o PR crescesse. Cresceu.                                                                  | Baixo. Uma coluna em `useMemberColumns.tsx` ao lado do dropdown de papel, mais um `service-member-permission.service.ts`. `isAdmin` e `rowData.member.id` já estão no arquivo. |
-| **Sugerir `guest_view_all_features` ao vincular Project** | Dívida da Fase 1 (ver seção 2). O portal a torna visível: sem a flag, o cliente só vê o que ele mesmo abriu.                                          | Baixo, e é a de maior impacto por linha: sem ela o portal parece vazio.                                                                                                        |
-| **Filtro de estado no drill-down do portal**              | Não existe drill-down de portal. Se algum dia existir, **o descritor tem de ser reescopado na entrada** — ele é um registro, não uma permissão (D63). | —                                                                                                                                                                              |
-| **Traduções das 9 chaves novas**                          | `en` e `pt-BR` traduzidas; as outras 17 carregam inglês, seguindo o padrão que as chaves de apontamento já usavam.                                    | Baixo.                                                                                                                                                                         |
+| Dívida                                       | Por que ficou                                                                                                                                                                                                                               | Custo                                                                                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Runner de teste no `apps/web`** ⭐         | **A maior que a série deixa.** Criada pela 8b: quatro telas novas cuja regressão nenhuma suíte pega. Escolher e instalar um runner é decisão de repositório, não efeito colateral de uma fase de UI.                                        | Médio. O que cobrir primeiro, em ordem de risco, está na §9 da 8b — o gate `restrictedFields`, o filtro de GUESTs do solicitante, e a célula de concessões |
+| **Os dois arrays de navegação duplicados**   | Pré-existente ao fork desta série, e a 8b acrescentou o sétimo item aos dois. Mexer em um só produz um item que existe num modo de navegação e não no outro, e nada além de leitura pega isso.                                              | Baixo para unificar; alto para descobrir se esquecerem. Comentário gêmeo nos dois arquivos aponta um para o outro                                          |
+| **Janela fixa de 12 competências no portal** | Não é critério da 8b. Um contrato de 36 meses tem dois anos que o cliente não alcança pela tela.                                                                                                                                            | Baixo. `WINDOW_MONTHS` em `portal-consumption-dashboard.tsx`; um seletor de janela reusaria `useReportFilters`                                             |
+| **Filtro de estado no drill-down do portal** | Continua não existindo drill-down de portal, e agora por decisão explícita: `service-reports/logs/` recusa um cliente, então um botão ali só poderia dar 403. Se algum dia existir, **o descritor tem de ser reescopado na entrada** (D63). | —                                                                                                                                                          |
+| **Traduções das 37 chaves da 8b**            | `en` e `pt-BR` traduzidas; as outras 17 carregam inglês, seguindo o padrão da série. Paridade verificada: 4356 chaves em 19 locales.                                                                                                        | Baixo.                                                                                                                                                     |
+
+Duas dívidas que constavam aqui **saíram porque foram pagas na 8b**: a UI das concessões da Fase
+7, e a atribuição de projects em massa. A de "sugerir `guest_view_all_features`" já estava paga
+antes — ver a correção de registro na seção 2.
 
 ### O que a Fase 8 não é dona, e não corrigiu de propósito
 
