@@ -50,10 +50,13 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
   const isOverrun = summary.balance_hours.startsWith("-");
   const isClosed = summary.status === "closed";
 
+  // The `_display` twin, not the raw decimal: these three cards are what showed
+  // "50.0000" where the allowance is fifty hours. `isOverrun` above keeps reading the raw
+  // value, which is exactly what the pair is for -- compute with one, render the other.
   const cards = [
-    { key: "credited", label: t("work_item.service_allowance.credited"), value: summary.credited_hours },
-    { key: "consumed", label: t("work_item.service_allowance.consumed"), value: summary.consumed_hours },
-    { key: "balance", label: t("work_item.service_allowance.balance"), value: summary.balance_hours },
+    { key: "credited", label: t("work_item.service_allowance.credited"), value: summary.credited_hours_display },
+    { key: "consumed", label: t("work_item.service_allowance.consumed"), value: summary.consumed_hours_display },
+    { key: "balance", label: t("work_item.service_allowance.balance"), value: summary.balance_hours_display },
   ];
 
   return (

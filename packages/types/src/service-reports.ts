@@ -132,15 +132,29 @@ export type TServiceContractStatementRow = {
   period_id: string;
   competence: string;
   status: string;
+  /**
+   * Every hour quantity comes as a pair: the decimal string to compute and compare with, and
+   * a `_display` twin already rendered by R3's formatter (`"10.0000"` / `"10h"`).
+   *
+   * **Render the twin, compute with the raw.** Rendering the raw is how a client came to see
+   * "10.0000" where the contract says ten hours.
+   */
   contracted_hours: string;
+  contracted_hours_display: string;
   carried_hours: string;
+  carried_hours_display: string;
   consumed_hours: string;
+  consumed_hours_display: string;
   granted_hours: string;
+  granted_hours_display: string;
   balance_hours: string;
+  balance_hours_display: string;
   discarded_by_cap_hours: string;
+  discarded_by_cap_hours_display: string;
   overage_hours: string;
+  overage_hours_display: string;
   overage_settlement: string;
-  parcels: { origin_competence: string; hours: string }[];
+  parcels: { origin_competence: string; hours: string; hours_display: string }[];
 };
 
 export type TServiceReportContract = {
@@ -170,9 +184,13 @@ export type TServiceReportAllowance = {
   issue: string;
   issue_name: string;
   reference: string;
+  /** Raw to compute with, `_display` to render. See `TServiceContractStatementRow`. */
   credited_hours: string;
+  credited_hours_display: string;
   consumed_hours: string;
+  consumed_hours_display: string;
   balance_hours: string;
+  balance_hours_display: string;
   consumed_pct: string | null;
   status: string;
   /** Absent for anyone who is not a workspace Admin. */
