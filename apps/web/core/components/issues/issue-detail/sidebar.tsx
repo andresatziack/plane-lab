@@ -106,8 +106,16 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
             </SidebarPropertyListItem>
 
             {/* Client company, derived from the project. Read only: changing it
-                means moving the work item to a project of another client. */}
-            {projectId && projectDetails?.service_client && (
+                means moving the work item to a project of another client.
+
+                Hidden from the client, like the requester row below and for a harder reason
+                than symmetry: the chip resolves its name from the workspace's Cliente list,
+                and that endpoint is ADMIN/MEMBER because it would otherwise let one client
+                enumerate every other. A GUEST therefore got a 403 and the chip rendered
+                its "..." fallback forever. Widening the endpoint would trade a cosmetic
+                defect for a cross-client leak; a client already knows which company they
+                are, so there is nothing here for them. */}
+            {editPermissions.restrictedFields && projectId && projectDetails?.service_client && (
               <SidebarPropertyListItem icon={Building2} label={t("common.service_client")}>
                 <IssueServiceClientProperty workspaceSlug={workspaceSlug} projectId={projectId} />
               </SidebarPropertyListItem>
