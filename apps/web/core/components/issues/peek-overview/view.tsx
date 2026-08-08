@@ -19,6 +19,7 @@ import usePeekOverviewOutsideClickDetector from "@/hooks/use-peek-overview-outsi
 // local imports
 import { withArchived, type TWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 import type { TIssueOperations } from "../issue-detail";
+import { ServiceLogClientSection, ServiceLogSection } from "@/components/service-logs";
 import { IssueActivity } from "../issue-detail/issue-activity";
 import { IssueDetailWidgets } from "../issue-detail-widgets";
 import { IssuePeekOverviewError } from "./error";
@@ -206,6 +207,32 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                       editPermissions={withArchived(editPermissions, is_archived)}
                     />
 
+                    {/*
+                      Same pair, same discriminator and same position as
+                      `issue-detail/main-content.tsx`: before the activity feed, because R8
+                      makes that feed the record of what this section did.
+
+                      It belongs here for the reason D64 gave for the requester control --
+                      the peek is the path one falls into. Phase 3 shipped this section only
+                      on the full page, so from the work item list, which is how the product
+                      is actually used, the hours were invisible and there was no way to add,
+                      edit or delete one.
+                    */}
+                    {editPermissions.restrictedFields ? (
+                      <ServiceLogSection
+                        workspaceSlug={workspaceSlug}
+                        projectId={projectId}
+                        issueId={issueId}
+                        disabled={is_archived}
+                      />
+                    ) : (
+                      <ServiceLogClientSection
+                        workspaceSlug={workspaceSlug}
+                        projectId={projectId}
+                        issueId={issueId}
+                      />
+                    )}
+
                     <IssueActivity
                       workspaceSlug={workspaceSlug}
                       projectId={projectId}
@@ -238,6 +265,26 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                             issueServiceType={EIssueServiceType.ISSUES}
                           />
                         </div>
+
+                        {/*
+                          The full-screen peek mode, which the expand icon in the header
+                          reaches. Mounted in both modes on purpose: mounting it in one leaves
+                          the same hole in a layout most people never notice they switched to.
+                        */}
+                        {editPermissions.restrictedFields ? (
+                          <ServiceLogSection
+                            workspaceSlug={workspaceSlug}
+                            projectId={projectId}
+                            issueId={issueId}
+                            disabled={is_archived}
+                          />
+                        ) : (
+                          <ServiceLogClientSection
+                            workspaceSlug={workspaceSlug}
+                            projectId={projectId}
+                            issueId={issueId}
+                          />
+                        )}
 
                         <IssueActivity
                           workspaceSlug={workspaceSlug}
