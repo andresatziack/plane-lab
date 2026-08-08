@@ -232,6 +232,9 @@ contratos são código seu.
 1. Marcel faz login e vê os projects `Marubeni` e `Terlogs`, e mais nenhum
 2. Marcel alterna entre os dois pelo seletor nativo e cada contexto mostra os
    chamados e o dashboard de contrato do Cliente correspondente
+   — **atendido na Fase 8b** (`08b-telas-que-faltam.md`, §10). A metade dos chamados
+   fechou aqui; a do dashboard não tinha tela, e ao construí-la descobriu-se que a API
+   respondia as duas empresas somadas — corrigido pela **D67**
 3. Adriano faz login e vê apenas `Terlogs`
 4. Adriano é negado ao acessar por ID direto um chamado da Marubeni
 5. Marcel abre chamado dentro de `Terlogs` e ele nasce vinculado à Terlogs, sem
@@ -255,6 +258,8 @@ contratos são código seu.
     workspace
 15. Técnico abre chamado no project do Cliente registrando o solicitante, e aquele
     usuário passa a ver o chamado no portal
+    — **atendido na Fase 8b** (`08b-telas-que-faltam.md`, §10). A regra e a concessão de
+    visibilidade fecharam aqui (D62); o técnico não tinha onde registrar
 16. Nenhum endpoint novo (apontamento, contrato, período, bolsa, preço, **catálogos
     de Tipo de Hora e Tipo de Atendimento**, **trilha de auditoria de configuração**,
     **calendário de feriados**, **janelas de classificação**) vaza dados de Cliente fora

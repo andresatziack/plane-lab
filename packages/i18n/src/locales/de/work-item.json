@@ -621,6 +621,16 @@
       "toasts": {
         "failed": "The overage could not be billed."
       }
+    },
+    "service_requester": {
+      "label": "Requester",
+      "placeholder": "No requester",
+      "tooltip": "The client's own user who asked for this work. They see the work item in their portal.",
+      "empty": "This project has no client users yet.",
+      "errors": {
+        "not_a_client_user": "That person is not a client user of this project.",
+        "default": "The requester could not be saved."
+      }
     }
   }
 }

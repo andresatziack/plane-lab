@@ -144,6 +144,15 @@
       "internal_project_no_client": "Projeto interno sem cliente",
       "no_price_sheet_for_client": "Cliente sem tabela de preços",
       "no_price_sheet_in_force": "Nenhuma tabela vigente na data do atendimento"
+    },
+    "portal": {
+      "label": "Meu consumo",
+      "page_label": "Meu consumo - {project}",
+      "consumed_hours": "Horas consumidas",
+      "consumed_hours_hint": "Já convertidas pelo tipo de atendimento de cada chamado.",
+      "series_title": "Consumo por mês",
+      "empty": "Ainda não há horas registradas neste período.",
+      "window_hint": "Mostrando as últimas 12 competências."
     }
   }
 }

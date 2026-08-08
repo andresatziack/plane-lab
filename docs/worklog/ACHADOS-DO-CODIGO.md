@@ -453,6 +453,13 @@ ninguém escreveu com decorador.
 
 ### O que a varredura ampliada mediu
 
+> **Estado na Fase 8b (última da série): não foi rodada de novo, e o resultado abaixo continua
+> valendo.** A 8b não criou nem alterou rota alguma — a única mudança de API foi apertar um
+> parâmetro de uma rota que a varredura já cobria (D67) —, então não havia superfície nova a
+> medir. O achado 2 continua **em aberto por decisão de operador**, não por esquecimento: os
+> três caminhos estão abaixo. A varredura em si é reutilizável e enumera `get_resolver()`
+> (D66), então uma rota futura é negada por padrão e aparece aqui se alguém a rodar.
+
 336 rotas com escopo de workspace, probadas com GET por usuário membro de nenhum workspace.
 39 responderam algo diferente de 401/403/405. Segunda passagem, plantando dados reais no
 workspace-vítima e procurando por eles no corpo da resposta:

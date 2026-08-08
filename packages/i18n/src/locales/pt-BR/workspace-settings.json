@@ -51,7 +51,8 @@
           "email_address": "Endereço de e-mail",
           "account_type": "Tipo de conta",
           "authentication": "Autenticação",
-          "joining_date": "Data de adesão"
+          "joining_date": "Data de adesão",
+          "service_permissions": "Concessões de apontamento"
         },
         "modal": {
           "title": "Convidar pessoas para colaborar",
@@ -529,7 +530,21 @@
           "save_failed": "Não foi possível salvar o cliente. Tente novamente.",
           "delete_failed": "Não foi possível excluir o cliente. Tente novamente."
         },
-        "billing_type_inherited": "{name} (padrão do catálogo)"
+        "billing_type_inherited": "{name} (padrão do catálogo)",
+        "assign_projects": {
+          "action": "Atribuir projects",
+          "title": "Atribuir projects a {name}",
+          "description": "Todo project selecionado passa a atender este cliente. Um project com apontamentos sob outro cliente é recusado.",
+          "search": "Buscar projects",
+          "empty": "Nenhum project encontrado.",
+          "current_client": "Hoje em {name}",
+          "internal": "Trabalho interno",
+          "selected": "{count} selecionados",
+          "submit": "Atribuir",
+          "success": "{count} project(s) atribuídos.",
+          "blocked": "Alguns projects já têm apontamentos sob outro cliente, então nada foi alterado.",
+          "failed": "Não foi possível atribuir os projects."
+        }
       },
       "worklog": {
         "title": "Apontamento",
@@ -795,6 +810,20 @@
           "duplicate": "Ja existe uma vigencia comecando nessa data.",
           "not_first_of_month": "A vigencia precisa comecar no dia 1o de um mes.",
           "already_priced": "Esta vigencia ja precificou apontamentos e nao pode ser removida. Esses registros guardam o valor cobrado, e apagar a folha deixaria ninguem capaz de conferi-lo."
+        }
+      },
+      "service_permissions": {
+        "all_admin": "Todas (Admin)",
+        "none": "Nenhuma",
+        "not_applicable": "Não se aplica",
+        "can_manage_others": "Editar apontamentos de outros",
+        "can_delegate": "Apontar em nome de outros",
+        "can_reassign_author": "Reatribuir o autor",
+        "guest_hint": "Um usuário do cliente não pode ter concessões de apontamento.",
+        "admin_hint": "Um Admin já tem as três; não há o que conceder.",
+        "errors": {
+          "guest": "Um usuário do cliente não pode ter concessões de apontamento.",
+          "default": "Não foi possível salvar a concessão."
         }
       }
     },

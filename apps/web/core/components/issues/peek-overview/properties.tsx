@@ -5,6 +5,7 @@
  */
 
 import { observer } from "mobx-react";
+import { UserRound } from "lucide-react";
 // i18n
 import { useTranslation } from "@plane/i18n";
 // ui icons
@@ -42,6 +43,7 @@ import type { TIssueOperations } from "../issue-detail";
 import { IssueCycleSelect } from "../issue-detail/cycle-select";
 import { IssueLabel } from "../issue-detail/label";
 import { IssueModuleSelect } from "../issue-detail/module-select";
+import { IssueServiceRequesterProperty } from "../issue-detail/service-requester-property";
 
 interface IPeekOverviewProperties {
   workspaceSlug: string;
@@ -95,6 +97,18 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
             dropdownArrowClassName="h-3.5 w-3.5 hidden group-hover:inline"
           />
         </SidebarPropertyListItem>
+
+        {/* Who, on the client's side, asked for this. D62.
+            **The twin of the row in `issue-detail/sidebar.tsx`, and it has to stay a twin.** Two
+            panels render a work item's properties in this codebase, and a control added to only
+            one of them is a control that is missing wherever the user happened to open the item
+            from -- the same miss as the second edit gate this panel needed in Phase 8.
+            Hidden rather than disabled: see the note in the sidebar. */}
+        {editPermissions.restrictedFields && projectDetails?.service_client && (
+          <SidebarPropertyListItem icon={UserRound} label={t("work_item.service_requester.label")}>
+            <IssueServiceRequesterProperty workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} />
+          </SidebarPropertyListItem>
+        )}
 
         <SidebarPropertyListItem icon={MembersPropertyIcon} label={t("common.assignees")}>
           <MemberDropdown

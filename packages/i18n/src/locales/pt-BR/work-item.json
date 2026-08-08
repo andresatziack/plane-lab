@@ -621,6 +621,16 @@
       "toasts": {
         "failed": "Nao foi possivel faturar o excedente."
       }
+    },
+    "service_requester": {
+      "label": "Solicitante",
+      "placeholder": "Sem solicitante",
+      "tooltip": "O usuário do cliente que pediu este atendimento. Ele passa a ver o chamado no portal dele.",
+      "empty": "Este project ainda não tem usuários do cliente.",
+      "errors": {
+        "not_a_client_user": "Essa pessoa não é usuário do cliente neste project.",
+        "default": "Não foi possível salvar o solicitante."
+      }
     }
   }
 }

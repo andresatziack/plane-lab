@@ -7,9 +7,10 @@
 import { useMemo, useCallback } from "react";
 // plane imports
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
-import { CycleIcon, IntakeIcon, ModuleIcon, PageIcon, ViewsIcon, WorkItemsIcon } from "@plane/propel/icons";
+import { BarIcon, CycleIcon, IntakeIcon, ModuleIcon, PageIcon, ViewsIcon, WorkItemsIcon } from "@plane/propel/icons";
 import type { EUserProjectRoles, IPartialProject } from "@plane/types";
 import type { TNavigationItem } from "@/components/navigation/tab-navigation-root";
+import { useWorkItemEditPermissions } from "@/hooks/use-work-item-edit-permissions";
 
 type UseNavigationItemsProps = {
   workspaceSlug: string;
@@ -29,6 +30,9 @@ export const useNavigationItems = ({
   project,
   allowPermissions,
 }: UseNavigationItemsProps): TNavigationItem[] => {
+  // Who is a client's own user. See the note on the consumption item below and its twin in
+  // `project-navigation.tsx`.
+  const { restrictedFields } = useWorkItemEditPermissions(workspaceSlug, projectId);
   // Base navigation items
   const baseNavigation = useCallback(
     // oxlint-disable-next-line no-shadow
@@ -93,8 +97,27 @@ export const useNavigationItems = ({
         shouldRender: !!project?.inbox_view,
         sortOrder: 6,
       },
+      {
+        // The client's own consumption dashboard. Phase 8b, criteria 1, 2 and 9.
+        //
+        // **The twin of the item in `project-navigation.tsx`, and it has to stay a twin.** The
+        // two arrays are duplicated in this codebase, one per navigation mode, so an item added
+        // to only one is invisible in the other -- a bug that survives manual review because
+        // whoever checks is in the mode that works. Same class of miss as the second edit gate in
+        // the peek overview in Phase 8.
+        //
+        // See that file for why `restrictedFields` is the discriminant and `access` is not.
+        i18n_key: "sidebar.service_consumption",
+        key: "service_consumption",
+        name: "My consumption",
+        href: `/${workspaceSlug}/projects/${projectId}/service-consumption`,
+        icon: BarIcon,
+        access: [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
+        shouldRender: !restrictedFields && !!project?.service_client && !!project?.is_time_tracking_enabled,
+        sortOrder: 7,
+      },
     ],
-    [project]
+    [project, restrictedFields]
   );
 
   // Combine, filter, and sort navigation items

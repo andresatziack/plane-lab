@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { observer } from "mobx-react";
-import { Building2, CircleDollarSign, Pencil, Trash2 } from "lucide-react";
+import { Building2, CircleDollarSign, FolderPlus, Pencil, Trash2 } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { Badge } from "@plane/propel/badge";
@@ -19,6 +19,7 @@ import { useServiceCatalog } from "@/hooks/store/use-service-catalog";
 import { useServiceClient } from "@/hooks/store/use-service-client";
 // local imports
 import { ServiceClientPrices } from "@/components/service-pricing";
+import { AssignProjectsModal } from "./assign-projects-modal";
 import { DeleteServiceClientModal } from "./delete-service-client-modal";
 import { ServiceClientModal } from "./service-client-modal";
 
@@ -32,6 +33,7 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
   // states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   // Prices expand inline rather than opening a modal. A vigency list is something an admin
   // reads while comparing clients, and a modal would make that a sequence of open-close.
   const [arePricesOpen, setArePricesOpen] = useState(false);
@@ -86,6 +88,12 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
         workspaceSlug={workspaceSlug}
         serviceClient={serviceClient}
       />
+      <AssignProjectsModal
+        isOpen={isAssignModalOpen}
+        onClose={() => setIsAssignModalOpen(false)}
+        workspaceSlug={workspaceSlug}
+        serviceClient={serviceClient}
+      />
 
       <div className="flex items-center justify-between gap-4 border-b border-subtle py-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -137,6 +145,14 @@ const ServiceClientsListItem = observer(function ServiceClientsListItem(props: I
               <span className="flex items-center gap-2">
                 <CircleDollarSign className="size-3.5" />
                 {t("workspace_settings.settings.service_prices.title")}
+              </span>
+            </CustomMenu.MenuItem>
+            {/* Phase 8b, criterion 16. The one-way path for this shipped in Phase 1 and had no
+                caller: attaching twenty projects meant opening twenty project settings pages. */}
+            <CustomMenu.MenuItem onClick={() => setIsAssignModalOpen(true)}>
+              <span className="flex items-center gap-2">
+                <FolderPlus className="size-3.5" />
+                {t("workspace_settings.settings.service_clients.assign_projects.action")}
               </span>
             </CustomMenu.MenuItem>
             <CustomMenu.MenuItem onClick={handleDeleteClick}>

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""The client's own consumption dashboard. D55, D63. Criteria 13 and 22.
+"""The client's own consumption dashboard. D55, D63, D67. Criteria 13 and 22.
 
 Criterion 22 is inherited: ``ReportViewer.guest()`` is built and proved at the domain layer
 in ``plane/tests/unit/utils/test_service_reports.py``, and those tests are not repeated
@@ -17,6 +17,25 @@ error, which is why they are written as tenancy assertions rather than status as
   every project in the workspace.
 * ``narrow()`` replaces rather than intersects, so a scope applied before the query string
   is a scope the query string can widen.
+
+**Every portal read here names its project**, because D67 made ``?project_ids=`` required and
+single. Two consequences worth stating, since both are easy to get wrong in a test file:
+
+* The absence assertions in this module are satisfied by an empty payload, and after D67 an
+  empty payload is what a *type mismatch* in the scope intersection would produce for every
+  request. ``TestD67`` therefore carries an explicit **positive** control asserting a
+  non-empty result, without which the whole module could go green on a dead feature.
+* The multi-project guest -- Marcel, a GUEST of Marubeni *and* Terlogs, the reference scenario
+  of the entire series -- is exercised in ``TestD67TheDashboardIsOfOneClienteAtATime``. No
+  fixture in *this* file implemented him before D67: ``marcel`` is a member of one project, so
+  the class below proves isolation *between* clients and never asked what a user belonging to
+  two of them receives.
+
+  **He was implemented in ``test_service_client_isolation_app.py``, and that is where the real
+  failure was**: a test there asserted his two Clientes summed into one payload -- ``entries ==
+  2``, ``3.0000`` -- as the expected answer, contradicting section 2 of the Phase 8 brief, which
+  forbids the consolidated view by name. The test was measuring tenancy, and pinned the
+  aggregation in passing. See D67.
 """
 
 from datetime import date
@@ -33,6 +52,7 @@ from plane.db.models import (
     ProjectMember,
     ServiceBillingType,
     ServiceClient,
+    ServiceContract,
     ServiceHourType,
     ServiceLog,
     User,
@@ -123,6 +143,47 @@ def marcel(db, workspace, projects):
 
 
 @pytest.fixture
+def marcel_multi(db, workspace, projects):
+    """Marcel as the master context actually describes him: a GUEST of **both** Clientes.
+
+    The reference scenario of the whole series, and until D67 no fixture implemented it. The
+    ``marcel`` fixture above belongs to one project, which is why the isolation class could
+    pass while the question "what does a user of two Clientes receive" had never been asked.
+
+    Kept as a second fixture rather than widening ``marcel``: the single-project user is the
+    right subject for the tenancy tests, where two memberships would make an assertion of
+    ``entries == 1`` ambiguous about *which* scope produced it.
+    """
+    return _user("marcel-multi", workspace, 5, [projects["marubeni"], projects["terlogs"]])
+
+
+@pytest.fixture
+def contracts(db, workspace, create_user, clients):
+    """One contract per Cliente, so ``shape`` is "contract" and ``contracts[]`` is assertable.
+
+    Deliberately **not** used by the tests above. Adding a contract switches
+    ``consumption_series`` to the debited-period basis (D48), and these logs debit no period,
+    so the series would be legitimately empty -- which would make a positive control asserting
+    a non-empty series fail for a reason that has nothing to do with what it is testing.
+    """
+    built = {}
+
+    for name, service_client in clients.items():
+        built[name] = ServiceContract.objects.create(
+            workspace=workspace,
+            service_client=service_client,
+            code=f"CT-{name[:4].upper()}",
+            name=f"{service_client.name} support contract",
+            monthly_hours=Decimal("40.0000"),
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 12, 31),
+            created_by=create_user,
+        )
+
+    return built
+
+
+@pytest.fixture
 def adriano(db, workspace, projects):
     """The Terlogs client's user. Must never see a Marubeni number."""
     return _user("adriano", workspace, 5, [projects["terlogs"]])
@@ -179,7 +240,16 @@ def _api(user):
     return api
 
 
-def _get(user, workspace, url=PORTAL_URL, **params):
+def _get(user, workspace, url=PORTAL_URL, project=None, **params):
+    """A report read. ``project`` sets the ``project_ids`` the portal requires. D67.
+
+    Passed as a keyword holding the project *object* rather than a raw id so that a call site
+    reads as the scope it means, and so that omitting it -- which the portal answers with a
+    400 -- is visibly a choice rather than a forgotten parameter.
+    """
+    if project is not None:
+        params["project_ids"] = project.id
+
     query = "&".join(f"{key}={value}" for key, value in params.items())
     return _api(user).get(url.format(slug=workspace.slug) + (f"?{query}" if query else ""))
 
@@ -222,39 +292,39 @@ def _hour_keys(payload, key):
 @pytest.mark.contract
 class TestTheGuestProjectionIsWhatTheRouteReturns:
     @pytest.mark.django_db
-    def test_a_client_reaches_the_portal_dashboard(self, workspace, marcel, logs):
-        response = _get(marcel, workspace)
+    def test_a_client_reaches_the_portal_dashboard(self, workspace, marcel, projects, logs):
+        response = _get(marcel, workspace, project=projects["marubeni"])
 
         assert response.status_code == status.HTTP_200_OK, response.data
 
     @pytest.mark.django_db
-    def test_the_payload_carries_no_logged_hours_anywhere(self, workspace, marcel, logs):
+    def test_the_payload_carries_no_logged_hours_anywhere(self, workspace, marcel, projects, logs):
         """The inherited criterion, asserted at the HTTP boundary. Nothing computes
         logged_hours for a guest viewer, so the key is absent rather than stripped."""
-        response = _get(marcel, workspace)
+        response = _get(marcel, workspace, project=projects["marubeni"])
 
         assert _hour_keys(response.data, "logged_hours") == []
         assert _hour_keys(response.data, "logged_hours_display") == []
 
     @pytest.mark.django_db
-    def test_the_payload_carries_no_money_anywhere(self, workspace, marcel, logs):
-        response = _get(marcel, workspace)
+    def test_the_payload_carries_no_money_anywhere(self, workspace, marcel, projects, logs):
+        response = _get(marcel, workspace, project=projects["marubeni"])
 
         assert _money_keys(response.data) == set()
 
     @pytest.mark.django_db
-    def test_revenue_series_is_not_even_a_key(self, workspace, marcel, logs):
+    def test_revenue_series_is_not_even_a_key(self, workspace, marcel, projects, logs):
         """`revenue_series` returns hours-only buckets rather than raising for a non-money
         viewer, so calling it would have produced a silently empty section instead of an
         error. It is not called at all."""
-        response = _get(marcel, workspace)
+        response = _get(marcel, workspace, project=projects["marubeni"])
 
         assert "revenue_series" not in response.data
 
     @pytest.mark.django_db
-    def test_the_client_does_receive_their_hours(self, workspace, marcel, logs):
+    def test_the_client_does_receive_their_hours(self, workspace, marcel, projects, logs):
         """The positive control. Every absence above is satisfied by an empty payload."""
-        response = _get(marcel, workspace)
+        response = _get(marcel, workspace, project=projects["marubeni"])
 
         assert response.data["totals"]["equivalent_hours"] == EQUIVALENT
         assert "debited_hours" in response.data["totals"]
@@ -272,11 +342,11 @@ class TestTheGuestProjectionIsWhatTheRouteReturns:
 
     @pytest.mark.django_db
     def test_an_admin_calling_this_route_also_gets_the_guest_projection(
-        self, workspace, create_user, logs
+        self, workspace, create_user, projects, logs
     ):
         """Unconditional by design: it makes the portal auditable from the inside, and
         leaves no role-conditional branch for R11 to be wrong in."""
-        response = _get(create_user, workspace)
+        response = _get(create_user, workspace, project=projects["marubeni"])
 
         assert response.status_code == status.HTTP_200_OK, response.data
         assert _hour_keys(response.data, "logged_hours") == []
@@ -295,66 +365,36 @@ class TestTheGuestProjectionIsWhatTheRouteReturns:
 @pytest.mark.contract
 class TestD63TheScopeIsResolvedFirstAndNarrowedLast:
     @pytest.mark.django_db
-    def test_a_client_sees_only_their_own_clients_hours(self, workspace, marcel, logs):
+    def test_a_client_sees_only_their_own_clients_hours(self, workspace, marcel, projects, logs):
         """Marubeni's log is 1.5h; Terlogs' is another 1.5h. A total of 1.5 proves the
         scope held; 3.0 would mean it did not."""
-        response = _get(marcel, workspace)
+        response = _get(marcel, workspace, project=projects["marubeni"])
 
         assert response.data["totals"]["equivalent_hours"] == EQUIVALENT
         assert response.data["totals"]["entries"] == 1
 
     @pytest.mark.django_db
-    def test_the_other_client_sees_only_theirs(self, workspace, adriano, logs):
+    def test_the_other_client_sees_only_theirs(self, workspace, adriano, projects, logs):
         """The mirror, so a scope that accidentally pinned one project would fail here."""
-        response = _get(adriano, workspace)
+        response = _get(adriano, workspace, project=projects["terlogs"])
 
         assert response.data["totals"]["entries"] == 1
 
     @pytest.mark.django_db
-    def test_a_crafted_project_filter_cannot_widen_the_scope(self, workspace, marcel, projects, logs):
-        """`narrow()` replaces rather than intersects, so the scope must be applied after
-        the query string. This is the test that fails if the order is ever reversed."""
-        response = _get(
-            marcel,
-            workspace,
-            project_ids=f"{projects['marubeni'].id},{projects['terlogs'].id}",
-        )
-
-        assert response.status_code == status.HTTP_200_OK, response.data
-        assert response.data["totals"]["entries"] == 1
-        assert response.data["totals"]["equivalent_hours"] == EQUIVALENT
-
-    @pytest.mark.django_db
-    def test_asking_only_for_another_clients_project_returns_nothing_of_theirs(
+    def test_asking_only_for_another_clients_project_returns_nothing(
         self, workspace, marcel, projects, logs
     ):
-        response = _get(marcel, workspace, project_ids=str(projects["terlogs"].id))
+        """**Rewritten by D67, and the assertion moved with the semantics.**
 
-        assert response.status_code == status.HTTP_200_OK, response.data
-        # The scope replaced the request, so the caller gets their own project, not an
-        # empty result and certainly not Terlogs'.
-        assert response.data["totals"]["entries"] == 1
-        assert response.data["totals"]["equivalent_hours"] == EQUIVALENT
+        This test used to assert ``entries == 1``: the scope *replaced* the request, so a
+        caller asking for somebody else's project silently received their own. The property
+        the name claims -- nothing of Terlogs' -- held either way, and the ``1`` was an
+        artefact of replacement rather than the thing being protected.
 
-    @pytest.mark.django_db
-    def test_a_crafted_service_client_filter_cannot_widen_the_scope(
-        self, workspace, marcel, clients, logs
-    ):
-        """The other axis: the descriptor also carries `service_client_ids`, and the project
-        scope has to defeat it because the project is what membership is granted on."""
-        response = _get(marcel, workspace, service_client_ids=str(clients["terlogs"].id))
-
-        assert response.data["totals"]["entries"] == 0 or response.data["totals"][
-            "equivalent_hours"
-        ] == "0.0000"
-
-    @pytest.mark.django_db
-    def test_a_client_with_no_projects_sees_nothing_rather_than_everything(
-        self, workspace, orphan, logs
-    ):
-        """The most dangerous failure in this phase: an empty scope becoming total access.
-        `narrow(project_ids=())` would have applied no project filter at all."""
-        response = _get(orphan, workspace)
+        With the intersection it is 0, and both halves are asserted: nothing of theirs, and
+        nothing of anybody's. Answering with the caller's own project would now be the bug.
+        """
+        response = _get(marcel, workspace, project=projects["terlogs"])
 
         assert response.status_code == status.HTTP_200_OK, response.data
         assert response.data["totals"]["entries"] == 0
@@ -362,11 +402,47 @@ class TestD63TheScopeIsResolvedFirstAndNarrowedLast:
         assert _money_keys(response.data) == set()
 
     @pytest.mark.django_db
-    def test_the_empty_payload_has_the_same_keys_as_a_full_one(self, workspace, orphan, marcel, logs):
+    def test_a_crafted_service_client_filter_cannot_widen_the_scope(
+        self, workspace, marcel, projects, clients, logs
+    ):
+        """The other axis: the descriptor also carries `service_client_ids`, and the project
+        scope has to defeat it because the project is what membership is granted on."""
+        response = _get(
+            marcel,
+            workspace,
+            project=projects["marubeni"],
+            service_client_ids=str(clients["terlogs"].id),
+        )
+
+        assert response.data["totals"]["entries"] == 0 or response.data["totals"][
+            "equivalent_hours"
+        ] == "0.0000"
+
+    @pytest.mark.django_db
+    def test_a_client_with_no_projects_sees_nothing_rather_than_everything(
+        self, workspace, orphan, projects, logs
+    ):
+        """The most dangerous failure in this phase: an empty scope becoming total access.
+        `narrow(project_ids=())` would have applied no project filter at all.
+
+        After D67 the caller must name a project, so the empty scope now arrives as an empty
+        *intersection* rather than an empty membership -- the same short circuit, reached by
+        the path a real request takes."""
+        response = _get(orphan, workspace, project=projects["marubeni"])
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert response.data["totals"]["entries"] == 0
+        assert response.data["consumption_series"] == []
+        assert _money_keys(response.data) == set()
+
+    @pytest.mark.django_db
+    def test_the_empty_payload_has_the_same_keys_as_a_full_one(
+        self, workspace, orphan, marcel, projects, logs
+    ):
         """So the frontend has no special case, and so a future key added to one branch and
         not the other fails here."""
-        empty = _get(orphan, workspace).data
-        full = _get(marcel, workspace).data
+        empty = _get(orphan, workspace, project=projects["marubeni"]).data
+        full = _get(marcel, workspace, project=projects["marubeni"]).data
 
         assert set(empty) <= set(full)
         for key in ("shape", "totals", "distributions", "non_billable", "allowances", "consumption_series"):
@@ -381,6 +457,153 @@ class TestD63TheScopeIsResolvedFirstAndNarrowedLast:
 
         with pytest.raises(ValueError, match="empty project set"):
             scope_filterset_to_client(ServiceLogFilterSet(), ())
+
+
+@pytest.mark.contract
+class TestD67TheDashboardIsOfOneClienteAtATime:
+    """Criteria 1 and 2 of Phase 8b: one Cliente per payload, and the sum unreachable.
+
+    Section 2 of Phase 8 forbids a consolidated view of two companies. Before D67 the portal
+    endpoint produced exactly that for a user who is a GUEST of two Clientes -- and a test in
+    ``test_service_client_isolation_app.py`` asserted it as **correct**, which is why nothing
+    caught it. The endpoint is now structurally incapable of it: the project is required and
+    single. See D67.
+    """
+
+    @pytest.mark.django_db
+    def test_the_project_is_required(self, workspace, marcel_multi, logs):
+        """Without this the endpoint's default answer is every project the caller belongs to,
+        summed -- the consolidated payload section 2 prohibits. A 400 makes it unrepresentable
+        instead of merely unused, which is the same move as the ledger's XOR."""
+        response = _get(marcel_multi, workspace)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.data
+        assert response.data["error"] == "PORTAL_REPORT_REQUIRES_A_PROJECT"
+
+    @pytest.mark.django_db
+    def test_more_than_one_project_is_refused(self, workspace, marcel_multi, projects, logs):
+        """**Replaces the old ``a_crafted_project_filter_cannot_widen_the_scope``.**
+
+        That test asked for both projects and asserted the answer was one of them, which was
+        the replacement semantics doing the defending. Two projects is now a 400, so the
+        widening it guarded against is refused earlier and louder -- and for the caller who
+        legitimately belongs to both, which is the case that makes it interesting.
+        """
+        response = _get(
+            marcel_multi,
+            workspace,
+            project_ids=f"{projects['marubeni'].id},{projects['terlogs'].id}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.data
+        assert response.data["error"] == "PORTAL_REPORT_ACCEPTS_ONE_PROJECT"
+
+    @pytest.mark.django_db
+    def test_a_legitimate_single_project_request_is_not_empty(
+        self, workspace, marcel_multi, projects, logs
+    ):
+        """**The positive control, and the reason it is not optional.**
+
+        The intersection compares ids from the query string against ids from the database. If
+        the two sides were ever different types the intersection would be empty for *every*
+        request -- and that failure is invisible to this module's other tests, all of which
+        assert absence and would go green on a permanently blank dashboard. This test is what
+        distinguishes "correctly scoped" from "dead".
+        """
+        response = _get(marcel_multi, workspace, project=projects["marubeni"])
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert response.data["totals"]["entries"] == 1
+        assert response.data["totals"]["equivalent_hours"] == EQUIVALENT
+        assert response.data["consumption_series"] != []
+        assert response.data["distributions"]["hour_type"] != []
+
+    @pytest.mark.django_db
+    def test_the_scope_helper_accepts_ids_as_strings_and_as_uuids(
+        self, workspace, marcel_multi, projects
+    ):
+        """The same trap, asserted at the unit the coercion lives in, for both shapes a caller
+        could plausibly hold. A set intersection without the coercion passes one and fails the
+        other, which is precisely the bug that looks like a scoping success."""
+        from plane.utils.service_portal import client_project_scope
+
+        project = projects["marubeni"]
+
+        as_uuid = client_project_scope(marcel_multi, slug=workspace.slug, requested=[project.id])
+        as_string = client_project_scope(
+            marcel_multi, slug=workspace.slug, requested=[str(project.id)]
+        )
+
+        assert as_uuid == (project.id,)
+        assert as_string == (project.id,)
+
+    @pytest.mark.django_db
+    def test_the_multi_project_guest_sees_marubeni_inside_marubeni(
+        self, workspace, marcel_multi, projects, logs
+    ):
+        """Criterion 1. Marcel belongs to both, so 3.0 here would be the consolidated view."""
+        response = _get(marcel_multi, workspace, project=projects["marubeni"])
+
+        assert response.data["totals"]["equivalent_hours"] == EQUIVALENT
+        assert response.data["totals"]["entries"] == 1
+
+    @pytest.mark.django_db
+    def test_the_multi_project_guest_sees_terlogs_inside_terlogs(
+        self, workspace, marcel_multi, projects, logs
+    ):
+        """Criterion 2. The same user, the other project, and a different Cliente's numbers --
+        without choosing a company anywhere. A scope that pinned the first project the caller
+        happened to belong to would pass the test above and fail this one."""
+        response = _get(marcel_multi, workspace, project=projects["terlogs"])
+
+        assert response.data["totals"]["equivalent_hours"] == EQUIVALENT
+        assert response.data["totals"]["entries"] == 1
+
+    @pytest.mark.django_db
+    def test_neither_payload_is_the_sum_of_the_two(
+        self, workspace, marcel_multi, projects, logs
+    ):
+        """The prohibition itself, stated as one assertion. Each Cliente logged 1.5h; a payload
+        carrying 3.0 or two entries is the consolidated view, whatever produced it."""
+        for key in ("marubeni", "terlogs"):
+            response = _get(marcel_multi, workspace, project=projects[key])
+
+            assert response.data["totals"]["entries"] == 1, key
+            assert response.data["totals"]["equivalent_hours"] == EQUIVALENT, key
+
+    @pytest.mark.django_db
+    def test_only_the_active_projects_contract_is_listed(
+        self, workspace, marcel_multi, projects, contracts, logs
+    ):
+        """Criterion 1 for the contract itself, and the sharpest form of the prohibition: the
+        client holding two contracts must never see both in one payload, because section 2 says
+        they are independent. ``contracts[]`` is the key where a leak would be unmistakable."""
+        response = _get(marcel_multi, workspace, project=projects["marubeni"])
+
+        assert response.data["shape"] == "contract"
+        codes = [contract["code"] for contract in response.data["contracts"]]
+        assert codes == [contracts["marubeni"].code]
+        assert contracts["terlogs"].code not in codes
+
+    @pytest.mark.django_db
+    def test_the_other_project_lists_the_other_contract(
+        self, workspace, marcel_multi, projects, contracts, logs
+    ):
+        """The mirror, so a payload that always returned the same contract fails here."""
+        response = _get(marcel_multi, workspace, project=projects["terlogs"])
+
+        codes = [contract["code"] for contract in response.data["contracts"]]
+        assert codes == [contracts["terlogs"].code]
+
+    @pytest.mark.django_db
+    def test_an_absent_project_is_refused_before_the_scope_is_resolved(self, workspace, orphan):
+        """A caller with no projects at all still gets the 400 and not the empty payload: the
+        missing parameter is a malformed request, and answering 200 would teach a frontend that
+        omitting it is fine until the day the caller has two Clientes."""
+        response = _get(orphan, workspace)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.data
+        assert response.data["error"] == "PORTAL_REPORT_REQUIRES_A_PROJECT"
 
 
 @pytest.mark.contract

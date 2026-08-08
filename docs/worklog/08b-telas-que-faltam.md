@@ -251,3 +251,84 @@ modal.
 - Não corrija o achado da **seção 15** do `ACHADOS-DO-CODIGO.md` (leitura e escrita cross-tenant
   no `WorkspaceViewViewSet`). É decisão de operador e sai em PR próprio, se sair.
 - Não instale biblioteca de gráficos nova.
+
+---
+
+## 9. Fechamento — critérios um por um
+
+**Três estados, não dois, e o motivo é a convenção desta série: "fechar significa provar".**
+`apps/web` não tem infraestrutura de teste — os scripts são `check:lint`, `check:types` e
+`check:format`, e não existe um único `*.test.*` no app. Então um critério cuja afirmação é
+sobre **comportamento de tela** não pode ser provado aqui, e marcá-lo como atendido ao lado de
+um que tem teste de contrato seria exatamente o falso-verde que a §"Como quero os testes"
+descreve. Os estados são:
+
+- **Provado** — existe teste que atravessa o mesmo caminho, nomeado na linha.
+- **Provado no servidor** — a regra que o critério depende está provada; o ato de UI não está.
+- **Por construção** — verificado por leitura do código, sem teste. Dívida nomeada abaixo.
+
+| #   | Critério                                                | Estado                  | Onde                                                                                                                                      |
+| --- | ------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Marcel vê a Marubeni dentro da Marubeni                 | **Provado**             | `test_the_multi_project_guest_sees_marubeni_inside_marubeni`, `test_only_the_active_projects_contract_is_listed`                          |
+| 2   | Alterna para Terlogs e vê a Terlogs                     | **Provado**             | `test_the_multi_project_guest_sees_terlogs_inside_terlogs`, `test_neither_payload_is_the_sum_of_the_two`                                  |
+| 3   | Adriano não alcança a Marubeni, nem por URL             | **Provado**             | `test_asking_only_for_another_clients_project_returns_nothing`; a rota ainda é barrada antes pelo `ProjectAuthWrapper`                    |
+| 4   | Nenhum R$, nenhuma `logged_hours`, nenhum multiplicador | **Provado**             | `test_the_payload_carries_no_money_anywhere`, `test_the_payload_carries_no_logged_hours_anywhere`, `_money_keys` varre o payload aninhado |
+| 5   | "Não faturável" discriminado                            | **Provado no servidor** | `non_billable_breakdown` é sempre lista (R5); a tela consome com `DistributionTable`                                                      |
+| 6   | Nenhuma hora rotulada "horas trabalhadas"               | **Por construção**      | chaves `service_reports.portal.*` dizem "Horas consumidas"; `consumption.standalone_series` **não** é reusada                             |
+| 7   | Sem contrato vê `standalone` e não quebra               | **Provado no servidor** | o `shape` vem do servidor e é testado; a tela ramifica em `data.shape`                                                                    |
+| 8   | Sem project vê estado vazio, não erro                   | **Provado**             | `test_a_client_with_no_projects_sees_nothing_rather_than_everything`, `test_the_empty_payload_has_the_same_keys_as_a_full_one`            |
+| 9   | Técnico não vê a página do portal                       | **Por construção**      | `restrictedFields` esconde o item de nav nos dois arrays e a página responde `NotAuthorizedView`                                          |
+| 10  | Admin na rota do portal vê o que o cliente vê           | **Provado**             | `test_an_admin_calling_this_route_also_gets_the_guest_projection` + o controle positivo do lado                                           |
+| 11  | Select oferece apenas GUESTs daquele project            | **Por construção**      | filtro `original_role ?? role === GUEST` passado como `memberIds`; o servidor recusa o resto com 400                                      |
+| 12  | Solicitante passa a ver o chamado com a flag desligada  | **Provado no servidor** | `test_service_issue_requester_app.py` semeia `guest_view_all_features=False`; a UI agora escreve a atribuição                             |
+| 13  | Controle no detalhe **e** no peek, e não para o cliente | **Por construção**      | montado em `issue-detail/sidebar.tsx` e `peek-overview/properties.tsx`, ambos atrás de `restrictedFields`                                 |
+| 14  | Admin concede `can_delegate` e o técnico delega         | **Provado no servidor** | `test_service_log_permissions_app.py`, `test_service_permission.py`; a UI agora faz o PATCH                                               |
+| 15  | Rebaixar a GUEST remove as concessões na tela           | **Por construção**      | a célula deriva de `rowData.role`, que a coluna de tipo de conta já atualiza otimista; o servidor revoga de fato                          |
+| 16  | Três projects de uma vez, com as duas flags sugeridas   | **Por construção**      | `AssignProjectsModal` + `ServiceClientFlagsFields`; o endpoint só recebe as flags marcadas                                                |
+
+### A dívida que esta fase cria, e para quem
+
+**Seis critérios fecham "por construção" porque não há como testá-los aqui.** Isso não é uma
+observação de rodapé: são quatro telas novas cuja regressão nenhuma suíte pega. A dívida é
+**infraestrutura de teste de componente no `apps/web`** — e ela não é desta fase para resolver,
+porque escolher e instalar um runner é uma decisão de repositório, não um efeito colateral de
+uma fase de UI.
+
+Nomeando o que um runner deveria cobrir primeiro, em ordem de risco:
+
+1. `restrictedFields` esconder o item de nav e a página (critérios 9 e 13). É o único gate que
+   separa o cliente do técnico nas telas novas, e hoje nada o protege.
+2. O filtro de GUESTs do select de solicitante (critério 11). Se `original_role ?? role` virar
+   `role`, o select passa a oferecer as pessoas erradas e o único sintoma é um 400 do servidor.
+3. A célula de concessões por papel (critério 15).
+
+Enquanto isso não existir, **os dois arrays de navegação duplicados são o risco vivo mais
+concreto** desta fase: mexer em um só produz um item que existe num modo de navegação e não no
+outro, e nada além de leitura pega isso.
+
+---
+
+## 10. Critérios herdados da Fase 8
+
+A Fase 8 fechou em 20 de 22. Os dois que faltavam dependiam de tela, e é isto que os fecha —
+seguindo o mecanismo que a série já usou três vezes (1→2, 2→3, 3→2b).
+
+| Critério da Fase 8                                                                                 | O que faltava                                                                                                                                          | Status                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **2** — "cada contexto mostra os chamados **e o dashboard de contrato do Cliente correspondente**" | A metade dos chamados fechou na Fase 8. A do dashboard não tinha tela — e ao construí-la descobriu-se que a API respondia as **duas empresas somadas** | **Fechado.** `test_service_report_portal_app.py::TestD67TheDashboardIsOfOneClienteAtATime`, e a **D67** é a correção que faltava                                                                      |
+| **15** — "Técnico abre chamado no project do Cliente **registrando o solicitante**"                | A regra e a concessão de visibilidade fecharam na Fase 8 (D62). O técnico não tinha onde registrar                                                     | **Fechado quanto à API; por construção quanto à tela.** O comportamento está em `test_service_issue_requester_app.py`; o controle não tem teste porque `apps/web` não tem runner — ver a dívida na §9 |
+
+**O critério 2 é o achado desta fase, não o seu item mais simples.** A Fase 8 registrou "a API
+existe e é testada; não existe tela". Existia API, ela não sabia responder por Cliente, e
+**estava testada afirmando o contrário**: um teste em `test_service_client_isolation_app.py`
+fixava as duas empresas do Marcel somadas — `entries == 2`, `3.0000` — como resultado esperado,
+contra a §2 da própria Fase 8. O teste media tenancy e, de passagem, registrou a agregação.
+
+Duas consequências que valem mais que o critério:
+
+1. **Um teste pode proteger a violação de uma regra escrita.** Escopar o endpoint por Cliente
+   falharia naquele teste, e a falha pareceria a regressão. Não faltava teste; faltava alguém ler
+   a asserção contra a proibição.
+2. **Um critério cuja verificação depende de tela pode esconder um defeito de API**, justamente
+   porque ninguém consegue exercitá-lo ponta a ponta. É o argumento para não deixar critérios
+   pendurados entre fases, e o motivo pelo qual esta fase existe.

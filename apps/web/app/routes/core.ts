@@ -227,6 +227,18 @@ export const coreRoutes: RouteConfigEntry[] = [
               "./(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/intake/page.tsx"
             ),
           ]),
+          // Client portal consumption dashboard. Phase 8b, criteria 1 to 3.
+          //
+          // Inside the project on purpose: the client switches Cliente with the native project
+          // picker and the dashboard follows, so there is no company to choose anywhere (D67).
+          // Nesting under the [projectId] layout is also what makes criterion 3 free --
+          // ProjectAuthWrapper refuses a non-member before the page component runs.
+          layout("./(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/service-consumption/layout.tsx", [
+            route(
+              ":workspaceSlug/projects/:projectId/service-consumption",
+              "./(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/service-consumption/page.tsx"
+            ),
+          ]),
         ]),
 
         // Project Archives - Issues, Cycles, Modules

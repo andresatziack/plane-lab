@@ -144,6 +144,15 @@
       "internal_project_no_client": "Internal project with no client",
       "no_price_sheet_for_client": "No price sheet for the client",
       "no_price_sheet_in_force": "No price sheet in force on the service date"
+    },
+    "portal": {
+      "label": "My consumption",
+      "page_label": "My consumption - {project}",
+      "consumed_hours": "Consumed hours",
+      "consumed_hours_hint": "Already converted by the service type of each call.",
+      "series_title": "Consumption by month",
+      "empty": "No hours recorded for this period yet.",
+      "window_hint": "Showing the last 12 competencies."
     }
   }
 }

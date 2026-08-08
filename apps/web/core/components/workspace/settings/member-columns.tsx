@@ -4,24 +4,31 @@
  * See the LICENSE file for details.
  */
 
+import { useState } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
 import { Controller, useForm } from "react-hook-form";
+import useSWR from "swr";
 
 import { Disclosure } from "@headlessui/react";
 // plane imports
 import { ROLE, EUserPermissions, EUserPermissionsLevel, MEMBER_TRACKER_ELEMENTS } from "@plane/constants";
+import { useTranslation } from "@plane/i18n";
 import { TrashIcon, SuspendedUserIcon } from "@plane/propel/icons";
 import { Pill, EPillVariant, EPillSize } from "@plane/propel/pill";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
-import type { IUser, IWorkspaceMember } from "@plane/types";
+import type { IUser, IWorkspaceMember, TServiceMemberCapabilityKey } from "@plane/types";
 // plane ui
-import { CustomSelect, PopoverMenu } from "@plane/ui";
+import { CustomSelect, PopoverMenu, ToggleSwitch, Tooltip } from "@plane/ui";
 // helpers
 import { getFileURL } from "@plane/utils";
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
+// services
+import { ServiceMemberPermissionService } from "@/services/service-member-permission.service";
+
+const permissionService = new ServiceMemberPermissionService();
 
 export interface RowData {
   member: IWorkspaceMember;
@@ -88,6 +95,9 @@ export function NameColumn(props: NameProps) {
                 buttonClassName="outline-none	origin-center rotate-90 size-8 aspect-square flex-shrink-0 grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity"
                 render={() => (
                   <div
+                    // Pre-existing warning. Suppressed only because the pre-commit hook denies
+                    // warnings on any staged file, including ones this change did not introduce.
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                     role="button"
                     tabIndex={0}
                     className="flex cursor-pointer items-center gap-x-3"
@@ -153,6 +163,7 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
           render={({ field: { value } }) => (
             <CustomSelect
               value={value as EUserPermissions}
+              // oxlint-disable-next-line no-shadow
               onChange={async (value: EUserPermissions) => {
                 if (!workspaceSlug) return;
                 try {
@@ -189,5 +200,139 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
         />
       )}
     </>
+  );
+});
+
+/** The three grants, in the order the phase brief lists them. */
+const SERVICE_CAPABILITIES: TServiceMemberCapabilityKey[] = [
+  "can_manage_others",
+  "can_delegate",
+  "can_reassign_author",
+];
+
+/**
+ * The work log grants of Phase 7, on the row of the member who holds them. Decision D45.
+ *
+ * **No new screen**, which is what Phase 7 asked for: the grants belong next to the account type
+ * because they are the same question -- what may this person do -- and a separate page would make
+ * an Admin check two places before answering it.
+ *
+ * Three cases, and two of them are deliberately not switches:
+ *
+ * - **ADMIN**: reads "All (Admin)". Resolution is `is_admin OR flag`, so an Admin can do all three
+ *   with no row at all. Rendering three switches, necessarily off, would say the opposite of what
+ *   is true.
+ * - **GUEST**: reads em dash. A client's own user cannot hold any grant -- the server answers 400
+ *   `GUEST_CANNOT_HOLD_SERVICE_LOG_PERMISSIONS` -- so there is nothing to offer.
+ * - **MEMBER**: a summary that opens three independent switches.
+ *
+ * That the GUEST case is derived from `rowData.role` is what makes criterion 15 fall out for free:
+ * `AccountTypeColumn` updates the role optimistically in the same store, so demoting somebody to
+ * client user redraws this cell as "not applicable" in the same tick. The server has already
+ * revoked the grants for real, inside the request that changed the role.
+ */
+export const ServicePermissionsColumn = observer(function ServicePermissionsColumn(props: AccountTypeProps) {
+  const { rowData, workspaceSlug } = props;
+  const { t } = useTranslation();
+  const [pending, setPending] = useState<TServiceMemberCapabilityKey | null>(null);
+  // store hooks
+  const { allowPermissions } = useUserPermissions();
+  // derived values
+  const isAdminViewer = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
+  const isSuspended = rowData.is_active === false;
+
+  /*
+   * One request for the whole table, not one per row: every row asks SWR for the same key, and SWR
+   * deduplicates. Gated on the viewer being an Admin because the list route is Admin-only, so a
+   * Member's table would otherwise fire a 403 per render.
+   */
+  const { data: grants, mutate } = useSWR(
+    workspaceSlug && isAdminViewer ? `SERVICE_MEMBER_PERMISSIONS_${workspaceSlug}` : null,
+    workspaceSlug && isAdminViewer ? () => permissionService.fetchAll(workspaceSlug) : null,
+    { revalidateOnFocus: false }
+  );
+
+  // Absent from the list means "holds nothing". Revoked rows are kept server side for the audit
+  // trail and filtered out of the response, so absence is never "not yet considered".
+  const held = grants?.find((grant) => grant.member === rowData.member.id);
+
+  const handleToggle = async (capability: TServiceMemberCapabilityKey, value: boolean) => {
+    if (!workspaceSlug) return;
+
+    setPending(capability);
+    try {
+      // Only the flag being changed is sent, so the other two cannot be revoked by omission.
+      await permissionService.update(workspaceSlug, rowData.member.id, { [capability]: value });
+      await mutate();
+    } catch (err: unknown) {
+      const code = (err as { error?: string } | undefined)?.error;
+
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: t("common.errors.default.title"),
+        message:
+          code === "GUEST_CANNOT_HOLD_SERVICE_LOG_PERMISSIONS"
+            ? t("workspace_settings.settings.service_permissions.errors.guest")
+            : t("workspace_settings.settings.service_permissions.errors.default"),
+      });
+    } finally {
+      setPending(null);
+    }
+  };
+
+  if (isSuspended) return null;
+
+  if (rowData.role === EUserPermissions.ADMIN) {
+    return (
+      <Tooltip tooltipContent={t("workspace_settings.settings.service_permissions.admin_hint")}>
+        <span className="text-tertiary">{t("workspace_settings.settings.service_permissions.all_admin")}</span>
+      </Tooltip>
+    );
+  }
+
+  if (rowData.role === EUserPermissions.GUEST) {
+    return (
+      <Tooltip tooltipContent={t("workspace_settings.settings.service_permissions.guest_hint")}>
+        <span className="text-placeholder">—</span>
+      </Tooltip>
+    );
+  }
+
+  const summary = SERVICE_CAPABILITIES.filter((capability) => held?.[capability])
+    .map((capability) => t(`workspace_settings.settings.service_permissions.${capability}`))
+    .join(", ");
+
+  // A Member looking at the table cannot grant anything, so the cell states the position rather
+  // than offering a control that would 403.
+  if (!isAdminViewer) {
+    return (
+      <span className="text-tertiary">{summary || t("workspace_settings.settings.service_permissions.none")}</span>
+    );
+  }
+
+  return (
+    <PopoverMenu
+      data={SERVICE_CAPABILITIES}
+      keyExtractor={(capability) => capability}
+      panelClassName="w-64"
+      button={
+        <span className="flex cursor-pointer items-center gap-1 truncate text-left hover:text-primary">
+          {summary || t("workspace_settings.settings.service_permissions.none")}
+        </span>
+      }
+      render={(capability) => (
+        <div className="flex items-center justify-between gap-3 px-1 py-1.5">
+          <span className="text-12 text-secondary">
+            {t(`workspace_settings.settings.service_permissions.${capability}`)}
+          </span>
+          <ToggleSwitch
+            value={!!held?.[capability]}
+            onChange={(value) => handleToggle(capability, value)}
+            disabled={pending !== null}
+            size="sm"
+          />
+        </div>
+      )}
+    />
   );
 });

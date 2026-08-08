@@ -51,7 +51,8 @@
           "email_address": "Alamat email",
           "account_type": "Tipe akun",
           "authentication": "Autentikasi",
-          "joining_date": "Tanggal bergabung"
+          "joining_date": "Tanggal bergabung",
+          "service_permissions": "Work log grants"
         },
         "modal": {
           "title": "Undang orang untuk berkolaborasi",
@@ -529,7 +530,21 @@
           "save_failed": "The client could not be saved. Please try again.",
           "delete_failed": "The client could not be deleted. Please try again."
         },
-        "billing_type_inherited": "{name} (catalogue default)"
+        "billing_type_inherited": "{name} (catalogue default)",
+        "assign_projects": {
+          "action": "Assign projects",
+          "title": "Assign projects to {name}",
+          "description": "Every project selected will deliver work for this client. A project with work logs under another client is refused.",
+          "search": "Search projects",
+          "empty": "No projects found.",
+          "current_client": "Currently {name}",
+          "internal": "Internal work",
+          "selected": "{count} selected",
+          "submit": "Assign",
+          "success": "{count} project(s) assigned.",
+          "blocked": "Some projects already have work logs under another client, so nothing was changed.",
+          "failed": "The projects could not be assigned."
+        }
       },
       "worklog": {
         "title": "Work log",
@@ -795,6 +810,20 @@
           "duplicate": "A vigency already starts on that date.",
           "not_first_of_month": "A vigency has to start on the first of a month.",
           "already_priced": "This vigency already priced work logs and cannot be removed. Those records keep the rate they were billed at, and deleting it would leave nobody able to check it."
+        }
+      },
+      "service_permissions": {
+        "all_admin": "All (Admin)",
+        "none": "None",
+        "not_applicable": "Not applicable",
+        "can_manage_others": "Edit others' work logs",
+        "can_delegate": "Log on behalf of others",
+        "can_reassign_author": "Reassign the author",
+        "guest_hint": "A client user cannot hold work log grants.",
+        "admin_hint": "An Admin already holds all three; there is nothing to grant.",
+        "errors": {
+          "guest": "A client user cannot hold work log grants.",
+          "default": "The grant could not be saved."
         }
       }
     },

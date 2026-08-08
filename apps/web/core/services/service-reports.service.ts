@@ -11,6 +11,7 @@ import type {
   TServiceBillingReport,
   TServiceConsumptionReport,
   TServiceOperationalReport,
+  TServicePortalReport,
   TServiceReportFilters,
   TServiceReportLogsPage,
 } from "@plane/types";
@@ -56,6 +57,40 @@ export class ServiceReportsService extends APIService {
     filters: Partial<TServiceReportFilters> & { include_group?: string }
   ): Promise<TServiceConsumptionReport> {
     return this.get(`/api/workspaces/${workspaceSlug}/service-reports/consumption/`, { params: filters })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
+   * What the client's own user sees about their consumption. Section 3c. D63, D67.
+   *
+   * **`projectId` is required, and it is the whole tenancy contract of this call.** The report
+   * is the report *of one Cliente*, because Phase 8 says the contracts are independent and the
+   * dashboards dedicated: Marcel, a GUEST of both Marubeni and Terlogs, must get Marubeni's
+   * numbers inside Marubeni and never one payload holding both. The server refuses a call with
+   * no project (`PORTAL_REPORT_REQUIRES_A_PROJECT`) or with more than one
+   * (`PORTAL_REPORT_ACCEPTS_ONE_PROJECT`), so the consolidated payload cannot be requested even
+   * by mistake -- which is why this signature takes the project separately from the filters
+   * rather than trusting a caller to have put it in `project_ids`.
+   *
+   * A project the caller does not belong to answers **200 with an empty payload**, not 403: the
+   * project route itself already refuses them, and the empty payload carries the full key set so
+   * there is no special case here.
+   *
+   * Admins and Members reach this route too and receive **exactly** the client's projection --
+   * no money, no `logged_hours`. That is deliberate (D63): it makes the portal auditable from
+   * the inside. Never render it as an internal dashboard.
+   */
+  async fetchPortal(
+    workspaceSlug: string,
+    projectId: string,
+    filters: Partial<TServiceReportFilters> = {}
+  ): Promise<TServicePortalReport> {
+    return this.get(`/api/workspaces/${workspaceSlug}/service-reports/portal/`, {
+      params: { ...filters, project_ids: projectId },
+    })
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;
