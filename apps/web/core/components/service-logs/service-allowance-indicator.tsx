@@ -62,7 +62,7 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
   return (
     <div
       className={`flex flex-col gap-2 rounded-md border px-3 py-2 ${
-        isOverrun ? "border-red-500/40 bg-red-500/5" : "border-custom-border-200 bg-custom-background-90"
+        isOverrun ? "border-red-500/40 bg-red-500/5" : "border-subtle bg-surface-2"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -80,7 +80,7 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
           )}
           {consumedPct !== null && (
             <span className={`text-sm font-semibold ${isOverrun ? "text-red-500" : "text-custom-text-100"}`}>
-              {t("work_item.service_allowance.consumed_pct", { pct: summary.consumed_pct })}
+              {t("work_item.service_allowance.consumed_pct", { pct: Math.round(Number(summary.consumed_pct)) })}
             </span>
           )}
         </div>

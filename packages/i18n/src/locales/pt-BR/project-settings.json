@@ -361,6 +361,8 @@
         "toggle_description": "Permitir que membros do projeto criem solicitações de recepção no aplicativo.",
         "toggle_tooltip_on": "Peça ao administrador do projeto para ativar.",
         "toggle_tooltip_off": "Peça ao administrador do projeto para desativar.",
+        "auto_accept_title": "Aceitar automaticamente",
+        "auto_accept_description": "Aceitar automaticamente todos os chamados abertos por clientes via Intake, sem necessidade de triagem manual.",
         "notify_assignee": {
           "title": "Notificar responsáveis",
           "description": "Para uma nova solicitação de recebimento, os responsáveis padrão serão alertados via notificações"

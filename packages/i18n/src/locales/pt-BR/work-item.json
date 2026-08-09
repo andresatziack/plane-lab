@@ -569,7 +569,7 @@
       "credited": "Creditado",
       "consumed": "Consumido",
       "balance": "Restante",
-      "hours": "{hours}h",
+      "hours": "{hours}",
       "consumed_pct": "{pct}% consumido",
       "inherited": "Herdada do chamado pai. Estas horas são do projeto do pai, não deste item.",
       "form": {

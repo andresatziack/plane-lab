@@ -795,6 +795,7 @@ def allowance_credits(allowance):
         {
             "entry_id": str(entry.pk),
             "hours": str(_quantize(entry.hours)),
+            "hours_display": format_hours(entry.hours),
             "created_at": entry.created_at.isoformat(),
             "actor_id": str(entry.actor_id) if entry.actor_id else None,
             "actor_display_name": entry.actor.display_name if entry.actor_id else None,

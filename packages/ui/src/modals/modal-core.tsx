@@ -44,7 +44,7 @@ export function ModalCore(props: Props) {
           <div className="fixed inset-0 bg-backdrop transition-opacity" />
         </Transition.Child>
 
-        <div className="fixed inset-0 z-30 overflow-y-auto">
+        <div className="fixed inset-0 z-30 overflow-y-auto" data-prevent-outside-click>
           <div className={position}>
             <Transition.Child
               as={Fragment}

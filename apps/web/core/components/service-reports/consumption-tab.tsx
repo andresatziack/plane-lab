@@ -321,7 +321,7 @@ export const ConsumptionTab = React.memo(function ConsumptionTab() {
                     <ul className="space-y-1">
                       {allowance.credits.map((credit) => (
                         <li key={credit.entry_id} className="text-12 text-tertiary">
-                          {credit.hours}h · {new Date(credit.created_at).toLocaleDateString("pt-BR")} ·{" "}
+                          {credit.hours_display} · {new Date(credit.created_at).toLocaleDateString("pt-BR")} ·{" "}
                           {credit.actor_display_name ?? "—"}
                           {credit.origin_competence
                             ? ` · ${t("service_reports.allowances.from_competence", {

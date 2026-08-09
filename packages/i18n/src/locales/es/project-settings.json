@@ -361,6 +361,8 @@
         "toggle_description": "Permitir a los miembros del proyecto crear solicitudes de recepción en la aplicación.",
         "toggle_tooltip_on": "Pide a tu administrador del proyecto que active esto.",
         "toggle_tooltip_off": "Pide a tu administrador del proyecto que desactive esto.",
+        "auto_accept_title": "Auto-accept",
+        "auto_accept_description": "Automatically accept all intake issues without manual triage.",
         "notify_assignee": {
           "title": "Notificar asignados",
           "description": "Para una nueva solicitud de ingreso, los asignados predeterminados serán alertados mediante notificaciones"

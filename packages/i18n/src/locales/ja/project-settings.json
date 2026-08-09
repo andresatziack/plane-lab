@@ -361,6 +361,8 @@
         "toggle_description": "プロジェクトメンバーがアプリ内で受付リクエストを作成できるようにします。",
         "toggle_tooltip_on": "プロジェクト管理者に有効化を依頼してください。",
         "toggle_tooltip_off": "プロジェクト管理者に無効化を依頼してください。",
+        "auto_accept_title": "Auto-accept",
+        "auto_accept_description": "Automatically accept all intake issues without manual triage.",
         "notify_assignee": {
           "title": "担当者に通知",
           "description": "新しい受付リクエストの場合、デフォルトの担当者が通知を通じてアラートを受け取ります"

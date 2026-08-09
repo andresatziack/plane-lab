@@ -55,6 +55,14 @@ function FeaturesIntakeSettingsPage({ params }: Route.ComponentProps) {
             value={!!currentProjectDetails?.inbox_view}
             workspaceSlug={workspaceSlug}
           />
+          <ProjectSettingsFeatureControlItem
+            title={t("project_settings.features.intake.auto_accept_title")}
+            description={t("project_settings.features.intake.auto_accept_description")}
+            featureProperty="intake_auto_accept"
+            projectId={projectId}
+            value={!!currentProjectDetails?.intake_auto_accept}
+            workspaceSlug={workspaceSlug}
+          />
         </div>
       </section>
     </SettingsContentWrapper>

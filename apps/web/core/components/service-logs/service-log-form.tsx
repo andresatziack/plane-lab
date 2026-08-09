@@ -204,7 +204,7 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
             <span className="text-sm text-custom-text-200 font-medium">
               {t("work_item.service_log.form.entry_mode")}
             </span>
-            <div className="border-custom-border-200 flex w-fit rounded-md border p-0.5">
+            <div className="flex w-fit rounded-md border border-subtle p-0.5">
               {(["duration", "interval"] as TServiceLogEntryMode[]).map((mode) => (
                 <button
                   key={mode}
@@ -276,7 +276,7 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
                     type="time"
                     value={value ?? ""}
                     onChange={(event) => onChange(event.target.value)}
-                    className="border-custom-border-200 bg-custom-background-100 text-sm rounded-md border px-3 py-1.5"
+                    className="text-sm rounded-md border border-subtle bg-surface-1 px-3 py-1.5"
                   />
                   {errors[fieldName] && <span className="text-xs text-red-500">{errors[fieldName]?.message}</span>}
                 </div>
@@ -307,7 +307,7 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
           )}
           {/* Split preview -- section 3 requires it before saving */}
           {preview.segments.length > 1 && (
-            <div className="border-custom-border-200 mt-1 flex flex-col gap-0.5 border-t pt-1.5">
+            <div className="mt-1 flex flex-col gap-0.5 border-t border-subtle pt-1.5">
               <span className="text-xs text-custom-text-200 font-medium">
                 {t("work_item.service_log.preview.segments_title", { count: preview.segments.length })}
               </span>
@@ -350,7 +350,7 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
               // workspace timezone. This only stops the obvious case in the picker.
               max={todayIsoDate()}
               onChange={(event) => onChange(event.target.value)}
-              className="border-custom-border-200 bg-custom-background-100 text-sm rounded-md border px-3 py-1.5"
+              className="text-sm rounded-md border border-subtle bg-surface-1 px-3 py-1.5"
             />
             <span className="text-xs text-custom-text-400">{t("work_item.service_log.form.worked_on_hint")}</span>
             {errors.worked_on && <span className="text-xs text-red-500">{errors.worked_on.message}</span>}
@@ -373,7 +373,7 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
                 value={value}
                 onChange={onChange}
                 label={activeHourTypes.find((option) => option.id === value)?.name ?? "—"}
-                buttonClassName="border border-custom-border-200"
+                buttonClassName="border border-subtle"
               >
                 {/* Ordered by `sequence`, which is the order the admin dragged them
                     into, and filtered to active options by the store. */}
@@ -401,7 +401,7 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
                 value={value}
                 onChange={onChange}
                 label={activeBillingTypes.find((option) => option.id === value)?.name ?? "—"}
-                buttonClassName="border border-custom-border-200"
+                buttonClassName="border border-subtle"
               >
                 {activeBillingTypes.map((option) => (
                   <CustomSelect.Option key={option.id} value={option.id}>
@@ -433,7 +433,7 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
               onChange={(event) => onChange(event.target.value)}
               placeholder={t("work_item.service_log.form.description_placeholder")}
               rows={3}
-              className="border-custom-border-200 bg-custom-background-100 text-sm resize-none rounded-md border px-3 py-2"
+              className="text-sm resize-none rounded-md border border-subtle bg-surface-1 px-3 py-2"
             />
             {errors.description && <span className="text-xs text-red-500">{errors.description.message}</span>}
           </div>

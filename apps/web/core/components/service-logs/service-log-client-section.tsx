@@ -111,7 +111,7 @@ export const ServiceLogClientSection = observer(function ServiceLogClientSection
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {cards.map((card) => (
               <Tooltip key={card.key} tooltipContent={card.hint}>
-                <div className="border-custom-border-200 flex flex-col gap-0.5 rounded-md border px-3 py-2">
+                <div className="flex flex-col gap-0.5 rounded-md border border-subtle px-3 py-2">
                   <span className="text-xs text-custom-text-350">{card.label}</span>
                   <span className="text-body-sm-medium">{card.value}</span>
                 </div>
@@ -121,7 +121,7 @@ export const ServiceLogClientSection = observer(function ServiceLogClientSection
 
           <div className="flex flex-col gap-2">
             {rows.map((row) => (
-              <div key={row.id} className="border-custom-border-200 flex flex-col gap-1 rounded-md border px-3 py-2">
+              <div key={row.id} className="flex flex-col gap-1 rounded-md border border-subtle px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-body-sm-medium">{row.equivalent_hours_display}</span>
                   <span className="text-xs text-custom-text-350">{row.worked_on}</span>

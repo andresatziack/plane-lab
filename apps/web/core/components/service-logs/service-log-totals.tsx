@@ -69,7 +69,7 @@ export const ServiceLogTotals = observer(function ServiceLogTotals(props: Props)
     <div className={`grid gap-2 ${cards.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
       {cards.map((card) => (
         <Tooltip key={card.key} tooltipContent={card.hint} position="top">
-          <div className="border-custom-border-200 bg-custom-background-90 flex flex-col gap-0.5 rounded-md border px-3 py-2">
+          <div className="flex flex-col gap-0.5 rounded-md border border-subtle bg-surface-2 px-3 py-2">
             <span className="text-xs text-custom-text-350">{card.label}</span>
             <span className="text-base text-custom-text-100 font-semibold">{card.value}</span>
           </div>

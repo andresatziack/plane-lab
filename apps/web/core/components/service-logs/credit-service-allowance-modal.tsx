@@ -162,7 +162,7 @@ export const CreditServiceAllowanceModal = observer(function CreditServiceAllowa
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
             rows={3}
-            className="border-custom-border-200 bg-custom-background-100 text-sm text-custom-text-100 focus:border-custom-primary-100 rounded-md border px-3 py-2 outline-none"
+            className="text-sm text-custom-text-100 focus:border-custom-primary-100 rounded-md border border-subtle bg-surface-1 px-3 py-2 outline-none"
           />
         </div>
 
