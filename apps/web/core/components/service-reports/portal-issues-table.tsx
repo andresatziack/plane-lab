@@ -11,6 +11,7 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import type { TServiceReportFilters } from "@plane/types";
 import { Loader } from "@plane/ui";
+import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { ServiceReportsService } from "@/services/service-reports.service";
 
 const reports = new ServiceReportsService();
@@ -52,6 +53,7 @@ type Props = {
 export const PortalIssuesTable = React.memo(function PortalIssuesTable(props: Props) {
   const { workspaceSlug, projectId, filters, competence, onClearCompetence } = props;
   const { t } = useTranslation();
+  const { setPeekIssue } = useIssueDetail();
   const [cursor, setCursor] = useState<string | undefined>(undefined);
 
   // The selected competency replaces the window on both ends, because a bar identifies exactly
@@ -148,14 +150,15 @@ export const PortalIssuesTable = React.memo(function PortalIssuesTable(props: Pr
                 return (
                   <tr key={row.issue_id} className="border-b border-subtle/60 hover:bg-surface-2">
                     <td className="py-2 pr-3">
-                      <a
-                        href={`/${workspaceSlug}/browse/${reference}/`}
-                        className="text-accent hover:underline"
+                      <button
+                        type="button"
+                        onClick={() => setPeekIssue({ workspaceSlug, projectId, issueId: row.issue_id })}
+                        className="text-accent cursor-pointer text-left hover:underline"
                         title={row.name}
                       >
                         <span className="font-medium">{reference}</span>
                         <span className="ml-2 text-secondary">{row.name}</span>
-                      </a>
+                      </button>
                     </td>
                     <td className="py-2 pr-3 text-tertiary">{row.state_name ?? "—"}</td>
                     <td className="py-2 pr-3 text-tertiary">

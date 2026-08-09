@@ -30,6 +30,7 @@ export interface IPartialProject {
   module_view: boolean;
   page_view: boolean;
   inbox_view: boolean;
+  intake_auto_accept?: boolean;
   guest_view_all_features?: boolean;
   /**
    * Toggle for the work log feature on this project. Reuses the flag that

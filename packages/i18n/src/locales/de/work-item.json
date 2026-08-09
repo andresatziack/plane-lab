@@ -569,7 +569,7 @@
       "credited": "Credited",
       "consumed": "Consumed",
       "balance": "Remaining",
-      "hours": "{hours}h",
+      "hours": "{hours}",
       "consumed_pct": "{pct}% consumed",
       "inherited": "Inherited from the parent work item. These hours belong to the parent project, not to this item.",
       "form": {

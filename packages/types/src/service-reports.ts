@@ -171,6 +171,7 @@ export type TServiceReportContract = {
 export type TServiceAllowanceCredit = {
   entry_id: string;
   hours: string;
+  hours_display: string;
   created_at: string;
   actor_id: string | null;
   actor_display_name: string | null;

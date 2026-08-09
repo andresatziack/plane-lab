@@ -276,6 +276,51 @@ class IntakeIssueViewSet(BaseViewSet):
                 issue_id=serializer.data["id"],
                 source=SourceType.IN_APP,
             )
+
+            # Auto-accept if the project has intake_auto_accept enabled
+            if project.intake_auto_accept:
+                # Move issue out of Triage to a default state
+                default_state = (
+                    State.objects.filter(
+                        project_id=project_id,
+                        group__in=["unstarted", "started"],
+                        default=True,
+                    )
+                    .order_by("sequence")
+                    .first()
+                    or State.objects.filter(
+                        project_id=project_id,
+                        group__in=["unstarted", "started"],
+                    )
+                    .order_by("sequence")
+                    .first()
+                )
+                # Only auto-accept if we can move the issue to a valid state
+                if default_state:
+                    intake_issue.status = 1  # ACCEPTED
+                    intake_issue.save(update_fields=["status"])
+                    Issue.objects.filter(pk=serializer.data["id"]).update(
+                        state=default_state
+                    )
+                    # Record activity for the state transition
+                    issue_activity.delay(
+                        type="issue.activity.updated",
+                        requested_data=json.dumps(
+                            {"state": str(default_state.id)},
+                            cls=DjangoJSONEncoder,
+                        ),
+                        actor_id=str(request.user.id),
+                        issue_id=str(serializer.data["id"]),
+                        project_id=str(project_id),
+                        current_instance=json.dumps(
+                            {"state": str(triage_state.id)},
+                            cls=DjangoJSONEncoder,
+                        ),
+                        epoch=int(timezone.now().timestamp()),
+                        notification=True,
+                        origin=base_host(request=request, is_app=True),
+                        intake=str(intake_issue.id),
+                    )
             # Create an Issue Activity
             issue_activity.delay(
                 type="issue.activity.created",
@@ -331,7 +376,7 @@ class IntakeIssueViewSet(BaseViewSet):
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=Issue)
+    @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], creator=True, model=Issue)
     def partial_update(self, request, slug, project_id, pk):
         skip_activity = request.data.pop("skip_activity", False)
         is_description_update = request.data.get("description_html") is not None
@@ -422,7 +467,7 @@ class IntakeIssueViewSet(BaseViewSet):
         intake_serializer = None
         intake_current_instance = None
 
-        if (project_member and project_member.role > ROLE.MEMBER.value) or is_workspace_admin:
+        if (project_member and project_member.role >= ROLE.MEMBER.value) or is_workspace_admin:
             intake_current_instance = json.dumps(IntakeIssueSerializer(intake_issue).data, cls=DjangoJSONEncoder)
             intake_serializer = IntakeIssueSerializer(intake_issue, data=request.data, partial=True)
 

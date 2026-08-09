@@ -10,6 +10,7 @@ import { useTranslation } from "@plane/i18n";
 // components
 import { NotAuthorizedView } from "@/components/auth-screens/not-authorized-view";
 import { PageHead } from "@/components/core/page-title";
+import { IssuePeekOverview } from "@/components/issues/peek-overview";
 import { PortalConsumptionDashboard } from "@/components/service-reports";
 // hooks
 import { useProject } from "@/hooks/store/use-project";
@@ -60,6 +61,7 @@ function ServiceConsumptionPage({ params }: Route.ComponentProps) {
     <>
       <PageHead title={pageTitle} />
       <PortalConsumptionDashboard workspaceSlug={workspaceSlug} projectId={projectId} />
+      <IssuePeekOverview />
     </>
   );
 }

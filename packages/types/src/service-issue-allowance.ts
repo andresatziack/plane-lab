@@ -108,6 +108,7 @@ export interface IServiceIssueAllowanceAlert {
 export interface IServiceIssueAllowanceCredit {
   readonly entry_id: string;
   readonly hours: string;
+  readonly hours_display: string;
   readonly created_at: string;
   readonly actor_id: string | null;
   readonly actor_display_name: string | null;

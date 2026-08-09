@@ -361,6 +361,8 @@
         "toggle_description": "Let project members create in app intake requests.",
         "toggle_tooltip_on": "Ask your Project Admin to turn this on.",
         "toggle_tooltip_off": "Ask your Project Admin to turn this off.",
+        "auto_accept_title": "Auto-accept",
+        "auto_accept_description": "Automatically accept all intake issues without manual triage.",
         "notify_assignee": {
           "title": "Notify assignees",
           "description": "For a new request to intake, default assignees will be alerted via notifications"

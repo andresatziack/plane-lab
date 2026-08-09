@@ -186,6 +186,7 @@ class Command(BaseCommand):
             set_current_user(admin)
 
             workspace = self._workspace(slug, admin)
+            self._instance(admin)
             self._catalogs(workspace)
             self._people(workspace, admin, domain, fixed_password)
             self._clients_and_projects(workspace)
@@ -222,6 +223,43 @@ class Command(BaseCommand):
         self.stdout.write(f"workspace {slug}: {'created' if created else 'already there'}")
 
         return workspace
+
+    def _instance(self, admin):
+        """Make the instance itself usable: an instance admin, and setup marked done.
+
+        Without this the seed produces a perfectly correct database behind a front door
+        nobody can open. The web app gates on ``Instance.is_setup_done`` and shows "Set up
+        your instance and create your first workspace" instead of a login form -- so a
+        freshly seeded box looks broken, and the credentials handed over do not work.
+
+        Normally that flag is flipped by the god-mode first-run flow, which also creates
+        the first ``InstanceAdmin``. Both are done here because a demo box is seeded by
+        this command and by nothing else, and "run this, then go through a wizard" is a
+        step that gets forgotten.
+
+        Skipped silently when no ``Instance`` row exists yet: ``register_instance`` runs on
+        the first API boot, so this is only ever the case when the seed is pointed at a
+        database whose API has never started -- the test suite, for one.
+        """
+        from plane.license.models import Instance, InstanceAdmin
+
+        instance = Instance.objects.first()
+
+        if instance is None:
+            self.stdout.write("instância: nenhuma registrada ainda, nada a marcar")
+            return
+
+        _, created = InstanceAdmin.objects.get_or_create(
+            instance=instance, user=admin, defaults={"role": ROLE_ADMIN}
+        )
+
+        if not instance.is_setup_done:
+            instance.is_setup_done = True
+            instance.save(update_fields=["is_setup_done", "updated_at"])
+
+        self.stdout.write(
+            f"instância: admin {'criado' if created else 'já existia'}, setup marcado como concluído"
+        )
 
     def _catalogs(self, workspace):
         """Hour types, billing types and the R10 windows, through the existing seeder."""

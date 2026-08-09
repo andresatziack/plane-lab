@@ -162,7 +162,7 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
       )}
 
       {batches.length === 0 ? (
-        <div className="border-custom-border-200 flex flex-col gap-0.5 rounded-md border border-dashed px-3 py-4 text-center">
+        <div className="flex flex-col gap-0.5 rounded-md border border-dashed border-subtle px-3 py-4 text-center">
           <span className="text-sm text-custom-text-200">{t("work_item.service_log.empty")}</span>
           <span className="text-xs text-custom-text-350">{t("work_item.service_log.empty_description")}</span>
         </div>
