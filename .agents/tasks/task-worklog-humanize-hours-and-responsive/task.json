@@ -1,0 +1,7 @@
+{
+  "task_id": "task-worklog-humanize-hours-and-responsive",
+  "task_description": "The user tested the work item peek on a phone and reported two defects in the apontamentos (work log) UI: hours still render as decimals ('32,25h' instead of '32h 15min') on the surfaces the previous change did not cover, and the layout is not responsive - labels clip, values wrap out of their boxes, and the allowance title collides with the consumed-percentage badge. Fix both, for desktop and mobile: convert every remaining user-facing hour rendering in the API to a clock duration (keeping decimal only for spreadsheet exports and raw payload fields), wire the /preview display twins the form was missing, and add responsive breakpoints across the worklog components and the peek container without altering the desktop layout.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}
