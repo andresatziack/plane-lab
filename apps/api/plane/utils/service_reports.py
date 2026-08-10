@@ -65,7 +65,7 @@ from plane.db.models import (
     ServiceLog,
 )
 from plane.utils.service_billing import ReportBucket, RevenueOrigin, report_bucket_from
-from plane.utils.service_log_time import ZERO_HOURS, format_hours, quantize_hours
+from plane.utils.service_log_time import ZERO_HOURS, format_hours_human, quantize_hours
 from plane.utils.service_money import ZERO_MONEY, format_money, quantize_money
 from plane.utils.service_reports_filters import (
     CompetenceBasis,
@@ -224,7 +224,7 @@ def bucket(*, viewer, filters, hours=None, amount=None, entries=0, drill_down=No
     for field, value in (hours or {}).items():
         quantized = quantize_hours(value or ZERO_HOURS)
         payload[field] = str(quantized)
-        payload[f"{field}_display"] = format_hours(quantized)
+        payload[f"{field}_display"] = format_hours_human(quantized)
 
     if amount is not None and viewer.can_see_money:
         quantized = quantize_money(amount or ZERO_MONEY)
@@ -817,15 +817,18 @@ def headline_totals(workspace_id, filterset, viewer):
     for field in viewer.hour_fields:
         quantized = quantize_hours(totals[field] or ZERO_HOURS)
         payload[field] = str(quantized)
-        payload[f"{field}_display"] = format_hours(quantized)
+        payload[f"{field}_display"] = format_hours_human(quantized)
 
     # The average in HOURS is available to everyone who sees hours: it is a workload
     # figure, not a price, and a technician planning capacity needs it.
     if totals["issues"]:
         per_issue = Decimal(totals["equivalent_hours"] or ZERO_HOURS) / Decimal(totals["issues"])
-        payload["average_equivalent_hours_per_issue"] = str(
-            per_issue.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-        )
+        per_issue = per_issue.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        payload["average_equivalent_hours_per_issue"] = str(per_issue)
+        # The rendered twin the money average already had. This is the one average that is
+        # NOT block-aligned -- a quotient by a count of work items lands anywhere -- so it is
+        # also the clearest case for the seconds term of `format_hours_human` (D68).
+        payload["average_equivalent_hours_per_issue_display"] = format_hours_human(per_issue)
 
     if viewer.can_see_money:
         amount = quantize_money(totals["amount"] or ZERO_MONEY)

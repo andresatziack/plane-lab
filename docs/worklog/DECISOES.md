@@ -1969,3 +1969,73 @@ controle positivo, um erro de tipo fica indistinguível de um escopo funcionando
 | Decisão | Muda código? | Onde                                                                                     |
 | ------- | ------------ | ---------------------------------------------------------------------------------------- |
 | D67     | **Sim**      | `client_project_scope` e `_as_uuids` em `service_portal.py`; `get` do endpoint do portal |
+
+## D68 — Toda hora na tela é duração de relógio; o decimal sobrevive só na exportação
+
+**O que estava errado.** A humanização das horas foi feita pela metade. Os cards de total e
+o indicador de bolsa já liam `1h 15min`, mas a leitura de horas equivalentes na linha do
+técnico, a linha do cliente, a seção do cliente no chamado, o extrato da bolsa e os
+dashboards continuavam em `format_hours` — notação decimal, `32,25h`. O usuário reportou
+exatamente esse número no Peek do chamado, e `32,25h` é `32h 15min`: a mesma grandeza, na
+notação que ninguém lê de cabeça.
+
+Pior que a inconsistência: o endpoint `/preview` do formulário não mandava gêmeo `_display`
+nenhum, então o total da pré-visualização de split imprimia a **string crua** — `1.2500`,
+com ponto e quatro casas — logo abaixo de segmentos que diziam `1h 15min`.
+
+**A decisão.** `format_hours_human` é o renderizador de toda hora que uma pessoa lê:
+listas, totais, indicador de bolsa, seção do cliente, extrato, dashboards, alertas e
+prévias. `format_hours` **continua existindo** e continua sendo o certo em um lugar só —
+`plane/utils/exporters/schemas/service_log.py` —, porque uma célula de planilha e um
+faturamento querem um número que se soma, não uma duração. Essa exceção está comentada no
+código, para que não pareça esquecimento.
+
+Isso **refina a R3, não a contradiz.** A R3 manda "exibir sempre em formato legível pt-BR:
+`1h 15min` nas listas de apontamento, `1,25h` quando o contexto exigir o número". A decisão
+apenas nomeia qual é esse contexto: a exportação, e nada mais. Tela nenhuma "exige o
+número".
+
+**Segundos aparecem, e só quando a grandeza não fecha em minuto inteiro.** A leitura dupla
+da R11 é o caso que forçou isso: 1,25h com multiplicador 1,5 é 1,875h, que é meio minuto —
+`1h 52min 30s`. As alternativas eram arredondar para `1h 53min`, inventando trinta segundos
+de trabalho que ninguém apontou, ou cair de volta no decimal justo no lugar que o usuário
+reclamou. Valor que fecha em minuto não ganha cauda: `1h 15min` continua `1h 15min`, sem
+`0s`.
+
+O arredondamento ao segundo inteiro (`ROUND_HALF_UP`) é último recurso e é seguro por
+construção: hora apontada é múltiplo de 0,25h (R2) e multiplicador tem duas casas, logo todo
+produto é múltiplo de 0,0025h = 9 segundos, e soma desses também. Ele existe para um valor
+migrado ou escrito à mão continuar renderizando como duração, não para o produto real.
+
+**O que a R11 não perdeu.** Mudou como a hora é **escrita**, nunca qual hora cada papel
+recebe. Nenhum payload de cliente ganhou campo: o serializer do cliente e
+`issue_client_totals` expõem exatamente os mesmos nomes de antes, e `logged_hours`,
+`raw_duration_minutes`, `applied_multiplier` e taxa continuam impossíveis de referenciar do
+lado do cliente. A leitura dupla ficou mais honesta, inclusive: as duas pontas — o que o
+técnico vê que o cliente vê, e o que o cliente vê — agora são **a mesma string**.
+
+**Gêmeo `_display` onde faltava.** Um grep do repositório inteiro atrás de string de hora
+crua chegando ao DOM (`totals.*_hours`, `_hours}`, `${...hours}`) achou seis lugares, e todos
+foram fechados **criando o gêmeo no payload**, não formatando no navegador:
+
+- `/preview` passou a mandar os três (`logged_hours_display`,
+  `equivalent_hours_display`, `debited_hours_display`) — era o `1.2500` do formulário;
+- prévia de excedente, de período **e** de bolsa: `overage_hours_display`;
+- entradas do painel de alertas (período e bolsa): `balance_hours_display`, que a lista de
+  alertas imprimia como `-2.0000`;
+- consolidação de faturamento: `hours_display` nas origens, nas pendências comerciais, nas
+  pendências de cadastro e no trabalho interno — a tela concatenava um `"h"` literal na
+  string crua e mostrava `1.2500h`;
+- média de horas por chamado: `average_equivalent_hours_per_issue_display`, o gêmeo que a
+  média de dinheiro já tinha. É a única grandeza da feature que **não** fecha em bloco de 15
+  minutos (é quociente por uma contagem), então é o caso mais claro do termo de segundos.
+
+A string crua continua ao lado em todos: o navegador compara e ordena pelo decimal e
+renderiza o gêmeo, que é o contrato que `packages/types/src/service-log.ts` já documentava.
+Formatar no navegador seria a segunda implementação da regra R3, e a que ninguém testa.
+
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D68     | **Sim**      | `format_hours_human` e `format_hours` em `service_log_time.py`; `get_equivalent_hours_display` (técnico e cliente) em `serializers/service_log.py`; `issue_client_totals`; `allowance_credits` e `allowance_overage_preview`; `contract_balance_statement` e `overage_billing_preview` em `service_pool.py`; `bucket` e `headline_totals` em `service_reports.py`; `_render_consolidation` em `service_billing.py`; entradas de alerta em `service_pool_alerts.py`; totais do `/preview` em `views/service_log/base.py`; `IServiceLogPreview` e os tipos de relatório; `service-log-form.tsx`; `service-log.store.ts`; `billing-tab.tsx`, `operational-tab.tsx`, `attention-tab.tsx`, `overage-billing-confirmation.tsx` |

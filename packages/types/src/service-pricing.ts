@@ -45,11 +45,7 @@ export type TServicePricingFailure =
   | "no_price_sheet_in_force";
 
 /** The four things a client can be invoiced for. Decision D36. */
-export type TServiceRevenueOrigin =
-  | "standalone_log"
-  | "out_of_scope_log"
-  | "contract_overage"
-  | "allowance_overage";
+export type TServiceRevenueOrigin = "standalone_log" | "out_of_scope_log" | "contract_overage" | "allowance_overage";
 
 /**
  * An absolute rate that replaces `base * multiplier` for one hour type, within one vigency.
@@ -113,6 +109,8 @@ export interface IServiceEffectiveRateTable {
 /** What billing an overage would cost, read before the irreversible write. */
 export interface IServiceOveragePreview {
   readonly overage_hours: string;
+  /** The same quantity rendered as a clock duration ("2h 30min"). Render this one. */
+  readonly overage_hours_display: string;
   readonly overage_hour_rate: string;
   readonly amount: string;
   readonly rate_source: "contract" | "allowance" | "client_base_rate";

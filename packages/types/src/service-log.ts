@@ -183,10 +183,19 @@ export interface IServiceLogPreview {
   readonly raw_duration_minutes: number;
   /** Acceptance criterion 2: the form has to say that rounding happened. */
   readonly was_rounded: boolean;
+  /**
+   * Each quantity twice, exactly like `IServiceLogTotals`: the raw decimal string to compare
+   * and sort by, and a `_display` twin already rendered as a clock duration in pt-BR ("1h
+   * 15min"). Render the twin. The raw string is `"1.2500"`: a dot, four places, not a
+   * quantity any Brazilian reads, and the form used to print it verbatim.
+   */
   readonly totals: {
     readonly logged_hours: string;
+    readonly logged_hours_display: string;
     readonly equivalent_hours: string;
+    readonly equivalent_hours_display: string;
     readonly debited_hours: string;
+    readonly debited_hours_display: string;
   };
   readonly warning: IServiceLogWarning | null;
 }

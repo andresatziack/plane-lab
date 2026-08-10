@@ -318,7 +318,9 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
                 </span>
               ))}
               <span className="text-xs text-custom-text-200 font-medium">
-                {t("work_item.service_log.preview.total", { value: preview.totals.logged_hours })}
+                {/* The rendered twin, never the raw decimal: `logged_hours` is "1.2500" and this
+                    line sits directly under segments that read "1h 15min". */}
+                {t("work_item.service_log.preview.total", { value: preview.totals.logged_hours_display })}
               </span>
             </div>
           )}

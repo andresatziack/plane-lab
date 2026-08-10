@@ -59,7 +59,7 @@ from plane.utils.service_permission import (
     validate_closed_period_access,
     validate_delegated_author,
 )
-from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours, format_hours_human
+from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours_human
 from plane.utils.service_money import ZERO_MONEY, format_money
 from plane.utils.service_pool import ServicePoolValidationError, issue_pool_snapshot
 from plane.utils.service_portal import (
@@ -506,10 +506,21 @@ class ServiceLogViewSet(BaseViewSet):
                 for name, value in settlement_fields(row).items():
                     setattr(row, name, value)
 
+        equivalent_total = sum(row.equivalent_hours for row in rows)
+        debited_total = sum(row.debited_hours for row in rows)
+
+        # Every hour ships twice, the same way the saved totals do: the raw decimal string for
+        # arithmetic and comparison, and a ``_display`` twin already rendered as a clock
+        # duration (D68). The preview had only the raw string, so the form printed "1.2500"
+        # where the list beside it said "1h 15min" -- the same quantity in two notations, one
+        # of them not even pt-BR.
         totals = {
             "logged_hours": str(logged_total),
-            "equivalent_hours": str(sum(row.equivalent_hours for row in rows)),
-            "debited_hours": str(sum(row.debited_hours for row in rows)),
+            "logged_hours_display": format_hours_human(logged_total),
+            "equivalent_hours": str(equivalent_total),
+            "equivalent_hours_display": format_hours_human(equivalent_total),
+            "debited_hours": str(debited_total),
+            "debited_hours_display": format_hours_human(debited_total),
         }
 
         if context["can_see_amounts"]:

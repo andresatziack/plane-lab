@@ -257,12 +257,15 @@ class TestR11TheClientNeverReceivesTheHiddenQuantities:
 
         for row in response.data["service_logs"]:
             assert row["equivalent_hours"] == "1.5000"
-            assert row["equivalent_hours_display"]
+            # The exact string, not merely a truthy one: the whole point of D68 is WHICH
+            # string, and a truthiness check passes just as happily on "1,5h".
+            assert row["equivalent_hours_display"] == "1h 30min"
             assert "debited_hours" in row
             assert row["hour_type_name"] == "Fora do expediente"
             assert row["author_detail"]["id"]
 
         assert response.data["totals"]["equivalent_hours"] == "3.0000"
+        assert response.data["totals"]["equivalent_hours_display"] == "3h"
 
     @pytest.mark.django_db
     def test_a_member_still_receives_everything(self, project, issue, technician, pool_log, billed_log):

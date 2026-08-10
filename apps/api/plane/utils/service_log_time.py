@@ -46,6 +46,11 @@ ROUND_UP_REMAINDER = 8
 MINUTES_PER_HOUR = 60
 MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR
 
+#: Only ``format_hours_human`` needs this, and it needs it named: ``divmod(total, 60)``
+#: written with ``MINUTES_PER_HOUR`` would be numerically right and semantically a lie.
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_HOUR = SECONDS_PER_MINUTE * MINUTES_PER_HOUR
+
 #: Scale of every hour quantity, fixed by section 4b of the master context.
 #:
 #: Four places is the proven minimum, not padding: logged hours are always a
@@ -372,6 +377,13 @@ def format_hours(hours):
     ``Decimal("1.2500") -> "1,25h"``, ``Decimal("1.8750") -> "1,875h"``,
     ``Decimal("2.0000") -> "2h"``.
 
+    **For exports and raw-number contexts, not for screens (D68).** A spreadsheet cell
+    and an invoicing pipeline want a number they can sum; a human reading a work item
+    wants a clock duration. Everything a person looks at goes through
+    ``format_hours_human``, and the only caller left here is
+    ``plane.utils.exporters.schemas.service_log``. R3 still allows this notation "quando
+    o contexto exigir o número" -- the export is that context, and it is the only one.
+
     Trailing zeros are trimmed rather than fixed at two places, because section 6 of
     the phase brief renders the R11 dual reading as "o cliente vê 1,875h" -- three
     places. Fixing the scale would corrupt that number, and rounding it would be a
@@ -394,15 +406,30 @@ def format_hours(hours):
 
 
 def format_hours_human(hours):
-    """Decimal hours as human-readable pt-BR duration.
+    """Decimal hours as human-readable pt-BR duration. Rule R3, and D68.
 
     ``Decimal("1.2500") -> "1h 15min"``, ``Decimal("2.5000") -> "2h 30min"``,
     ``Decimal("0.0000") -> "0min"``, ``None -> "0min"``.
 
-    Unlike ``format_hours`` which produces the decimal notation (``"1,25h"``),
-    this converts to minutes and delegates to ``format_duration`` so the output
-    reads like a clock duration. Used in totals and allowance indicators where
-    human readability matters more than numeric precision.
+    Unlike ``format_hours``, which produces the decimal notation (``"1,25h"``), this
+    converts to a clock duration. **This is the renderer for every hour quantity a
+    person reads** -- lists, totals, allowance indicators, dashboards, the client
+    section -- because "32h 15min" is the reading a technician and a client both
+    already have in their heads, and "32,25h" is the one they have to convert.
+
+    **Seconds appear only when the value is not whole-minute aligned**, and then as a
+    third term rather than as a fallback to decimal notation:
+    ``Decimal("1.8750") -> "1h 52min 30s"``, ``Decimal("0.3750") -> "22min 30s"``. That
+    is what makes the equivalent-hours reading of R11 renderable here: 1.25h times a
+    1.5 multiplier is 1.875h, which is a whole number of *half* minutes, not of minutes.
+    A value whose seconds are zero emits no tail, so nothing already correct changed.
+
+    **Why rounding to the whole second is safe as the last resort.** Logged hours are
+    multiples of 0.25h (R2 bills in quarter hours) and a multiplier has two decimal
+    places, so every equivalent value is a multiple of 0.0025h = 9 seconds, and a sum of
+    such values is too. Rounding to the nearest second with ``ROUND_HALF_UP`` therefore
+    never fires on a real product; it exists so that a hand-written or migrated value
+    with more places still renders as a duration instead of blowing up the screen.
 
     Handles negative values for overrun display: ``Decimal("-2.5000") -> "-2h 30min"``.
     """
@@ -415,16 +442,24 @@ def format_hours_human(hours):
         return "0min"
 
     negative = value < 0
-    # Use ROUND_HALF_UP to avoid truncation of fractional minutes. int() would
-    # silently drop sub-minute remainders (e.g. 79.998 -> 79 instead of 80),
-    # which is safe only for block-aligned inputs. Rounding is correct for any
-    # decimal hour value, including aggregations that are not multiples of 0.25.
-    abs_minutes = int((abs(value) * 60).to_integral_value(rounding=ROUND_HALF_UP))
+    # ROUND_HALF_UP on SECONDS rather than on minutes: rounding to the minute here would
+    # turn the 1.875h of R11's dual reading into "1h 53min", inventing 30 seconds of work
+    # that nobody logged. See the docstring for why the second is a safe floor.
+    total_seconds = int((abs(value) * SECONDS_PER_HOUR).to_integral_value(rounding=ROUND_HALF_UP))
 
-    if abs_minutes == 0:
+    if total_seconds == 0:
         return "0min"
 
-    result = format_duration(abs_minutes)
+    minutes, seconds = divmod(total_seconds, SECONDS_PER_MINUTE)
+
+    if not seconds:
+        result = format_duration(minutes)
+    elif minutes:
+        result = f"{format_duration(minutes)} {seconds}s"
+    else:
+        # Under a minute: "9s", never "0min 9s".
+        result = f"{seconds}s"
+
     return f"-{result}" if negative else result
 
 

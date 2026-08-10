@@ -491,7 +491,7 @@ def issue_client_totals(issue_id):
     from django.db.models.functions import Coalesce
 
     from plane.db.models import ServiceBillingType, ServiceLog
-    from plane.utils.service_log_time import ZERO_HOURS, format_hours
+    from plane.utils.service_log_time import ZERO_HOURS, format_hours_human
     from plane.utils.service_money import ZERO_MONEY, format_money
 
     client_hour_fields = ("equivalent_hours", "debited_hours")
@@ -507,7 +507,7 @@ def issue_client_totals(issue_id):
     for field in client_hour_fields:
         value = aggregates[field] or ZERO_HOURS
         payload[field] = str(value)
-        payload[f"{field}_display"] = format_hours(value)
+        payload[f"{field}_display"] = format_hours_human(value)
 
     billed = logs.filter(settled_billing_route=ServiceBillingType.BillingRoute.BILL_AMOUNT)
 

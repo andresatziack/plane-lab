@@ -536,3 +536,43 @@ class TestFormatHoursHuman:
                           Decimal("1.25"), Decimal("1.5"), Decimal("2.0"), Decimal("10.0")]:
             minutes = int(hours_val * 60)
             assert format_hours_human(hours_val) == format_duration(minutes)
+
+    @pytest.mark.parametrize(
+        ("hours", "expected"),
+        [
+            # R11's own dual reading: 1.25 logged at a 1.5 multiplier. Half a minute, which is
+            # why this used to be the value that fell back to "1,875h".
+            (Decimal("1.8750"), "1h 52min 30s"),
+            (Decimal("0.3750"), "22min 30s"),
+            # 0.0025h = 9 seconds, the smallest product R2 and a two-place multiplier can make.
+            (Decimal("0.0025"), "9s"),
+            (Decimal("-1.8750"), "-1h 52min 30s"),
+            (Decimal("-0.3750"), "-22min 30s"),
+        ],
+    )
+    def test_a_value_that_is_not_whole_minutes_gains_a_seconds_term(self, hours, expected):
+        """D68: never a fallback to decimal notation, and never a rounded-away half minute."""
+        assert format_hours_human(hours) == expected
+
+    @pytest.mark.parametrize(
+        ("hours", "expected"),
+        [
+            (Decimal("1.2500"), "1h 15min"),
+            (Decimal("0.7500"), "45min"),
+            (Decimal("30.0000"), "30h"),
+            (Decimal("-1.2500"), "-1h 15min"),
+        ],
+    )
+    def test_a_whole_minute_value_emits_no_seconds_tail(self, hours, expected):
+        """No "1h 15min 0s". The tail exists only when there is a remainder to report."""
+        assert format_hours_human(hours) == expected
+
+    def test_a_sub_second_remainder_rounds_to_the_nearest_second(self):
+        """The last resort described in the docstring, for a value no product can produce.
+
+        Asserted so the fallback has a decided output rather than whatever the arithmetic
+        happens to do: 0.00013h is 0.468s, which rounds to nothing at all and reads as zero,
+        and 0.0004h is 1.44s, which rounds to one second.
+        """
+        assert format_hours_human(Decimal("0.00013")) == "0min"
+        assert format_hours_human(Decimal("0.0004")) == "1s"

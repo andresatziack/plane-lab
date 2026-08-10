@@ -39,7 +39,7 @@ from plane.db.models import (
     ServiceLog,
     ServiceRouteDeviation,
 )
-from plane.utils.service_log_time import ZERO_HOURS
+from plane.utils.service_log_time import ZERO_HOURS, format_hours_human
 from plane.utils.service_money import ZERO_MONEY, format_money
 from plane.utils.service_pool import (
     ServicePoolValidationError,
@@ -753,6 +753,10 @@ def _render_consolidation(clients, internal, year, month):
     passes through JSON as a float has already lost the guarantee this whole phase is built
     on. The pt-BR rendering travels beside it so the screen, the CSV and the API cannot
     disagree about a separator.
+
+    Hours ship rendered too, as a clock duration (D68). They used to travel only as
+    ``"1.2500"`` and the billing screen appended a literal "h" to it, which is how a report
+    ended up printing "1.2500h" at a client.
     """
     rendered = []
     grand_total = ZERO_MONEY
@@ -768,6 +772,7 @@ def _render_consolidation(clients, internal, year, month):
                 "origins": {
                     origin: {
                         "hours": str(bucket["hours"]),
+                        "hours_display": format_hours_human(bucket["hours"]),
                         "amount": str(bucket["amount"]),
                         "amount_display": format_money(bucket["amount"]),
                         "entries": bucket["entries"],
@@ -781,6 +786,7 @@ def _render_consolidation(clients, internal, year, month):
                     {
                         "reason": reason,
                         "hours": str(detail["hours"]),
+                        "hours_display": format_hours_human(detail["hours"]),
                         "amount": str(detail["amount"]),
                         "amount_display": format_money(detail["amount"]),
                         "entries": detail["entries"],
@@ -791,7 +797,12 @@ def _render_consolidation(clients, internal, year, month):
                 # amount on purpose -- there is no amount, and printing R$ 0,00 would make a
                 # missing price sheet look like a finished calculation.
                 "registration_pendencies": [
-                    {"reason": reason, "hours": str(detail["hours"]), "entries": detail["entries"]}
+                    {
+                        "reason": reason,
+                        "hours": str(detail["hours"]),
+                        "hours_display": format_hours_human(detail["hours"]),
+                        "entries": detail["entries"],
+                    }
                     for reason, detail in sorted(entry["registration_pendencies"].items())
                 ],
             }
@@ -803,5 +814,9 @@ def _render_consolidation(clients, internal, year, month):
         "total_amount": str(grand_total),
         "total_amount_display": format_money(grand_total),
         # Reported, never invoiced. See `RevenueOrigin`.
-        "internal_work": {"hours": str(internal["hours"]), "entries": internal["entries"]},
+        "internal_work": {
+            "hours": str(internal["hours"]),
+            "hours_display": format_hours_human(internal["hours"]),
+            "entries": internal["entries"],
+        },
     }

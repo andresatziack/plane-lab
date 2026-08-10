@@ -115,7 +115,7 @@ export const OperationalTab = React.memo(function OperationalTab() {
         <ReportInsightCard label={t("service_reports.totals.issues")} value={String(totals.issues)} />
         <ReportInsightCard
           label={t("service_reports.totals.average_hours_per_issue")}
-          value={totals.average_equivalent_hours_per_issue}
+          value={totals.average_equivalent_hours_per_issue_display ?? "—"}
         />
       </div>
 

@@ -213,6 +213,46 @@ class TestParserAndRoundingThroughTheApi:
         assert response.data["raw_duration_minutes"] == 68
         assert response.data["totals"]["logged_hours"] == "1.2500"
 
+    def test_the_preview_totals_carry_a_rendered_twin(
+        self, session_client, issue, commercial_hours, contract_billing
+    ):
+        """D68. The form prints these three, so they cannot arrive as "1.2500" only.
+
+        The raw strings stay beside them: the browser compares and sorts on the decimal and
+        renders the twin, which is the contract every other hour payload in this feature has.
+        """
+        response = session_client.post(
+            _urls(issue)["preview"],
+            _payload(commercial_hours, contract_billing, duration="1h 08min"),
+            format="json",
+        )
+
+        totals = response.data["totals"]
+
+        assert totals["logged_hours"] == "1.2500"
+        assert totals["logged_hours_display"] == "1h 15min"
+        assert totals["equivalent_hours_display"] == "1h 15min"
+        assert totals["debited_hours_display"] == "1h 15min"
+
+    def test_the_preview_renders_a_half_minute_equivalent_as_seconds(
+        self, session_client, issue, after_hours, contract_billing
+    ):
+        """1.25h at a 1.5 multiplier is 1.875h, which is not a whole number of minutes.
+
+        The renderer must say so instead of falling back to the decimal notation the user
+        reported seeing -- this is the case that used to read "1,875h".
+        """
+        response = session_client.post(
+            _urls(issue)["preview"],
+            _payload(after_hours, contract_billing, duration="1h 15min"),
+            format="json",
+        )
+
+        totals = response.data["totals"]
+
+        assert totals["equivalent_hours"] == "1.8750"
+        assert totals["equivalent_hours_display"] == "1h 52min 30s"
+
     def test_an_exact_duration_is_not_reported_as_rounded(
         self, session_client, issue, commercial_hours, contract_billing
     ):
@@ -731,9 +771,12 @@ class TestListingAndTotals:
 
         response = session_client.get(_urls(issue)["totals"])
 
-        # R11's dual reading: 1.25 logged becomes 1,875h for the client.
-        assert response.data["logged_hours_display"] == "1,25h"
-        assert response.data["equivalent_hours_display"] == "1,875h"
+        # R11's dual reading, both sides rendered as a clock duration (D68): 1.25 logged
+        # becomes 1.875 equivalent for the client, and 1.875h is 1h 52min 30s -- the half
+        # minute is why the human renderer grew a seconds term instead of falling back to
+        # "1,875h".
+        assert response.data["logged_hours_display"] == "1h 15min"
+        assert response.data["equivalent_hours_display"] == "1h 52min 30s"
 
     def test_the_row_carries_both_readings_of_r11(
         self, session_client, issue, after_hours, contract_billing
@@ -751,7 +794,7 @@ class TestListingAndTotals:
 
         row = response.data["service_logs"][0]
         assert row["logged_hours_display"] == "1h 15min"
-        assert row["equivalent_hours_display"] == "1,875h"
+        assert row["equivalent_hours_display"] == "1h 52min 30s"
         assert row["hour_type_name"] == "Fora do expediente"
 
     def test_logs_of_another_work_item_do_not_leak_in(

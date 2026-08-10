@@ -16,7 +16,7 @@ from plane.utils.service_log_time import (
     InvalidDurationError,
     duration_from_interval,
     format_duration,
-    format_hours,
+    format_hours_human,
     parse_duration,
 )
 from plane.utils.service_money import format_money
@@ -254,7 +254,13 @@ class ServiceLogSerializer(BaseSerializer):
         return format_duration(int(obj.logged_hours * 60))
 
     def get_equivalent_hours_display(self, obj):
-        return format_hours(obj.equivalent_hours)
+        """The R11 dual reading, as a clock duration (D68).
+
+        ``format_hours_human`` and not ``format_hours``: this is the line that tells the
+        technician what the client sees, and it has to be the same string the client is
+        actually shown. A 1.875h equivalent reads "1h 52min 30s" on both sides.
+        """
+        return format_hours_human(obj.equivalent_hours)
 
     def get_amount_display(self, obj):
         """The value as pt-BR currency, or ``None`` when the row carries no money.
@@ -401,7 +407,14 @@ class ServiceLogClientSerializer(BaseSerializer):
         return billing_type.name if billing_type else None
 
     def get_equivalent_hours_display(self, obj):
-        return format_hours(obj.equivalent_hours)
+        """The only hour quantity the client reads, as a clock duration (D68).
+
+        Same renderer as the technician serializer on purpose: the two sides of R11's dual
+        reading must be the same string, so that "o cliente vê 1h 52min 30s" is literally
+        what the client is shown. Only the rendering changed here -- the field list of this
+        serializer is untouched, and no raw duration, logged hour or multiplier joined it.
+        """
+        return format_hours_human(obj.equivalent_hours)
 
 
 class ServiceLogWriteSerializer(serializers.Serializer):

@@ -36,6 +36,7 @@ from plane.utils.service_allowance import (
     open_allowances_for_workspace,
     workspace_allowance_hours_by_period,
 )
+from plane.utils.service_log_time import format_hours_human
 from plane.utils.service_pool import (
     CONTRACT_OUT_OF_VIGENCY,
     CONTRACT_SUSPENDED,
@@ -530,6 +531,10 @@ def workspace_alert_panel(workspace_id, *, reference_date=None, contract_id=None
                 "granted_hours": str(period.granted_hours),
                 "consumed_hours": str(period.consumed_hours),
                 "balance_hours": str(period.balance_hours),
+                # The alert panel prints this balance beside the competency, so it needs the
+                # rendered twin like every other hour on a screen (D68). Without it the panel
+                # was showing "-2.0000" where the rest of the product says "-2h".
+                "balance_hours_display": format_hours_human(period.balance_hours),
                 "alerts": alerts,
                 "has_high_consumption": any(
                     alert["severity"] == SEVERITY_HIGH_CONSUMPTION for alert in alerts
@@ -710,6 +715,7 @@ def workspace_allowance_alerts(workspace_id, *, project_id=None, reference_date=
                 "credited_hours": str(allowance.credited_hours),
                 "consumed_hours": str(allowance.consumed_hours),
                 "balance_hours": str(allowance.balance_hours),
+                "balance_hours_display": format_hours_human(allowance.balance_hours),
                 "alerts": alerts,
             }
         )

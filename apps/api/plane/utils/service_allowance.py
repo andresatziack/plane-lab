@@ -49,7 +49,7 @@ from plane.db.models import (
     ServiceLedgerEntryType,
     ServiceLog,
 )
-from plane.utils.service_log_time import ZERO_HOURS, format_hours, format_hours_human, quantize_hours as _quantize
+from plane.utils.service_log_time import ZERO_HOURS, format_hours_human, quantize_hours as _quantize
 from plane.utils.service_money import format_money, overage_amount, quantize_money
 from plane.utils.service_pool import (
     ServicePoolValidationError,
@@ -792,6 +792,9 @@ def allowance_overage_preview(allowance):
 
     return {
         "overage_hours": str(owed),
+        # Rendered twin, same as the contract-period preview: the confirmation modal reads
+        # from whichever of the two answered, so both have to speak the same notation (D68).
+        "overage_hours_display": format_hours_human(owed),
         "overage_hour_rate": str(rate),
         "amount": str(overage_amount(overage_hours=owed, overage_hour_rate=rate)),
         "rate_source": ("allowance" if allowance.overage_hour_rate is not None else "client_base_rate"),
@@ -984,7 +987,7 @@ def allowance_credits(allowance):
         {
             "entry_id": str(entry.pk),
             "hours": str(_quantize(entry.hours)),
-            "hours_display": format_hours(entry.hours),
+            "hours_display": format_hours_human(entry.hours),
             "created_at": entry.created_at.isoformat(),
             "actor_id": str(entry.actor_id) if entry.actor_id else None,
             "actor_display_name": entry.actor.display_name if entry.actor_id else None,
