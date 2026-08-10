@@ -10,7 +10,7 @@ from rest_framework import serializers
 
 # Module imports
 from plane.db.models import ServiceIssueAllowance
-from plane.utils.service_log_time import format_hours
+from plane.utils.service_log_time import format_hours, format_hours_human
 
 from .base import BaseSerializer
 from .user import UserAdminLiteSerializer
@@ -67,13 +67,13 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
     balance_hours_display = serializers.SerializerMethodField()
 
     def get_credited_hours_display(self, obj):
-        return format_hours(obj.credited_hours)
+        return format_hours_human(obj.credited_hours)
 
     def get_consumed_hours_display(self, obj):
-        return format_hours(obj.consumed_hours)
+        return format_hours_human(obj.consumed_hours)
 
     def get_balance_hours_display(self, obj):
-        return format_hours(obj.balance_hours)
+        return format_hours_human(obj.balance_hours)
 
     def __init__(self, *args, **kwargs):
         """Drop the rate unless the context says the caller may see money. See the docstring."""

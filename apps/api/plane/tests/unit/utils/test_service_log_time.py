@@ -30,6 +30,7 @@ from plane.utils.service_log_time import (
     equivalent_hours,
     format_duration,
     format_hours,
+    format_hours_human,
     parse_duration,
     round_to_block,
     to_decimal_hours,
@@ -487,3 +488,51 @@ class TestFormatHours:
         """
         assert format_hours(Decimal("1.8750")) == "1,875h"
         assert format_hours(Decimal("0.2525")) == "0,2525h"
+
+
+class TestFormatHoursHuman:
+    """Human-readable hour formatting for totals and allowance displays."""
+
+    @pytest.mark.parametrize(
+        ("hours", "expected"),
+        [
+            (Decimal("1.2500"), "1h 15min"),
+            (Decimal("2.5000"), "2h 30min"),
+            (Decimal("0.7500"), "45min"),
+            (Decimal("0.2500"), "15min"),
+            (Decimal("1.0000"), "1h"),
+            (Decimal("1.5000"), "1h 30min"),
+            (Decimal("30.0000"), "30h"),
+            (Decimal("0.0000"), "0min"),
+            (None, "0min"),
+        ],
+    )
+    def test_renders_human_readable_duration(self, hours, expected):
+        assert format_hours_human(hours) == expected
+
+    @pytest.mark.parametrize(
+        ("hours", "expected"),
+        [
+            (Decimal("-2.5000"), "-2h 30min"),
+            (Decimal("-0.2500"), "-15min"),
+            (Decimal("-1.0000"), "-1h"),
+            (Decimal("-0.7500"), "-45min"),
+        ],
+    )
+    def test_handles_negative_values_for_overrun(self, hours, expected):
+        """Negative hours represent overrun and should display with a minus sign."""
+        assert format_hours_human(hours) == expected
+
+    def test_zero_returns_zero_min(self):
+        assert format_hours_human(Decimal("0.0000")) == "0min"
+        assert format_hours_human(Decimal("0")) == "0min"
+
+    def test_none_returns_zero_min(self):
+        assert format_hours_human(None) == "0min"
+
+    def test_matches_format_duration_for_positive_values(self):
+        """format_hours_human should produce the same result as format_duration(hours*60)."""
+        for hours_val in [Decimal("0.25"), Decimal("0.5"), Decimal("0.75"), Decimal("1.0"),
+                          Decimal("1.25"), Decimal("1.5"), Decimal("2.0"), Decimal("10.0")]:
+            minutes = int(hours_val * 60)
+            assert format_hours_human(hours_val) == format_duration(minutes)

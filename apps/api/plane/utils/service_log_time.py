@@ -393,6 +393,37 @@ def format_hours(hours):
 
 
 
+def format_hours_human(hours):
+    """Decimal hours as human-readable pt-BR duration.
+
+    ``Decimal("1.2500") -> "1h 15min"``, ``Decimal("2.5000") -> "2h 30min"``,
+    ``Decimal("0.0000") -> "0min"``, ``None -> "0min"``.
+
+    Unlike ``format_hours`` which produces the decimal notation (``"1,25h"``),
+    this converts to minutes and delegates to ``format_duration`` so the output
+    reads like a clock duration. Used in totals and allowance indicators where
+    human readability matters more than numeric precision.
+
+    Handles negative values for overrun display: ``Decimal("-2.5000") -> "-2h 30min"``.
+    """
+    if hours is None:
+        return "0min"
+
+    value = Decimal(hours)
+
+    if value == 0:
+        return "0min"
+
+    negative = value < 0
+    abs_minutes = int(abs(value) * 60)
+
+    if abs_minutes == 0:
+        return "0min"
+
+    result = format_duration(abs_minutes)
+    return f"-{result}" if negative else result
+
+
 # ---------------------------------------------------------------------------
 # Clock borders -- minutes since midnight
 # ---------------------------------------------------------------------------

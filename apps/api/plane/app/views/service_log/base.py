@@ -59,7 +59,7 @@ from plane.utils.service_permission import (
     validate_closed_period_access,
     validate_delegated_author,
 )
-from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours
+from plane.utils.service_log_time import LONG_ENTRY_WARNING_MINUTES, format_hours, format_hours_human
 from plane.utils.service_money import ZERO_MONEY, format_money
 from plane.utils.service_pool import ServicePoolValidationError, issue_pool_snapshot
 from plane.utils.service_portal import (
@@ -340,7 +340,7 @@ class ServiceLogViewSet(BaseViewSet):
 
         payload = {
             **{field: str(value) for field, value in totals.items()},
-            **{f"{field}_display": format_hours(value) for field, value in totals.items()},
+            **{f"{field}_display": format_hours_human(value) for field, value in totals.items()},
         }
 
         if can_see_amounts:
