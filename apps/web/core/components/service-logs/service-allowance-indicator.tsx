@@ -60,11 +60,7 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
   ];
 
   return (
-    <div
-      className={`flex flex-col gap-2 rounded-md border px-3 py-2 ${
-        isOverrun ? "border-red-500/40 bg-red-500/5" : "border-subtle bg-surface-2"
-      }`}
-    >
+    <div className="flex flex-col gap-2 rounded-md border border-subtle bg-surface-2 px-3 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 flex-col">
           <Tooltip tooltipContent={t("work_item.service_allowance.title_hint")} position="top">
@@ -95,7 +91,7 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
       )}
 
       {consumedPct !== null && (
-        <div className="bg-custom-background-80 h-1.5 w-full overflow-hidden rounded-full">
+        <div className="bg-custom-background-80 h-2 w-full overflow-hidden rounded-full">
           <div
             className={`h-full rounded-full ${isOverrun ? "bg-red-500" : "bg-custom-primary-100"}`}
             style={{ width: `${barWidth}%` }}
@@ -123,8 +119,19 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
           the overflow never reaches the client's support contract -- because that is the
           question an admin seeing a negative balance asks first. */}
       {alerts.map((alert) => (
-        <div key={alert.code} className="text-xs text-red-500 flex items-start gap-1.5">
-          <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+        <div
+          key={alert.code}
+          className={`text-xs flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 ${
+            alert.code === "ALLOWANCE_NEGATIVE_BALANCE"
+              ? "border-red-500/20 bg-red-500/5 text-red-500"
+              : "border-amber-500/20 bg-amber-500/5 text-amber-600"
+          }`}
+        >
+          <AlertTriangle
+            className={`mt-0.5 size-3 shrink-0 ${
+              alert.code === "ALLOWANCE_NEGATIVE_BALANCE" ? "text-red-500" : "text-amber-600"
+            }`}
+          />
           <span>
             {alert.code === "ALLOWANCE_NEGATIVE_BALANCE"
               ? t("work_item.service_allowance.alerts.negative_balance")
