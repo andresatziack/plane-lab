@@ -115,8 +115,6 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
         read_only_fields = fields
 
 
-
-
 class ServiceIssueAllowanceUpdateSerializer(serializers.Serializer):
     """The body of an allowance update. Only reference and notes are mutable.
 

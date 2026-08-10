@@ -200,7 +200,7 @@ export class ServiceLogStore implements IServiceLogStore {
 
     // The allowance balance changes with every debit, so re-fetch it so the indicator
     // stays current without requiring a page reload.
-    this.rootIssueDetailStore.serviceAllowance.fetchAllowance(workspaceSlug, projectId, issueId);
+    this.rootIssueDetailStore.serviceAllowance.fetchAllowance(workspaceSlug, projectId, issueId).catch(() => undefined);
 
     return response.service_logs;
   };
@@ -224,7 +224,7 @@ export class ServiceLogStore implements IServiceLogStore {
     this.rootIssueDetailStore.activity.fetchActivities(workspaceSlug, projectId, issueId);
 
     // Re-fetch allowance so the indicator reflects the updated debit.
-    this.rootIssueDetailStore.serviceAllowance.fetchAllowance(workspaceSlug, projectId, issueId);
+    this.rootIssueDetailStore.serviceAllowance.fetchAllowance(workspaceSlug, projectId, issueId).catch(() => undefined);
 
     return response.service_logs;
   };
@@ -248,6 +248,6 @@ export class ServiceLogStore implements IServiceLogStore {
     this.rootIssueDetailStore.activity.fetchActivities(workspaceSlug, projectId, issueId);
 
     // Re-fetch allowance so the indicator reflects the reversed debit.
-    this.rootIssueDetailStore.serviceAllowance.fetchAllowance(workspaceSlug, projectId, issueId);
+    this.rootIssueDetailStore.serviceAllowance.fetchAllowance(workspaceSlug, projectId, issueId).catch(() => undefined);
   };
 }

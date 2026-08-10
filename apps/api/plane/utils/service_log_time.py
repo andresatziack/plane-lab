@@ -415,7 +415,11 @@ def format_hours_human(hours):
         return "0min"
 
     negative = value < 0
-    abs_minutes = int(abs(value) * 60)
+    # Use ROUND_HALF_UP to avoid truncation of fractional minutes. int() would
+    # silently drop sub-minute remainders (e.g. 79.998 -> 79 instead of 80),
+    # which is safe only for block-aligned inputs. Rounding is correct for any
+    # decimal hour value, including aggregations that are not multiples of 0.25.
+    abs_minutes = int((abs(value) * 60).to_integral_value(rounding=ROUND_HALF_UP))
 
     if abs_minutes == 0:
         return "0min"

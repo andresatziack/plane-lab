@@ -377,6 +377,10 @@ def _reconcile_existing_logs_to_allowance(issue, allowance, *, actor=None):
     1. Reverse the period debit (giving hours back to the contract pool).
     2. Clear ``debited_period_id`` and the REVERSAL entry so re-debiting is possible.
     3. Re-apply the debit, which will now route through rule R6 to the new allowance.
+
+    The entire loop runs inside ``transaction.atomic()`` so that a failure on any log
+    rolls back all preceding moves, preventing a partially-reconciled state where some
+    logs are on the allowance and others remain reversed with no debit target.
     """
     from plane.utils.service_pool import apply_debit, reverse_debit
 
@@ -392,20 +396,21 @@ def _reconcile_existing_logs_to_allowance(issue, allowance, *, actor=None):
     if not affected_logs:
         return
 
-    for log in affected_logs:
-        # Reverse the existing period debit.
-        reverse_debit(log, actor=actor)
+    with transaction.atomic():
+        for log in affected_logs:
+            # Reverse the existing period debit.
+            reverse_debit(log, actor=actor)
 
-        # Clear the period pointer and the REVERSAL entry so apply_debit can run again.
-        ServiceLog.objects.filter(pk=log.pk).update(debited_period_id=None)
-        ServiceHourLedgerEntry.objects.filter(
-            service_log_id=log.pk,
-            entry_type=ServiceLedgerEntryType.REVERSAL,
-        ).delete()
+            # Clear the period pointer and the REVERSAL entry so apply_debit can run again.
+            ServiceLog.objects.filter(pk=log.pk).update(debited_period_id=None)
+            ServiceHourLedgerEntry.objects.filter(
+                service_log_id=log.pk,
+                entry_type=ServiceLedgerEntryType.REVERSAL,
+            ).delete()
 
-        # Refresh and re-apply. Rule R6 will now find the allowance and debit it.
-        log.refresh_from_db()
-        apply_debit(log, actor=actor)
+            # Refresh and re-apply. Rule R6 will now find the allowance and debit it.
+            log.refresh_from_db()
+            apply_debit(log, actor=actor)
 
 
 # ---------------------------------------------------------------------------
@@ -516,14 +521,14 @@ def delete_allowance(allowance, *, actor=None):
         # Soft-delete the allowance.
         locked.delete()
 
-    # Outside the transaction that held the lock: re-apply debits to the contract pool.
-    # Each `apply_debit` opens its own atomic block, so a failure on one does not roll
-    # back the others -- the allowance is already gone, and the remaining logs will
-    # simply sit with `debited_period` null until retried.
-    for log in affected_logs:
-        # Refresh from DB to pick up the cleared debited_allowance_id.
-        log.refresh_from_db()
-        apply_debit(log, actor=actor)
+    # Re-apply debits to the contract pool inside a transaction so that a failure on
+    # any log rolls back the entire re-application, preventing logs from ending up with
+    # debited_period_id = NULL and no debit entry (effectively unbilled).
+    with transaction.atomic():
+        for log in affected_logs:
+            # Refresh from DB to pick up the cleared debited_allowance_id.
+            log.refresh_from_db()
+            apply_debit(log, actor=actor)
 
 
 # ---------------------------------------------------------------------------
