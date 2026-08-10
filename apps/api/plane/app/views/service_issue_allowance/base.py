@@ -30,6 +30,7 @@ from plane.app.serializers import (
     ServiceHourLedgerEntrySerializer,
     ServiceIssueAllowanceCreditSerializer,
     ServiceIssueAllowanceSerializer,
+    ServiceIssueAllowanceUpdateSerializer,
 )
 from plane.db.models import Issue, ServiceIssueAllowance, Workspace, WorkspaceMember
 from plane.utils.service_allowance import (
@@ -37,6 +38,8 @@ from plane.utils.service_allowance import (
     allowance_overage_preview,
     close_allowance,
     credit_allowance,
+    delete_allowance,
+    update_allowance,
     issue_allowance_snapshot,
     reconcile_allowance,
     resolve_work_item_allowance,
@@ -176,6 +179,92 @@ class IssueServiceAllowanceEndpoint(BaseAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def patch(self, request, slug, project_id, issue_id):
+        """Update the reference and notes of an allowance. Admin only.
+
+        Only metadata fields are mutable here. Every hour figure moves exclusively
+        through the ledger (decision D23), so updating them directly would bypass the
+        audit trail. Correcting a commercial reference or adding a note after the first
+        credit is a legitimate operation that should not require a zero-hour credit.
+
+        **Refused on a closed allowance.** Once settled the record is historical.
+        """
+        issue = self._issue(slug, project_id, issue_id)
+
+        if issue is None:
+            return _not_found()
+
+        allowance = ServiceIssueAllowance.objects.filter(issue_id=issue.pk).first()
+
+        if allowance is None:
+            return _not_found()
+
+        serializer = ServiceIssueAllowanceUpdateSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            allowance = update_allowance(
+                allowance,
+                actor=request.user,
+                reference=serializer.validated_data.get("reference"),
+                notes=serializer.validated_data.get("notes"),
+            )
+        except ServicePoolValidationError as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                "allowance": ServiceIssueAllowanceSerializer(
+                    allowance, context={"can_see_amounts": _can_see_amounts(request, slug)}
+                ).data,
+                "summary": issue_allowance_snapshot(issue),
+                "alerts": visible_alerts_for_allowance(allowance),
+                "credits": allowance_credits(allowance),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def delete(self, request, slug, project_id, issue_id):
+        """Remove an allowance from a work item. Admin only.
+
+        This is the inverse of crediting: the hours go back to the contract pool for
+        every work log that was consuming the allowance. The operation is atomic:
+
+        1. Reverse all debits that target this allowance.
+        2. Soft-delete the allowance.
+        3. Re-apply debits for each affected work log to the contract pool.
+
+        **Refused on a closed allowance.** A closed allowance has been settled (deficit
+        billed or surplus written off) and its ledger sums to zero. Deleting it would
+        erase a billing record that may already have been invoiced.
+        """
+        issue = self._issue(slug, project_id, issue_id)
+
+        if issue is None:
+            return _not_found()
+
+        allowance = ServiceIssueAllowance.objects.filter(issue_id=issue.pk).first()
+
+        if allowance is None:
+            return _not_found()
+
+        try:
+            delete_allowance(allowance, actor=request.user)
+        except ServicePoolValidationError as error:
+            return Response(
+                {"error": error.code, "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ServiceIssueAllowanceCloseEndpoint(BaseAPIView):

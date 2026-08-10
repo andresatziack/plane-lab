@@ -115,6 +115,23 @@ class ServiceIssueAllowanceSerializer(BaseSerializer):
         read_only_fields = fields
 
 
+
+
+class ServiceIssueAllowanceUpdateSerializer(serializers.Serializer):
+    """The body of an allowance update. Only reference and notes are mutable.
+
+    Every hour figure on the allowance moves exclusively through the ledger (decision
+    D23), so they are absent here by design, not by oversight. An admin correcting the
+    commercial reference of a project that was already credited should not need a second
+    credit to do so, and a note added after the fact should not touch any balance.
+
+    **Refused on a closed allowance.** Once settled, the record is historical -- editing
+    a reference afterwards would change what an invoice traces back to.
+    """
+
+    reference = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
 class ServiceIssueAllowanceCreditSerializer(serializers.Serializer):
     """The body of a credit. Acceptance criteria 1 and 5.
 

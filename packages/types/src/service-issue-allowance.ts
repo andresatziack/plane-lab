@@ -137,3 +137,9 @@ export interface IServiceIssueAllowanceCreditPayload {
   reference?: string;
   notes?: string;
 }
+
+/** What the update form submits. Only metadata fields are mutable. */
+export interface IServiceIssueAllowanceUpdatePayload {
+  reference?: string;
+  notes?: string;
+}

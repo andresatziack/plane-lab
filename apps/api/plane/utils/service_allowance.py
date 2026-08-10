@@ -279,6 +279,11 @@ def credit_allowance(
         allowance = _get_or_create_allowance(issue, reference=reference, notes=notes)
         locked = _lock_allowance(allowance)
 
+        # A first credit (credited_hours still zero) means the allowance was just created.
+        # After the credit, existing logs on this issue that debit the contract pool should
+        # be moved to the new allowance -- the reconciliation the user expects.
+        is_first_credit = locked.credited_hours == ZERO_HOURS
+
         if locked.status == ServiceIssueAllowanceStatus.CLOSED:
             raise ServicePoolValidationError(
                 ALLOWANCE_IS_CLOSED,
@@ -307,6 +312,15 @@ def credit_allowance(
         )
 
     locked.refresh_from_db()
+
+    # Reconciliation: when a NEW allowance is created, move existing work logs that
+    # currently debit the contract pool to the new allowance. This is the behaviour the
+    # user expects -- adding a bolsa de horas to an issue should immediately capture the
+    # existing apontamentos instead of leaving them on the contract pool until a new log
+    # is created.
+    if is_first_credit:
+        _reconcile_existing_logs_to_allowance(issue, locked, actor=actor)
+        locked.refresh_from_db()
 
     return locked
 
@@ -340,6 +354,176 @@ def _get_or_create_allowance(issue, *, reference=None, notes=None):
     except IntegrityError:
         # Lost the race. The winner's row is the right one to use.
         return ServiceIssueAllowance.objects.filter(issue_id=issue.pk).first()
+
+
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation -- move existing pool debits to a new allowance
+# ---------------------------------------------------------------------------
+
+
+def _reconcile_existing_logs_to_allowance(issue, allowance, *, actor=None):
+    """Move existing work logs from the contract pool to a newly created allowance.
+
+    When a new allowance is created on an issue, any existing service logs on that issue
+    that currently debit the contract pool (have ``debited_period_id`` set and
+    ``debited_allowance_id`` null, with ``debited_hours > 0``) should be moved to the
+    new allowance. This is the behaviour users expect: adding a bolsa de horas captures
+    existing apontamentos immediately, instead of leaving them on the contract pool until
+    a new log triggers the reconciliation.
+
+    For each affected log:
+    1. Reverse the period debit (giving hours back to the contract pool).
+    2. Clear ``debited_period_id`` and the REVERSAL entry so re-debiting is possible.
+    3. Re-apply the debit, which will now route through rule R6 to the new allowance.
+    """
+    from plane.utils.service_pool import apply_debit, reverse_debit
+
+    affected_logs = list(
+        ServiceLog.objects.filter(
+            issue_id=issue.pk,
+            debited_period_id__isnull=False,
+            debited_allowance_id__isnull=True,
+            debited_hours__gt=ZERO_HOURS,
+        ).select_related("issue", "issue__project")
+    )
+
+    if not affected_logs:
+        return
+
+    for log in affected_logs:
+        # Reverse the existing period debit.
+        reverse_debit(log, actor=actor)
+
+        # Clear the period pointer and the REVERSAL entry so apply_debit can run again.
+        ServiceLog.objects.filter(pk=log.pk).update(debited_period_id=None)
+        ServiceHourLedgerEntry.objects.filter(
+            service_log_id=log.pk,
+            entry_type=ServiceLedgerEntryType.REVERSAL,
+        ).delete()
+
+        # Refresh and re-apply. Rule R6 will now find the allowance and debit it.
+        log.refresh_from_db()
+        apply_debit(log, actor=actor)
+
+
+# ---------------------------------------------------------------------------
+# Update -- metadata only
+# ---------------------------------------------------------------------------
+
+
+def update_allowance(allowance, *, actor=None, reference=None, notes=None):
+    """Update the reference and notes of an allowance. Admin only.
+
+    Only metadata fields are mutable. Hour figures move through the ledger exclusively
+    (decision D23), so they are never touched here. An admin correcting the commercial
+    reference of a project that was already credited should not need a zero-hour credit
+    to accomplish it.
+
+    **Refused on a closed allowance.** Once settled the record is historical and its
+    reference should not be edited -- it may already have appeared on an invoice.
+    """
+    with transaction.atomic():
+        locked = _lock_allowance(allowance)
+
+        if locked.status == ServiceIssueAllowanceStatus.CLOSED:
+            raise ServicePoolValidationError(
+                ALLOWANCE_IS_CLOSED,
+                {"allowance_id": str(locked.pk), "issue_id": str(locked.issue_id)},
+            )
+
+        updates = {}
+
+        if reference is not None:
+            updates["reference"] = reference
+
+        if notes is not None:
+            updates["notes"] = notes
+
+        if updates:
+            ServiceIssueAllowance.objects.filter(pk=locked.pk).update(**updates)
+
+    locked.refresh_from_db()
+
+    return locked
+
+
+# ---------------------------------------------------------------------------
+# Delete -- reversal, soft-delete, and re-application to the contract pool
+# ---------------------------------------------------------------------------
+
+#: Deleting a closed allowance. A closed allowance has been settled and its ledger sums
+#: to zero; removing it would erase a billing record that may have been invoiced.
+ALLOWANCE_CANNOT_DELETE_CLOSED = "ALLOWANCE_CANNOT_DELETE_CLOSED"
+
+
+def delete_allowance(allowance, *, actor=None):
+    """Remove an allowance from a work item. Admin only.
+
+    The inverse of crediting: every work log that was consuming this allowance is moved
+    back to the contract pool. The operation is atomic:
+
+    1. Find all ServiceLog entries with ``debited_allowance_id`` pointing here.
+    2. For each, reverse the allowance debit.
+    3. Soft-delete the allowance.
+    4. For each affected log, clear ``debited_allowance_id`` and re-apply the debit to
+       the contract pool using ``apply_debit``.
+
+    **Refused on a closed allowance.** A closed allowance has been settled (deficit
+    billed or surplus written off) and its ledger sums to zero. Deleting it would erase
+    a billing record that may already have been invoiced.
+    """
+    from plane.utils.service_pool import apply_debit, reverse_debit
+
+    with transaction.atomic():
+        locked = _lock_allowance(allowance)
+
+        if locked.status == ServiceIssueAllowanceStatus.CLOSED:
+            raise ServicePoolValidationError(
+                ALLOWANCE_CANNOT_DELETE_CLOSED,
+                {"allowance_id": str(locked.pk), "issue_id": str(locked.issue_id)},
+            )
+
+        # Find all work logs currently debiting this allowance.
+        affected_logs = list(
+            ServiceLog.objects.filter(debited_allowance_id=locked.pk)
+            .select_related("issue", "issue__project")
+        )
+
+        # Reverse each debit from the allowance.
+        for log in affected_logs:
+            debit = ServiceHourLedgerEntry.objects.filter(
+                service_log_id=log.pk,
+                entry_type=ServiceLedgerEntryType.DEBIT,
+                allowance_id=locked.pk,
+            ).first()
+
+            if debit is not None:
+                reverse_allowance_debit(log, debit, actor=actor)
+
+        # Clear the allowance pointer on each affected log.
+        ServiceLog.objects.filter(debited_allowance_id=locked.pk).update(
+            debited_allowance_id=None
+        )
+
+        # Also clear any REVERSAL entries to allow re-debiting.
+        ServiceHourLedgerEntry.objects.filter(
+            service_log_id__in=[log.pk for log in affected_logs],
+            entry_type=ServiceLedgerEntryType.REVERSAL,
+        ).delete()
+
+        # Soft-delete the allowance.
+        locked.delete()
+
+    # Outside the transaction that held the lock: re-apply debits to the contract pool.
+    # Each `apply_debit` opens its own atomic block, so a failure on one does not roll
+    # back the others -- the allowance is already gone, and the remaining logs will
+    # simply sit with `debited_period` null until retried.
+    for log in affected_logs:
+        # Refresh from DB to pick up the cleared debited_allowance_id.
+        log.refresh_from_db()
+        apply_debit(log, actor=actor)
 
 
 # ---------------------------------------------------------------------------

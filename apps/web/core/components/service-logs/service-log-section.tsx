@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
-import { Plus, Wallet } from "lucide-react";
+import { Pencil, Plus, Trash2, Wallet } from "lucide-react";
 import useSWR from "swr";
 // plane imports
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
@@ -21,7 +21,9 @@ import { useUser, useUserPermissions } from "@/hooks/store/user";
 import { ServiceMemberPermissionService } from "@/services/service-member-permission.service";
 import type { TServiceLogBatch } from "@/store/issue/issue-details/service-log.store";
 import { CreditServiceAllowanceModal } from "./credit-service-allowance-modal";
+import { DeleteServiceAllowanceModal } from "./delete-service-allowance-modal";
 import { DeleteServiceLogModal } from "./delete-service-log-modal";
+import { EditServiceAllowanceModal } from "./edit-service-allowance-modal";
 import { ServiceAllowanceIndicator } from "./service-allowance-indicator";
 import { ServiceLogListItem } from "./service-log-list-item";
 import { ServiceLogModal } from "./service-log-modal";
@@ -60,6 +62,8 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
   const [isCreditOpen, setIsCreditOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<TServiceLogBatch | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<TServiceLogBatch | null>(null);
+  const [isEditAllowanceOpen, setIsEditAllowanceOpen] = useState(false);
+  const [isDeleteAllowanceOpen, setIsDeleteAllowanceOpen] = useState(false);
 
   // derived values
   const project = getProjectById(projectId);
@@ -131,6 +135,16 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
       <div className="flex items-center justify-between">
         <h4 className="text-base text-custom-text-100 font-medium">{t("work_item.service_log.title")}</h4>
         <div className="flex items-center gap-2">
+          {canCreditAllowance && hasLoadedAllowance && allowanceSummary && !allowanceSummary.is_inherited && allowanceSummary.status !== "closed" && (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setIsEditAllowanceOpen(true)} prependIcon={<Pencil />}>
+                {t("common.edit")}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setIsDeleteAllowanceOpen(true)} prependIcon={<Trash2 />}>
+                {t("common.delete")}
+              </Button>
+            </>
+          )}
           {canCreditAllowance && hasLoadedAllowance && (
             <Button variant="secondary" size="sm" onClick={() => setIsCreditOpen(true)} prependIcon={<Wallet />}>
               {allowanceSummary ? t("work_item.service_allowance.top_up") : t("work_item.service_allowance.add")}
@@ -229,6 +243,24 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
         // allowance on the sub-task -- so the copy has to say "create", not "add to".
         isTopUp={Boolean(allowanceSummary && !allowanceSummary.is_inherited)}
         handleClose={() => setIsCreditOpen(false)}
+      />
+
+      <EditServiceAllowanceModal
+        isOpen={isEditAllowanceOpen}
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+        issueId={issueId}
+        currentReference={allowanceSummary?.reference ?? ""}
+        currentNotes={allowanceSummary?.notes ?? ""}
+        handleClose={() => setIsEditAllowanceOpen(false)}
+      />
+
+      <DeleteServiceAllowanceModal
+        isOpen={isDeleteAllowanceOpen}
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+        issueId={issueId}
+        handleClose={() => setIsDeleteAllowanceOpen(false)}
       />
     </div>
   );

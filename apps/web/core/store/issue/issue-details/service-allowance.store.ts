@@ -13,6 +13,7 @@ import type {
   IServiceIssueAllowanceCreditPayload,
   IServiceIssueAllowanceResponse,
   IServiceIssueAllowanceSummary,
+  IServiceIssueAllowanceUpdatePayload,
 } from "@plane/types";
 // services
 import { ServiceIssueAllowanceService } from "@/services/service-issue-allowance.service";
@@ -31,6 +32,17 @@ export interface IServiceAllowanceStoreActions {
     issueId: string,
     data: IServiceIssueAllowanceCreditPayload
   ) => Promise<IServiceIssueAllowanceResponse>;
+  updateAllowance: (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    data: IServiceIssueAllowanceUpdatePayload
+  ) => Promise<IServiceIssueAllowanceResponse>;
+  deleteAllowance: (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string
+  ) => Promise<void>;
 }
 
 export interface IServiceAllowanceStore extends IServiceAllowanceStoreActions {
@@ -84,6 +96,8 @@ export class ServiceAllowanceStore implements IServiceAllowanceStore {
       // actions
       fetchAllowance: action,
       creditAllowance: action,
+      updateAllowance: action,
+      deleteAllowance: action,
     });
 
     this.rootIssueDetailStore = rootStore;
@@ -129,5 +143,30 @@ export class ServiceAllowanceStore implements IServiceAllowanceStore {
     await this.fetchAllowance(workspaceSlug, projectId, issueId);
 
     return response;
+  };
+
+  updateAllowance = async (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    data: IServiceIssueAllowanceUpdatePayload
+  ) => {
+    const response = await this.serviceIssueAllowanceService.updateAllowance(
+      workspaceSlug,
+      projectId,
+      issueId,
+      data
+    );
+    this.storeResponse(issueId, response);
+    return response;
+  };
+
+  deleteAllowance = async (workspaceSlug: string, projectId: string, issueId: string) => {
+    await this.serviceIssueAllowanceService.deleteAllowance(workspaceSlug, projectId, issueId);
+    // The allowance is gone; clear local state so the indicator disappears.
+    runInAction(() => {
+      this.summaryByIssue[issueId] = null;
+      this.alertsByIssue[issueId] = [];
+    });
   };
 }

@@ -6,7 +6,11 @@
 
 // plane imports
 import { API_BASE_URL } from "@plane/constants";
-import type { IServiceIssueAllowanceCreditPayload, IServiceIssueAllowanceResponse } from "@plane/types";
+import type {
+  IServiceIssueAllowanceCreditPayload,
+  IServiceIssueAllowanceResponse,
+  IServiceIssueAllowanceUpdatePayload,
+} from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
 
@@ -91,6 +95,43 @@ export class ServiceIssueAllowanceService extends APIService {
     return this.post(`/api/workspaces/${workspaceSlug}/service-issue-allowances/${allowanceId}/dismiss-alert/`, {
       alert_code: alertCode,
     })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
+   * Update the reference and notes of an allowance.
+   *
+   * Only metadata fields are mutable -- hour figures move through the ledger exclusively.
+   * Refused on a closed allowance.
+   */
+  async updateAllowance(
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    data: IServiceIssueAllowanceUpdatePayload
+  ): Promise<IServiceIssueAllowanceResponse> {
+    return this.patch(`${this.basePath(workspaceSlug, projectId, issueId)}/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
+   * Delete an allowance from a work item.
+   *
+   * Reverses all debits that targeted this allowance and moves the affected work logs
+   * back to the contract pool. Refused on a closed allowance.
+   */
+  async deleteAllowance(
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string
+  ): Promise<void> {
+    return this.delete(`${this.basePath(workspaceSlug, projectId, issueId)}/`)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

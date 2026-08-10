@@ -69,6 +69,7 @@ from .service_contract import (
 from .service_issue_allowance import (
     ServiceIssueAllowanceCreditSerializer,
     ServiceIssueAllowanceSerializer,
+    ServiceIssueAllowanceUpdateSerializer,
 )
 from .service_issue_requester import ServiceIssueRequesterSerializer
 from .service_pricing import (
