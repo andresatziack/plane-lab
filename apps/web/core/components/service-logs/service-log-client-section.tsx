@@ -111,9 +111,12 @@ export const ServiceLogClientSection = observer(function ServiceLogClientSection
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {cards.map((card) => (
               <Tooltip key={card.key} tooltipContent={card.hint}>
-                <div className="flex flex-col gap-0.5 rounded-md border border-subtle px-3 py-2">
-                  <span className="text-xs text-custom-text-350">{card.label}</span>
-                  <span className="text-body-sm-medium">{card.value}</span>
+                {/* The grid already had a mobile fallback; the cards did not. `min-w-0` lets the
+                    column shrink and `break-words` keeps "1h 52min 30s" and "R$ 12.345,67"
+                    inside the border at 390px. */}
+                <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-subtle px-3 py-2">
+                  <span className="text-xs text-custom-text-350 leading-tight">{card.label}</span>
+                  <span className="text-body-sm-medium break-words">{card.value}</span>
                 </div>
               </Tooltip>
             ))}
@@ -122,12 +125,15 @@ export const ServiceLogClientSection = observer(function ServiceLogClientSection
           <div className="flex flex-col gap-2">
             {rows.map((row) => (
               <div key={row.id} className="flex flex-col gap-1 rounded-md border border-subtle px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-body-sm-medium">{row.equivalent_hours_display}</span>
+                {/* Hours on the left, date on the right. Both are short, but the hours reading is
+                    now a duration ("1h 52min 30s") rather than "1,875h", so the row wraps instead
+                    of cutting one of the two. */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-body-sm-medium break-words">{row.equivalent_hours_display}</span>
                   <span className="text-xs text-custom-text-350">{row.worked_on}</span>
                 </div>
 
-                {row.description && <span className="text-xs text-custom-text-200">{row.description}</span>}
+                {row.description && <span className="text-xs text-custom-text-200 break-words">{row.description}</span>}
 
                 <div className="text-xs text-custom-text-350 flex flex-wrap items-center gap-2">
                   {row.author_detail && <span>{row.author_detail.display_name}</span>}

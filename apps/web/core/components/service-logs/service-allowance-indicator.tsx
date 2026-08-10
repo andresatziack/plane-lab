@@ -61,10 +61,17 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-subtle bg-surface-2 px-3 py-2">
-      <div className="flex items-center justify-between gap-2">
+      {/* `flex-wrap` so the consumed-percentage badge drops under the title on a phone instead
+          of colliding with it -- "Bolsa de horas do chamado" and "161% consumido" do not fit on
+          one 390px line. From `sm` up the row never wraps, which is the behaviour it had before. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-col">
           <Tooltip tooltipContent={t("work_item.service_allowance.title_hint")} position="top">
-            <span className="text-sm text-custom-text-100 font-medium">{t("work_item.service_allowance.title")}</span>
+            {/* Wraps rather than truncates: the title is the only thing saying which allowance
+                these figures belong to, so half of it is worse than two lines of it. */}
+            <span className="text-sm text-custom-text-100 font-medium break-words">
+              {t("work_item.service_allowance.title")}
+            </span>
           </Tooltip>
           {summary.reference && <span className="text-xs text-custom-text-350 truncate">{summary.reference}</span>}
         </div>
@@ -86,7 +93,9 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
       {summary.is_inherited && (
         <div className="text-xs text-custom-text-300 flex items-start gap-1.5">
           <CornerLeftUp className="mt-0.5 size-3 shrink-0" />
-          <span>{t("work_item.service_allowance.inherited")}</span>
+          {/* `min-w-0` because a flex item's `min-width: auto` floors it at its longest word:
+              without it a long reference in the sentence pushes past the border. */}
+          <span className="min-w-0 break-words">{t("work_item.service_allowance.inherited")}</span>
         </div>
       )}
 
@@ -99,12 +108,15 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
+      {/* Creditado / consumido / restante. Two columns on a phone so each label and value has
+          room, the original three from `sm` up. `min-w-0` is what lets a column shrink at all --
+          without it a grid item stays as wide as its longest word and the value leaves the box. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {cards.map((card) => (
-          <div key={card.key} className="flex flex-col gap-0.5">
-            <span className="text-xs text-custom-text-350">{card.label}</span>
+          <div key={card.key} className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-xs text-custom-text-350 leading-tight">{card.label}</span>
             <span
-              className={`text-sm font-semibold ${
+              className={`text-sm font-semibold break-words ${
                 card.key === "balance" && isOverrun ? "text-red-500" : "text-custom-text-100"
               }`}
             >
@@ -132,7 +144,7 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
               alert.code === "ALLOWANCE_NEGATIVE_BALANCE" ? "text-red-500" : "text-amber-600"
             }`}
           />
-          <span>
+          <span className="min-w-0 break-words">
             {alert.code === "ALLOWANCE_NEGATIVE_BALANCE"
               ? t("work_item.service_allowance.alerts.negative_balance")
               : t("work_item.service_allowance.alerts.high_consumption")}

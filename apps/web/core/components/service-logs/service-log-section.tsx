@@ -132,19 +132,39 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+      {/* The action cluster can hold four buttons (Editar, Excluir, Bolsa de horas, Adicionar
+          apontamento) and they do not fit beside the title on a phone. Wrapping is the whole
+          fix: no button is hidden or dropped, and no permission condition below changed --
+          hiding an action on a small screen would make the feature unusable on a phone rather
+          than merely ugly. Only a row gap is added, never a column gap: `flex-wrap` cannot
+          change a row that already fits, so wide layouts are untouched. */}
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <h4 className="text-base text-custom-text-100 font-medium">{t("work_item.service_log.title")}</h4>
-        <div className="flex items-center gap-2">
-          {canCreditAllowance && hasLoadedAllowance && allowanceSummary && !allowanceSummary.is_inherited && allowanceSummary.status !== "closed" && (
-            <>
-              <Button variant="secondary" size="sm" onClick={() => setIsEditAllowanceOpen(true)} prependIcon={<Pencil />}>
-                {t("common.edit")}
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setIsDeleteAllowanceOpen(true)} prependIcon={<Trash2 />}>
-                {t("common.delete")}
-              </Button>
-            </>
-          )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {canCreditAllowance &&
+            hasLoadedAllowance &&
+            allowanceSummary &&
+            !allowanceSummary.is_inherited &&
+            allowanceSummary.status !== "closed" && (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsEditAllowanceOpen(true)}
+                  prependIcon={<Pencil />}
+                >
+                  {t("common.edit")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsDeleteAllowanceOpen(true)}
+                  prependIcon={<Trash2 />}
+                >
+                  {t("common.delete")}
+                </Button>
+              </>
+            )}
           {canCreditAllowance && hasLoadedAllowance && (
             <Button variant="secondary" size="sm" onClick={() => setIsCreditOpen(true)} prependIcon={<Wallet />}>
               {allowanceSummary ? t("work_item.service_allowance.top_up") : t("work_item.service_allowance.add")}

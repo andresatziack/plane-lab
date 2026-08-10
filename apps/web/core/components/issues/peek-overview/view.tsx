@@ -176,7 +176,14 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
               {/* content */}
               <div className="vertical-scrollbar relative scrollbar-md h-full w-full overflow-hidden overflow-y-auto">
                 {["side-peek", "modal"].includes(peekMode) ? (
-                  <div className="relative flex flex-col gap-3 space-y-3 px-8 py-5">
+                  /*
+                    Horizontal padding is responsive because the side peek is `w-full` below `md`
+                    (see `peekOverviewIssueClassName` above): `px-8` spent 64px of a 390px phone
+                    viewport on padding, which is what pushed the work log cards past their own
+                    borders. `md:px-8` is the value it always had, and `md` is exactly where the
+                    peek narrows to 50%, so nothing changes from tablet up.
+                  */
+                  <div className="relative flex flex-col gap-3 space-y-3 px-4 py-5 md:px-8">
                     <PeekOverviewIssueDetails
                       editorRef={editorRef}
                       workspaceSlug={workspaceSlug}
@@ -226,11 +233,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                         disabled={is_archived}
                       />
                     ) : (
-                      <ServiceLogClientSection
-                        workspaceSlug={workspaceSlug}
-                        projectId={projectId}
-                        issueId={issueId}
-                      />
+                      <ServiceLogClientSection workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} />
                     )}
 
                     <IssueActivity
@@ -241,8 +244,14 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                     />
                   </div>
                 ) : (
-                  <div className="vertical-scrollbar flex h-full w-full overflow-auto">
-                    <div className="relative h-full w-full space-y-6 overflow-auto p-4 py-5">
+                  /*
+                    Full-screen mode: a scrolling content column beside a fixed 400px properties
+                    rail. 400px does not exist on a 390px phone, so below `md` the two stack and
+                    the rail spans the full width; from `md` up the row, the `h-full` columns and
+                    the exact `!w-[400px]` rail are unchanged.
+                  */
+                  <div className="vertical-scrollbar flex w-full flex-col overflow-auto md:h-full md:flex-row">
+                    <div className="relative w-full space-y-6 overflow-auto p-4 py-5 md:h-full">
                       <div className="space-y-3">
                         <PeekOverviewIssueDetails
                           editorRef={editorRef}
@@ -295,7 +304,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                       </div>
                     </div>
                     <div
-                      className={`vertical-scrollbar scrollbar-sm h-full !w-[400px] flex-shrink-0 overflow-hidden border-l border-subtle p-4 py-5 ${
+                      className={`vertical-scrollbar scrollbar-sm w-full flex-shrink-0 overflow-hidden border-t border-subtle p-4 py-5 md:h-full md:!w-[400px] md:border-t-0 md:border-l ${
                         is_archived ? "pointer-events-none" : ""
                       }`}
                     >

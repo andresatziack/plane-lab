@@ -44,7 +44,10 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-subtle px-3 py-2.5">
-      <div className="flex items-start justify-between gap-2">
+      {/* Two blocks -- the reading of the entry and the badge/action cluster -- that together
+          need far more than 390px. They stack below `sm` and go back to the original single row
+          from `sm` up, so the desktop layout is the one it always was. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="text-xs text-custom-text-300 flex flex-wrap items-center gap-2">
             <span className="text-custom-text-200 font-medium">{first.worked_on}</span>
@@ -114,7 +117,10 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
           <p className="text-sm text-custom-text-300 break-words whitespace-pre-wrap">{first.description}</p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        {/* Up to four badges plus the two icon buttons. `flex-wrap` lets them flow onto a second
+            line on a phone; `sm:shrink-0` is the class this row had before, so at desktop the
+            cluster still refuses to be squeezed by the text column and nothing wraps. */}
+        <div className="flex flex-wrap items-center gap-1 sm:shrink-0">
           {/* The badge section 6 asks for whenever the route does not charge. It shows
               the billing type name -- "Garantia" or "Cortesia" -- rather than a generic
               label, because R5 requires the two to stay distinguishable: one is a

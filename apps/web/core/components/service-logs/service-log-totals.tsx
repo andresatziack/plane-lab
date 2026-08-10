@@ -65,13 +65,29 @@ export const ServiceLogTotals = observer(function ServiceLogTotals(props: Props)
     });
   }
 
+  /*
+   * Two columns on a phone, the original three or four from `md` up.
+   *
+   * The peek is `w-full` below `md`, so on a 390px screen four columns left each card about
+   * 60px of usable width -- and a grid item defaults to `min-width: auto`, so it refuses to
+   * shrink under its content and pushes the text out of the bordered box instead. That is the
+   * reported "Horas equivalent" clipping. `min-w-0` on the card is what actually lets the
+   * column shrink; the two-column base is what leaves enough room for the label to wrap into.
+   *
+   * Mirrors `service-reports/consumption-tab.tsx` (`grid-cols-2 ... md:grid-cols-4`) rather
+   * than inventing a second convention, and the `md:` classes are exactly the ones that were
+   * unconditional before, so desktop geometry is unchanged.
+   */
   return (
-    <div className={`grid gap-2 ${cards.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
+    <div className={`grid grid-cols-2 gap-2 ${cards.length === 4 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
       {cards.map((card) => (
         <Tooltip key={card.key} tooltipContent={card.hint} position="top">
-          <div className="flex flex-col gap-0.5 rounded-md border border-subtle bg-surface-2 px-3 py-2">
-            <span className="text-xs text-custom-text-350">{card.label}</span>
-            <span className="text-base text-custom-text-100 font-semibold">{card.value}</span>
+          <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-subtle bg-surface-2 px-3 py-2">
+            <span className="text-xs text-custom-text-350 leading-tight">{card.label}</span>
+            {/* "R$ 12.345,67" and "1h 52min 30s" both have to survive a narrow card: one size
+                step down below `md`, and `break-words` so a value that still does not fit wraps
+                instead of escaping the border. */}
+            <span className="text-sm text-custom-text-100 md:text-base font-semibold break-words">{card.value}</span>
           </div>
         </Tooltip>
       ))}

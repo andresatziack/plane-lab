@@ -29,7 +29,16 @@ export const ServiceLogModal = observer(function ServiceLogModal(props: Props) {
 
   return (
     <ModalCore isOpen={isOpen} handleClose={handleClose} position={EModalPosition.TOP} width={EModalWidth.XXL}>
-      <div className="flex flex-col gap-4 p-5">
+      {/*
+        `p-4` below `sm`, the original `p-5` from `sm` up.
+
+        `ModalCore` panels are `w-full` with a `sm:max-w-*` cap and `EModalPosition.TOP` adds
+        `mx-4`, so on a 390px screen the panel is 358px wide -- the width class is already
+        responsive and needs nothing. What was pinched is the content: `p-5` left 318px for the
+        widest form in this folder (a date input, two time inputs, two dropdowns and a textarea).
+        `p-4` gives back 8px, which is the difference between the time inputs fitting and not.
+      */}
+      <div className="flex flex-col gap-4 p-4 sm:p-5">
         <h3 className="text-lg text-custom-text-100 font-medium">
           {batchId ? t("work_item.service_log.edit") : t("work_item.service_log.add")}
         </h3>

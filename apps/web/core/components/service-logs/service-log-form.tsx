@@ -254,9 +254,11 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
         />
       )}
 
-      {/* Interval mode -- rule R9 */}
+      {/* Interval mode -- rule R9. The two `type="time"` inputs have a browser-imposed minimum
+          width (the clock stepper is part of the control), so side by side they overflow the
+          modal on a phone: stacked below `sm`, the original row from `sm` up. */}
       {isIntervalMode && (
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           {(["start_time", "end_time"] as const).map((fieldName) => (
             <Controller
               key={fieldName}
@@ -360,8 +362,9 @@ export const ServiceLogForm = observer(function ServiceLogForm(props: Props) {
         )}
       />
 
-      {/* Catalogue dropdowns -- Phase 2 criteria 1 and 2 */}
-      <div className="flex gap-3">
+      {/* Catalogue dropdowns -- Phase 2 criteria 1 and 2. Hour type names such as "Fora do
+          expediente" do not fit in half of a 358px modal, so the pair stacks below `sm`. */}
+      <div className="flex flex-col gap-3 sm:flex-row">
         <Controller
           control={control}
           name="hour_type_id"
