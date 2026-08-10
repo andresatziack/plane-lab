@@ -96,7 +96,10 @@ export const ServiceLogClientSection = observer(function ServiceLogClientSection
     : [];
 
   return (
-    <div className="flex flex-col gap-3 py-3">
+    // `@container` for the same reason `ServiceLogSection` has one: this section renders inside
+    // the side peek (`md:w-[50%]`), the full-screen peek's content column and the full work item
+    // page, so a viewport breakpoint says nothing useful about the room a card has.
+    <div className="@container flex flex-col gap-3 py-3">
       <button
         type="button"
         onClick={() => setIsExpanded((previous) => !previous)}
@@ -108,7 +111,10 @@ export const ServiceLogClientSection = observer(function ServiceLogClientSection
 
       {isExpanded && (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {/* Two or three cards, three columns from `@md` (448px of container) up. This was
+              `sm:grid-cols-3`, a 640px viewport, which inside the side peek fired while the
+              container was ~320px wide. */}
+          <div className="grid grid-cols-2 gap-2 @md:grid-cols-3">
             {cards.map((card) => (
               <Tooltip key={card.key} tooltipContent={card.hint}>
                 {/* The grid already had a mobile fallback; the cards did not. `min-w-0` lets the

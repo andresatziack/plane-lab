@@ -1,7 +1,14 @@
 {
   "task_id": "task-worklog-humanize-hours-and-responsive",
   "task_description": "The user tested the work item peek on a phone and reported two defects in the apontamentos (work log) UI: hours still render as decimals ('32,25h' instead of '32h 15min') on the surfaces the previous change did not cover, and the layout is not responsive - labels clip, values wrap out of their boxes, and the allowance title collides with the consumed-percentage badge. Fix both, for desktop and mobile: convert every remaining user-facing hour rendering in the API to a clock duration (keeping decimal only for spreadsheet exports and raw payload fields), wire the /preview display twins the form was missing, and add responsive breakpoints across the worklog components and the peek container without altering the desktop layout.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "pass",
+    "summary": "RE-RUN after the semantic review (2026-08-10-200538-review.md) and the fixes for its 10 issues; the numbers below replace the earlier marker-filtered run, which the review correctly called a deviation from CONVENCOES-DE-TRABALHO.md and which hid three real failures. ./tools/agent-sandbox/run-api-tests.sh -q with NO marker filter and no path filter -> 2611 passed, 0 failed, 558s. The three test_service_billing.py consolidation failures the review found are fixed, and the four test files that carried no unit/contract marker now carry one, so -m 'unit or contract' collects 2609/2611 instead of silently skipping the pricing and money core. ruff check apps/api -> 16 errors, byte-identical to FEAT-001's pre-existing list, none in a touched file; ruff format not run. REBUILD=1 ./tools/agent-sandbox/run-web-checks.sh types exit 0 (packages/types was rebuilt). oxlint 0 warnings 0 errors on the touched web paths. i18n 19 locales / 4,370 keys in sync. docker build (podman) of apps/api/Dockerfile.api (context apps/api) and apps/web/Dockerfile.web (repo root) both succeeded again, and the production CSS inside the web image was inspected to prove the new container-query utilities really compiled: globals-*.css contains container-type:inline-size and @container (width>=24rem|28rem|36rem) blocks carrying @sm:grid-cols-3, @md:grid-cols-3/@md:text-base and @xl:grid-cols-3/@xl:grid-cols-4/@xl:flex-row/@xl:items-start/@xl:justify-between/@xl:shrink-0 -- a variant that failed to compile would have degraded silently to the mobile layout. Test quality: the hour-rendering rule is now guarded by tests rather than by comments (an AST scan that fails when any plane/app or plane/utils module names format_hours outside the export schema, and a payload walker asserting every hours/*_hours key ships a *_hours_display sibling, both self-tested so they can actually fail), and the six previously untested _display fields are asserted as exact strings, including a non-whole-minute case per payload."
+  }
 }

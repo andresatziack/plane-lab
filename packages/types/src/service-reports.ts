@@ -312,7 +312,10 @@ export type TServicePeriodAlertEntry = {
   period_id: string;
   competence: string;
   granted_hours: string;
+  /** Rendered twin. Raw to compare, `_display` to render -- never format an hour here (D68). */
+  granted_hours_display: string;
   consumed_hours: string;
+  consumed_hours_display: string;
   balance_hours: string;
   /** Rendered twin of `balance_hours`, which is what the alert row prints. */
   balance_hours_display: string;
@@ -329,7 +332,10 @@ export type TServiceAllowanceAlertEntry = {
   project_name: string;
   reference: string;
   credited_hours: string;
+  /** Rendered twin. Raw to compare, `_display` to render -- never format an hour here (D68). */
+  credited_hours_display: string;
   consumed_hours: string;
+  consumed_hours_display: string;
   balance_hours: string;
   /** Rendered twin of `balance_hours`, which is what the alert row prints. */
   balance_hours_display: string;

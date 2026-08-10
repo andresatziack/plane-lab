@@ -41,6 +41,7 @@ from plane.tests.factories import (
     StateFactory,
     UserFactory,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 from plane.utils.service_pool import close_period, resolve_period
 from plane.utils.service_pool_alerts import (
     ACCRUED_BALANCE_ABOVE_THRESHOLD,
@@ -469,6 +470,18 @@ class TestPanel:
         assert "PAN-SUP" in by_code
         assert by_code["PAN-SUP"]["has_high_consumption"] is True
         assert by_code["PAN-SUP"]["balance_hours"] == "-3.0000"
+        # D68. `attention-tab.tsx` prints this inside "Saldo: ...", so the entry that used to
+        # answer "-3.0000" now also answers "-3h". Exact strings, not truthiness: the whole
+        # point is which notation reaches the sentence.
+        assert by_code["PAN-SUP"]["balance_hours_display"] == "-3h"
+        assert by_code["PAN-SUP"]["granted_hours_display"] == "30h"
+        assert by_code["PAN-SUP"]["consumed_hours_display"] == "33h"
+        # And structurally, so the next hour field added to this entry cannot arrive bare.
+        # `alerts` is excused: it carries the numbers that justified each code, typed
+        # `unknown` behind an index signature, and no screen renders them.
+        assert (
+            hour_fields_missing_a_rendered_twin(by_code["PAN-SUP"], skip_keys={"alerts"}) == []
+        )
         assert "PAN-INF" in by_code
         assert by_code["PAN-INF"]["has_low_consumption"] is True
         assert NO_SERVICE_LOGS_IN_MONTH in codes(by_code["PAN-INF"]["alerts"])
@@ -608,6 +621,13 @@ class TestAllowanceAlerts:
         assert [entry["allowance_id"] for entry in entries] == [str(overrun.pk)]
         assert entries[0]["issue_name"] == overrun.issue.name
         assert str(healthy.pk) not in [entry["allowance_id"] for entry in entries]
+        # The allowance half of the same alert row (D68). `attention-tab.tsx` renders period
+        # and allowance entries through one template, so the two producers have to agree.
+        assert entries[0]["balance_hours"] == "-15.0000"
+        assert entries[0]["balance_hours_display"] == "-15h"
+        assert entries[0]["credited_hours_display"] == "10h"
+        assert entries[0]["consumed_hours_display"] == "25h"
+        assert hour_fields_missing_a_rendered_twin(entries[0], skip_keys={"alerts"}) == []
 
     def test_a_closed_allowance_is_not_alerted_on(self, db, actor):
         """It has been settled: the deficit was billed or the surplus written off, so there

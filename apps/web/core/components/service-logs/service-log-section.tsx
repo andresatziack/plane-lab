@@ -130,14 +130,32 @@ export const ServiceLogSection = observer(function ServiceLogSection(props: Prop
   const allowanceAlerts = serviceAllowance.getAlertsByIssueId(issueId);
   const hasLoadedAllowance = serviceAllowance.hasLoadedByIssueId(issueId);
 
+  /*
+   * `@container` is load-bearing, not decoration.
+   *
+   * This section renders inside three shells of very different widths: the side peek, which is
+   * `w-full` below `md` and `md:w-[50%]` above it; the full-screen peek, whose content column
+   * is the viewport minus a 400px rail; and the full work item page. A viewport breakpoint gets
+   * that backwards -- `md:grid-cols-4` fires at 768px, which is exactly the width where the
+   * side peek halves, so the cards had LESS room at 768px (~50px of card interior) than at
+   * 390px (~151px). Every breakpoint inside this section therefore queries this element's own
+   * width with `@`-prefixed variants (Tailwind 4 has container queries built in, and
+   * `settings/content-wrapper.tsx` already uses them), so a card gets more room only when the
+   * container really is wider.
+   *
+   * Container sizes used below: `@sm` 24rem/384px, `@md` 28rem/448px, `@xl` 36rem/576px.
+   */
   return (
-    <div className="flex flex-col gap-3">
+    <div className="@container flex flex-col gap-3">
       {/* The action cluster can hold four buttons (Editar, Excluir, Bolsa de horas, Adicionar
           apontamento) and they do not fit beside the title on a phone. Wrapping is the whole
           fix: no button is hidden or dropped, and no permission condition below changed --
           hiding an action on a small screen would make the feature unusable on a phone rather
-          than merely ugly. Only a row gap is added, never a column gap: `flex-wrap` cannot
-          change a row that already fits, so wide layouts are untouched. */}
+          than merely ugly.
+          `flex-wrap` here is unconditional, deliberately and at every width: a narrow desktop
+          window with four buttons and a long translated title used to push the cluster past the
+          edge, and wrapping is the better of the two failure modes. Only a ROW gap is added, so
+          a row that fits is laid out exactly as before. */}
       <div className="flex flex-wrap items-center justify-between gap-y-2">
         <h4 className="text-base text-custom-text-100 font-medium">{t("work_item.service_log.title")}</h4>
         <div className="flex flex-wrap items-center justify-end gap-2">

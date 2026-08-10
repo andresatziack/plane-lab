@@ -38,7 +38,8 @@ from plane.tests.factories import (
     ServiceLogFactory,
 )
 
-pytestmark = pytest.mark.django_db
+# `unit` beside `django_db`: without it a filtered run (`-m "unit or contract"`) skips this file.
+pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
 
 @pytest.fixture

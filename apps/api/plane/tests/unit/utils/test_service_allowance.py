@@ -53,12 +53,14 @@ from plane.tests.factories import (
     ServiceIssueAllowanceFactory,
     UserFactory,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 from plane.utils.service_allowance import (
     ALLOWANCE_ALREADY_CLOSED,
     ALLOWANCE_ANCESTOR_DEPTH_LIMIT,
     ALLOWANCE_CREDIT_MUST_BE_POSITIVE,
     ALLOWANCE_IS_CLOSED,
     allowance_credits,
+    allowance_overage_preview,
     close_allowance,
     credit_allowance,
     issue_allowance_snapshot,
@@ -943,6 +945,47 @@ class TestClosing:
         assert january.consumed_hours == Decimal("0.0000"), "the deficit was never the contract's"
 
         assert reconcile_allowance(closed)["is_consistent"]
+
+    def test_the_overage_preview_renders_the_hours_it_is_about_to_bill(
+        self, catalog, project_issue, actor
+    ):
+        """D68 on the confirmation modal, which is the last screen before an irreversible act.
+
+        ``overage-billing-confirmation.tsx`` prints these hours, and it used to print the raw
+        ``"15.2500"``. The value is deliberately not whole-minute-round here: a deficit is a
+        difference between two sums, so it lands wherever the arithmetic puts it, and this is
+        the payload where a decimal leaking is most expensive.
+        """
+        credit_allowance(project_issue, Decimal("10.0000"), actor=actor)
+        ServiceIssueAllowance.objects.filter(issue_id=project_issue.pk).update(
+            overage_hour_rate=Decimal("180.00")
+        )
+        log_on(
+            project_issue,
+            actor=actor,
+            catalog=catalog,
+            minutes=25 * 60 + 15,
+            worked_on=date(2026, 1, 15),
+        )
+
+        allowance = ServiceIssueAllowance.objects.get(issue_id=project_issue.pk)
+        preview = allowance_overage_preview(allowance)
+
+        assert preview["overage_hours"] == "15.2500", "the raw string still travels beside it"
+        assert preview["overage_hours_display"] == "15h 15min"
+        assert hour_fields_missing_a_rendered_twin(preview) == []
+
+    def test_a_surplus_has_no_overage_preview_at_all(self, catalog, project_issue, actor):
+        """The positive control for the test above: ``None`` rather than a rendered zero.
+
+        A surplus is not a charge, and offering "0h" for it would invent one -- the same
+        distinction D51 draws between an absent figure and a zero.
+        """
+        credit_allowance(project_issue, Decimal("10.0000"), actor=actor)
+
+        allowance = ServiceIssueAllowance.objects.get(issue_id=project_issue.pk)
+
+        assert allowance_overage_preview(allowance) is None
 
     def test_crediting_more_hours_before_closing_settles_the_deficit(
         self, catalog, project_issue, actor

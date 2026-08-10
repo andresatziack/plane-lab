@@ -529,7 +529,13 @@ def workspace_alert_panel(workspace_id, *, reference_date=None, contract_id=None
                 "period_id": str(period.pk),
                 "competence": period.competence_label,
                 "granted_hours": str(period.granted_hours),
+                # Every hour that leaves for a screen ships its rendered twin, including the
+                # two the current panel only uses as context (D68). The rule is worth keeping
+                # whole rather than per consumer: the four rounds of "1.2500" reaching a user
+                # all started with a raw string that nobody was rendering *yet*.
+                "granted_hours_display": format_hours_human(period.granted_hours),
                 "consumed_hours": str(period.consumed_hours),
+                "consumed_hours_display": format_hours_human(period.consumed_hours),
                 "balance_hours": str(period.balance_hours),
                 # The alert panel prints this balance beside the competency, so it needs the
                 # rendered twin like every other hour on a screen (D68). Without it the panel
@@ -713,7 +719,9 @@ def workspace_allowance_alerts(workspace_id, *, project_id=None, reference_date=
                 "project_name": allowance.project.name,
                 "reference": allowance.reference,
                 "credited_hours": str(allowance.credited_hours),
+                "credited_hours_display": format_hours_human(allowance.credited_hours),
                 "consumed_hours": str(allowance.consumed_hours),
+                "consumed_hours_display": format_hours_human(allowance.consumed_hours),
                 "balance_hours": str(allowance.balance_hours),
                 "balance_hours_display": format_hours_human(allowance.balance_hours),
                 "alerts": alerts,

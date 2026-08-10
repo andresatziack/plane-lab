@@ -246,9 +246,11 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                 ) : (
                   /*
                     Full-screen mode: a scrolling content column beside a fixed 400px properties
-                    rail. 400px does not exist on a 390px phone, so below `md` the two stack and
-                    the rail spans the full width; from `md` up the row, the `h-full` columns and
-                    the exact `!w-[400px]` rail are unchanged.
+                    rail. 400px does not exist on a 390px phone, so below `md` the two stack, the
+                    rail spans the full width and it is ordered FIRST (see the comment on it);
+                    from `md` up the row, the `h-full` columns and the exact `!w-[400px]` rail are
+                    unchanged. The border follows the stacking: it separates the rail from the
+                    content below it (`border-b`) and becomes the original `md:border-l`.
                   */
                   <div className="vertical-scrollbar flex w-full flex-col overflow-auto md:h-full md:flex-row">
                     <div className="relative w-full space-y-6 overflow-auto p-4 py-5 md:h-full">
@@ -303,8 +305,17 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                         />
                       </div>
                     </div>
+                    {/*
+                      `order-first md:order-none` is what makes the stacked phone layout usable
+                      rather than merely narrow. This rail holds state, assignees, dates and the
+                      rest of the properties, and in source order it comes AFTER the whole content
+                      column -- description, work log and activity feed -- so stacking it left a
+                      technician scrolling several screens to reach the controls they opened the
+                      item for. Above `md` the row is restored and `order-none` puts it back on
+                      the right, so the desktop geometry is untouched.
+                    */}
                     <div
-                      className={`vertical-scrollbar scrollbar-sm w-full flex-shrink-0 overflow-hidden border-t border-subtle p-4 py-5 md:h-full md:!w-[400px] md:border-t-0 md:border-l ${
+                      className={`vertical-scrollbar order-first scrollbar-sm w-full flex-shrink-0 overflow-hidden border-b border-subtle p-4 py-5 md:order-none md:h-full md:!w-[400px] md:border-b-0 md:border-l ${
                         is_archived ? "pointer-events-none" : ""
                       }`}
                     >

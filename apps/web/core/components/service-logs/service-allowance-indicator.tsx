@@ -60,10 +60,18 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
   ];
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-subtle bg-surface-2 px-3 py-2">
+    /*
+     * Its own `@container` rather than borrowing the section's: this box has `px-3`, and the
+     * figures grid below has to be measured against the space inside that padding, not against
+     * the section. Nested containers are fine -- an `@`-variant resolves against the nearest
+     * ancestor that declares one.
+     */
+    <div className="@container flex flex-col gap-2 rounded-md border border-subtle bg-surface-2 px-3 py-2">
       {/* `flex-wrap` so the consumed-percentage badge drops under the title on a phone instead
           of colliding with it -- "Bolsa de horas do chamado" and "161% consumido" do not fit on
-          one 390px line. From `sm` up the row never wraps, which is the behaviour it had before. */}
+          one 390px line. Unconditional on purpose: `flex-wrap` changes nothing while the row
+          fits, and where it does not fit -- a long translation, a long reference -- wrapping is
+          better than the overflow this row had before. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-col">
           <Tooltip tooltipContent={t("work_item.service_allowance.title_hint")} position="top">
@@ -108,10 +116,14 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
         </div>
       )}
 
-      {/* Creditado / consumido / restante. Two columns on a phone so each label and value has
-          room, the original three from `sm` up. `min-w-0` is what lets a column shrink at all --
-          without it a grid item stays as wide as its longest word and the value leaves the box. */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {/* Creditado / consumido / restante. Two columns while this box is narrow, three from
+          `@sm` (384px of container) up: three figures need about 110px each plus two 8px gaps,
+          which is 346px, so 384 is the first size where the third column is honest. Measured on
+          the container, not the viewport, because this box is half the viewport inside a side
+          peek and full width inside the peek's phone layout. `min-w-0` is what lets a column
+          shrink at all -- without it a grid item stays as wide as its longest word and the value
+          leaves the box. */}
+      <div className="grid grid-cols-2 gap-2 @sm:grid-cols-3">
         {cards.map((card) => (
           <div key={card.key} className="flex min-w-0 flex-col gap-0.5">
             <span className="text-xs text-custom-text-350 leading-tight">{card.label}</span>

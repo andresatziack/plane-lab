@@ -66,28 +66,33 @@ export const ServiceLogTotals = observer(function ServiceLogTotals(props: Props)
   }
 
   /*
-   * Two columns on a phone, the original three or four from `md` up.
+   * Two columns until the CONTAINER is wide enough for four, not until the viewport is.
    *
-   * The peek is `w-full` below `md`, so on a 390px screen four columns left each card about
-   * 60px of usable width -- and a grid item defaults to `min-width: auto`, so it refuses to
-   * shrink under its content and pushes the text out of the bordered box instead. That is the
-   * reported "Horas equivalent" clipping. `min-w-0` on the card is what actually lets the
-   * column shrink; the two-column base is what leaves enough room for the label to wrap into.
+   * `ServiceLogSection` declares `@container`, so `@xl:` here asks about the width this grid
+   * actually has. That distinction is the whole point: the side peek is `md:w-[50%]`, so a
+   * viewport breakpoint of `md` fired at the exact width where the available space halved, and
+   * four columns at a 768px viewport left about 50px of card interior -- narrower than the
+   * 390px phone case this set out to fix.
    *
-   * Mirrors `service-reports/consumption-tab.tsx` (`grid-cols-2 ... md:grid-cols-4`) rather
-   * than inventing a second convention, and the `md:` classes are exactly the ones that were
-   * unconditional before, so desktop geometry is unchanged.
+   * The arithmetic behind `@xl` (36rem = 576px): four cards with `gap-2` (8px) leave
+   * (576 - 24) / 4 = 138px per card, and `px-3` leaves 114px inside. "1h 52min 30s" at
+   * `text-base` needs roughly 96px, and "Horas equivalentes" wraps to two lines and fits. Below
+   * that the two-column base gives each card at least ~150px of interior. A grid item also
+   * defaults to `min-width: auto`, so it refuses to shrink under its content and pushes text
+   * out of the bordered box -- that, not a missing `truncate`, is the reported "Horas
+   * equivalent" clipping, and `min-w-0` is what actually fixes it.
    */
   return (
-    <div className={`grid grid-cols-2 gap-2 ${cards.length === 4 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+    <div className={`grid grid-cols-2 gap-2 ${cards.length === 4 ? "@xl:grid-cols-4" : "@xl:grid-cols-3"}`}>
       {cards.map((card) => (
         <Tooltip key={card.key} tooltipContent={card.hint} position="top">
           <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-subtle bg-surface-2 px-3 py-2">
             <span className="text-xs text-custom-text-350 leading-tight">{card.label}</span>
             {/* "R$ 12.345,67" and "1h 52min 30s" both have to survive a narrow card: one size
-                step down below `md`, and `break-words` so a value that still does not fit wraps
-                instead of escaping the border. */}
-            <span className="text-sm text-custom-text-100 md:text-base font-semibold break-words">{card.value}</span>
+                step down until the container reaches `@md` (448px, where two columns are already
+                ~200px wide), and `break-words` so a value that still does not fit wraps instead
+                of escaping the border. */}
+            <span className="text-sm text-custom-text-100 @md:text-base font-semibold break-words">{card.value}</span>
           </div>
         </Tooltip>
       ))}
