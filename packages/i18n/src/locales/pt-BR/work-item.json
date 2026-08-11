@@ -491,7 +491,8 @@
         "not_billable": "Não cobrado",
         "overridden": "Tipo de Hora alterado manualmente",
         "no_price": "Sem preco",
-        "billed_as_standalone": "Faturado como avulso"
+        "billed_as_standalone": "Faturado como avulso",
+        "suggested_classification": "Classificação sugerida: {{name}}"
       },
       "delete": {
         "title": "Excluir apontamento",

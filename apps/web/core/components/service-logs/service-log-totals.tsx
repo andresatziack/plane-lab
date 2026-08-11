@@ -102,7 +102,7 @@ export const ServiceLogTotals = observer(function ServiceLogTotals(props: Props)
                 wraps instead of escaping the border. `@sm` rather than `@md` for the same reason
                 the grid uses `@lg`: 448px is exactly this container at a 1024px window, so the
                 step would flip with a scrollbar. */}
-            <span className="text-sm text-custom-text-100 @sm:text-base font-semibold break-words">{card.value}</span>
+            <span className="text-sm text-custom-text-200 @sm:text-base font-semibold break-words">{card.value}</span>
           </div>
         </Tooltip>
       ))}
