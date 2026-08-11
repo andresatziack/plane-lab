@@ -289,6 +289,12 @@ class TestCrediting:
         assert [entry["actor_id"] for entry in credits] == [str(actor.pk), str(second_author.pk)]
         assert all(entry["created_at"] for entry in credits), "each credit carries its date"
 
+        # The ledger is rendered line by line on the work item, so D68 applies to every row and
+        # not only to the summary above it: the exact strings, and the walker so a second hour
+        # field added to a credit row cannot arrive without one.
+        assert [entry["hours_display"] for entry in credits] == ["40h", "10h"]
+        assert hour_fields_missing_a_rendered_twin(credits) == []
+
     def test_a_credit_of_zero_is_refused_and_names_why(self, project_issue, actor):
         """A ledger row that moves no balance is noise in the one table that has to be
         readable line by line. Named, so it cannot be mistaken for a silent no-op."""

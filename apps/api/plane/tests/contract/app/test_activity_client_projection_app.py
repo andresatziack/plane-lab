@@ -9,7 +9,9 @@ was a member of a Cliente's project, so the activity readers -- which have admit
 all along -- had no client reading them.
 
 The leak is arithmetic, not just a stray column. ``_service_log_batch_summary`` persists
-``f"{sum(logged_hours)} h (...)"`` into ``IssueActivity.new_value``. A client legitimately
+the summed logged hours into ``IssueActivity.new_value`` -- since D68 as a clock duration
+(``"3h 30min (...)"``) rather than as ``f"{total} h"``, which changes nothing here: an hour
+a person can read is still the hour R11(c) hides. A client legitimately
 sees ``equivalent_hours`` in the portal; given ``logged_hours`` from the feed, one division
 returns the multiplier, which is what R11(c) exists to prevent.
 
@@ -40,8 +42,10 @@ from plane.utils.service_portal import CLIENT_HIDDEN_ACTIVITY_FIELDS
 FEED_URL = "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/history/?activity_type=issue-property"
 USER_ACTIVITY_URL = "/api/workspaces/{slug}/user-activity/{user_id}/"
 
-#: The number a client must never be handed, and the string it appears in.
-LOGGED_HOURS_DETAIL = "3.5000 h (Fora do expediente)"
+#: The number a client must never be handed, and the string it appears in -- written the way
+#: ``_service_log_batch_summary`` writes it after D68, so this fixture keeps mirroring the row
+#: the code really persists instead of a decimal notation no surface produces any more.
+LOGGED_HOURS_DETAIL = "3h 30min (Fora do expediente)"
 
 
 def _user(prefix, workspace, project, role):
@@ -201,7 +205,10 @@ class TestTheWorkItemFeedHidesTheWorkLogRowsFromAClient:
         # would make this test pass for the wrong reason.
         assert response.status_code == status.HTTP_200_OK, response.data
         assert LOGGED_HOURS_DETAIL not in str(response.data)
-        assert "3.5000" not in str(response.data)
+        # And the quantity on its own, so a payload that dropped only the hour type name would
+        # still fail. "3h 30min" is the rendering; the leak R11(c) forbids is the 3.5 hours it
+        # states, which a client divides into `equivalent_hours` to recover the multiplier.
+        assert "3h 30min" not in str(response.data)
 
     @pytest.mark.django_db
     def test_the_client_still_sees_the_rest_of_the_feed(self, project, issue, client_user, activities):

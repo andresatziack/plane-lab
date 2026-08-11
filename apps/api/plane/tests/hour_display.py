@@ -12,8 +12,8 @@ fifth omission a red test.
 
 - :func:`hour_fields_missing_a_rendered_twin` walks a payload and reports every hour key
   that has no ``_display`` sibling.
-- :func:`modules_rendering_hours_as_decimals` scans the API boundary and the domain layer
-  for ``format_hours``, which is the export-only renderer.
+- :func:`modules_rendering_hours_as_decimals` scans the product tree for ``format_hours``,
+  which is the export-only renderer, and :func:`scanned_modules` says which files that is.
 """
 
 # Python imports
@@ -36,8 +36,25 @@ DECIMAL_HOUR_RENDERER_ALLOWED_IN = frozenset(
     }
 )
 
-#: Where a payload destined for a screen is built.
-SCREEN_PAYLOAD_ROOTS = ("plane/app", "plane/utils")
+#: Where a payload destined for a screen is built: the whole product tree.
+#:
+#: This used to be ``("plane/app", "plane/utils")`` -- the API boundary and the domain layer --
+#: which is narrower than the rule it defends. ``plane/bgtasks/issue_activities_task.py`` built
+#: the work log activity row's description, an hour quantity destined for the activity feed, and
+#: sat outside the scan; ``plane/space`` (the public deploy) and ``plane/api`` (the external
+#: token API) were outside it too. A guard whose reach is smaller than the rule teaches the next
+#: reader the wrong boundary, so the scan now walks everything under ``plane`` that is not
+#: excluded below.
+SCREEN_PAYLOAD_ROOTS = ("plane",)
+
+#: Directory names the scan does not walk, and why each one is not a hole in the rule.
+#:
+#: - ``tests``: the suite names ``format_hours`` on purpose -- this module does, and
+#:   ``test_service_log_time.py`` is the decimal renderer's own test. A guard that fired on its
+#:   own tests would be turned off within a week.
+#: - ``migrations``: frozen history. A migration renders nothing to a screen, and rewriting one
+#:   to satisfy a display rule is worse than the rule being unenforced there.
+SCAN_EXCLUDED_DIRECTORIES = frozenset({"tests", "migrations", "__pycache__"})
 
 
 def hour_fields_missing_a_rendered_twin(payload, *, path="payload", skip_keys=()):
@@ -104,21 +121,46 @@ def _binds_the_decimal_renderer(source):
     return False
 
 
+def scanned_modules():
+    """Return the repo-relative paths the decimal-renderer scan reads.
+
+    Separate from :func:`modules_rendering_hours_as_decimals` so a test can assert what the
+    guard's reach *is* -- the previous version's reach was two directories, and nothing said so.
+    """
+    api_root = Path(__file__).resolve().parents[2]
+    modules = []
+
+    for root in SCREEN_PAYLOAD_ROOTS:
+        for source in sorted((api_root / root).rglob("*.py")):
+            relative = source.relative_to(api_root)
+            if SCAN_EXCLUDED_DIRECTORIES.intersection(relative.parts):
+                continue
+            modules.append(relative.as_posix())
+
+    return modules
+
+
 def modules_rendering_hours_as_decimals():
     """Return the repo-relative paths under the API that use ``format_hours``.
 
     Excludes :data:`DECIMAL_HOUR_RENDERER_ALLOWED_IN`, so a non-empty answer is a module
     that renders a decimal hour for a screen.
+
+    **What this cannot see.** The scan matches the *name* ``format_hours``, so a decimal hour
+    assembled by hand walks straight past it: ``f"{total_logged} h"`` renders ``"1.5000 h"`` and
+    binds nothing. That exact line existed in ``plane/bgtasks/issue_activities_task.py`` and is
+    now ``format_hours_human``, but the blind spot is structural, not fixed. A rule that fired on
+    every f-string containing an hour-ish variable would be a rule of guesses; the honest cover
+    for the inline case is :func:`hour_fields_missing_a_rendered_twin` on the payload plus a
+    reviewer reading the diff.
     """
     api_root = Path(__file__).resolve().parents[2]
     offenders = []
 
-    for root in SCREEN_PAYLOAD_ROOTS:
-        for source in sorted((api_root / root).rglob("*.py")):
-            relative = source.relative_to(api_root).as_posix()
-            if relative in DECIMAL_HOUR_RENDERER_ALLOWED_IN:
-                continue
-            if _binds_the_decimal_renderer(source.read_text(encoding="utf-8")):
-                offenders.append(relative)
+    for relative in scanned_modules():
+        if relative in DECIMAL_HOUR_RENDERER_ALLOWED_IN:
+            continue
+        if _binds_the_decimal_renderer((api_root / relative).read_text(encoding="utf-8")):
+            offenders.append(relative)
 
     return offenders

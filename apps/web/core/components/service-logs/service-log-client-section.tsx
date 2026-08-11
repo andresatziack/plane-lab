@@ -111,10 +111,13 @@ export const ServiceLogClientSection = observer(function ServiceLogClientSection
 
       {isExpanded && (
         <>
-          {/* Two or three cards, three columns from `@md` (448px of container) up. This was
-              `sm:grid-cols-3`, a 640px viewport, which inside the side peek fired while the
-              container was ~320px wide. */}
-          <div className="grid grid-cols-2 gap-2 @md:grid-cols-3">
+          {/* Two or three cards, three columns from `@sm` (384px of container) up: three cards
+              with `gap-2` leave (384 - 16) / 3 = 122px each, 98px inside the `px-3`, which fits
+              "1h 52min 30s" at `text-body-sm-medium`. This was `sm:grid-cols-3`, a 640px viewport,
+              which inside the side peek fired while the container was ~320px wide. `@sm` and not
+              `@md`, because 448px is exactly this container at a 1024px window -- a threshold a
+              common viewport lands on flips with a scrollbar. */}
+          <div className="grid grid-cols-2 gap-2 @sm:grid-cols-3">
             {cards.map((card) => (
               <Tooltip key={card.key} tooltipContent={card.hint}>
                 {/* The grid already had a mobile fallback; the cards did not. `min-w-0` lets the

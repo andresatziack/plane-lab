@@ -28,9 +28,11 @@ import pytest
 # Module imports
 from plane.tests.hour_display import (
     DECIMAL_HOUR_RENDERER_ALLOWED_IN,
+    SCAN_EXCLUDED_DIRECTORIES,
     _binds_the_decimal_renderer,
     hour_fields_missing_a_rendered_twin,
     modules_rendering_hours_as_decimals,
+    scanned_modules,
 )
 
 pytestmark = pytest.mark.unit
@@ -69,6 +71,32 @@ class TestOnlyTheExporterRendersADecimalHour:
         # The binding itself is the assertion: an AttributeError here means the export
         # stopped using the decimal renderer and the allow-list should shrink with it.
         assert export_schema.format_hours.__name__ == "format_hours"
+
+    def test_the_scan_reaches_the_whole_product_tree_and_not_just_the_api_boundary(self):
+        """The reach of a guard is part of the guard, so it is asserted rather than implied.
+
+        The first version watched ``plane/app`` and ``plane/utils``, and the work log activity
+        row -- built in ``plane/bgtasks``, read by the activity feed -- was outside it. The
+        public deploy (``plane/space``) and the token API (``plane/api``) were outside it too.
+        Named files rather than a count, because a count changes with every new module and
+        teaches nobody what the boundary is.
+        """
+        scanned = set(scanned_modules())
+
+        for module in (
+            "plane/bgtasks/issue_activities_task.py",
+            "plane/app/serializers/service_log.py",
+            "plane/api/serializers/issue.py",
+            "plane/space/views/issue.py",
+            "plane/utils/service_portal.py",
+        ):
+            assert module in scanned, f"{module} builds strings a person reads and must be scanned"
+
+        # And the two exclusions, each for a stated reason: the suite names the decimal renderer
+        # on purpose (this very module does), and a migration renders nothing.
+        assert SCAN_EXCLUDED_DIRECTORIES == {"tests", "migrations", "__pycache__"}
+        assert "plane/tests/hour_display.py" not in scanned
+        assert not [module for module in scanned if "/migrations/" in module]
 
     def test_the_scan_reads_code_and_not_prose(self):
         """A guard that cannot fail guards nothing, and one that fires on a docstring gets

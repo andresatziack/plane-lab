@@ -49,6 +49,7 @@ from plane.db.models import (
     User,
     WorkspaceMember,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 
 LIST_URL = "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/service-logs/"
 TOTALS_URL = "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/service-logs/totals/"
@@ -233,6 +234,12 @@ class TestParserAndRoundingThroughTheApi:
         assert totals["logged_hours_display"] == "1h 15min"
         assert totals["equivalent_hours_display"] == "1h 15min"
         assert totals["debited_hours_display"] == "1h 15min"
+
+        # The three exact strings above say the values are right; the walker says a FOURTH hour
+        # added to this dict later cannot arrive bare. `/preview` is the payload that shipped no
+        # twins at all, so it is the one that most needs the structural half of D68 and not only
+        # the three assertions somebody remembered to write.
+        assert hour_fields_missing_a_rendered_twin(totals) == []
 
     def test_the_preview_renders_a_half_minute_equivalent_as_seconds(
         self, session_client, issue, after_hours, contract_billing
@@ -865,6 +872,10 @@ class TestAuditTrail:
         assert activity.verb == "created"
         assert activity.comment == "created a work log"
         assert "Fora do expediente" in activity.new_value
+        # D68 reaches the feed too: the row describes the hour as a clock duration, not as the
+        # "1.0000 h" this line used to persist. Nothing renders `field="service_log"` today, so
+        # this assertion is the only thing standing between that and the next screen that does.
+        assert activity.new_value == "1h (Fora do expediente)"
 
     def test_criterion_16_an_edit_is_recorded_with_both_sides(
         self, session_client, issue, commercial_hours, contract_billing
@@ -880,8 +891,11 @@ class TestAuditTrail:
 
         updated = self._activities(issue).filter(verb="updated").first()
         assert updated is not None
-        assert "1.0000" in updated.old_value
-        assert "2.0000" in updated.new_value
+        # Both sides, each a clock duration (D68). Distinct sums still read distinctly -- logged
+        # hours are quarter-hour multiples -- so the "nothing changed, record nothing" branch
+        # beside this one keeps working on the rendered string.
+        assert updated.old_value == "1h (Horário comercial)"
+        assert updated.new_value == "2h (Horário comercial)"
 
     def test_an_edit_that_changes_nothing_records_nothing(
         self, session_client, issue, commercial_hours, contract_billing
@@ -908,7 +922,10 @@ class TestAuditTrail:
 
         deleted = self._activities(issue).filter(verb="deleted").first()
         assert deleted is not None
-        assert "2.0000" in deleted.old_value
+        # The removed hours as a clock duration (D68), like the created and updated rows above:
+        # the three verbs write through the same summary, so they are asserted the same way and a
+        # renderer change cannot fix two of them and leave the third decimal.
+        assert deleted.old_value == "2h (Horário comercial)"
 
     def test_no_override_activity_is_recorded_when_the_choice_matches_the_suggestion(
         self, session_client, issue, commercial_hours, contract_billing

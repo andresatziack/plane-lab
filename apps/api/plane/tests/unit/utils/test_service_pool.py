@@ -48,6 +48,7 @@ from plane.tests.factories import (
     ServiceHourTypeFactory,
     UserFactory,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 from plane.utils.service_log import build_batch_rows, create_service_log_batch
 from plane.utils.service_pool import (
     AMBIGUOUS_CONTRACT_RESOLUTION,
@@ -66,6 +67,7 @@ from plane.utils.service_pool import (
     annotate_period_balance,
     apply_debit,
     close_period,
+    contract_balance_statement,
     end_and_create_successor,
     materialize_contract_periods,
     reconcile_period,
@@ -674,6 +676,54 @@ class TestCarryover:
 
         assert carry_in.origin_period_id == january.pk
         assert carry_in.hours == Decimal("20.0000")
+
+    def test_the_statement_renders_every_hour_it_carries_including_the_parcels(
+        self, client_with_contract, catalog, actor
+    ):
+        """D68 on the read model three screens share -- contract detail, internal report, portal.
+
+        ``contract_balance_statement`` is where "10.0000" reached a client where the contract
+        said ten hours, so both halves are asserted: the exact rendered strings, and the walker,
+        which reports any hour key in the payload with no ``_display`` sibling. The walker is the
+        half that survives a new field being added to the period dict -- eight of them are hour
+        quantities today, and the parcels are nested, which is where every previous omission hid.
+
+        Deliberately not a whole number of hours: 10h15 consumed of 30h carries 19h45, so a
+        renderer that silently fell back to the decimal notation reads "19,75h" here and fails.
+        """
+        log_hours(
+            project=client_with_contract["project"],
+            actor=actor,
+            catalog=catalog,
+            minutes=10 * 60 + 15,
+            worked_on=date(2026, 1, 15),
+        )
+        january = resolve_period(client_with_contract["contract"], date(2026, 1, 1))
+        close_period(january, actor=actor)
+        resolve_period(client_with_contract["contract"], date(2026, 2, 1))
+
+        statement = contract_balance_statement(client_with_contract["contract"])
+
+        assert [period["competence"] for period in statement] == ["2026-01", "2026-02"]
+
+        closed, opened = statement
+
+        assert (closed["consumed_hours"], closed["consumed_hours_display"]) == (
+            "10.2500",
+            "10h 15min",
+        )
+        assert (opened["carried_hours"], opened["carried_hours_display"]) == ("19.7500", "19h 45min")
+        assert (opened["granted_hours"], opened["granted_hours_display"]) == ("49.7500", "49h 45min")
+
+        # The parcel keeps its origin AND its rendering: section 7 asks for the competency of
+        # origin of each parcel, and it is a client-facing line like any other.
+        assert opened["parcels"][0] == {
+            "origin_competence": "2026-01",
+            "hours": "19.7500",
+            "hours_display": "19h 45min",
+        }
+
+        assert hour_fields_missing_a_rendered_twin(statement) == []
 
     def test_consumption_eats_the_oldest_parcel_first(self, client_with_contract, catalog, actor):
         """Decision D6, FIFO, and it is the guard on criterion 6.

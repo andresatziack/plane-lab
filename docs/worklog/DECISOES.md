@@ -2046,14 +2046,25 @@ descobertas por um usuário lendo a tela, não pela suíte. Dois guardas em
 `plane/tests/unit/utils/test_service_hour_display_contract.py`, sobre os helpers de
 `plane/tests/hour_display.py`:
 
-1. **nenhum módulo de `plane/app` ou `plane/utils` pode referenciar `format_hours`**, exceto
+1. **nenhum módulo de `plane/` pode referenciar `format_hours`**, exceto
    `service_log_time.py` (que o define) e o schema de exportação (a exceção decidida acima). A
    varredura é por AST, não por grep, porque meia dúzia de docstrings citam o nome e uma regra
-   que dispara em prosa é apagada pela primeira pessoa que ela incomoda;
+   que dispara em prosa é apagada pela primeira pessoa que ela incomoda. **O alcance faz parte
+   do guarda**: a primeira versão olhava só `plane/app` e `plane/utils`, e a linha de atividade
+   do apontamento — montada em `plane/bgtasks/issue_activities_task.py`, lida pelo feed — ficava
+   de fora, assim como `plane/space` (deploy público) e `plane/api` (API de token). Hoje a
+   varredura anda a árvore toda menos `tests/` (a suíte cita o nome de propósito) e
+   `migrations/` (história congelada, que não renderiza nada), e um teste afirma por nome quais
+   arquivos ela alcança. **O que ela não vê**: decimal montado à mão. `f"{total_logged} h"`
+   imprimia `1.5000 h` na linha de atividade e não referenciava nada — essa linha agora usa
+   `format_hours_human`, mas o ponto cego é estrutural, e quem cobre o caso inline é o guarda 2
+   mais a leitura do diff;
 2. **`hour_fields_missing_a_rendered_twin`** percorre um payload e devolve toda chave `hours`
    ou `*_hours` sem irmã `*_hours_display`. Os testes de consolidação, de painel de alertas, de
-   prévia de excedente e de totais de relatório afirmam lista vazia, então o próximo campo de
-   hora que nascer sem gêmeo é teste vermelho e não relato de usuário. A única exclusão é a
+   prévia de excedente, de totais de relatório e — desde a resposta à segunda revisão — os
+   quatro payloads com o pior histórico (totais do `/preview`, `issue_client_totals`,
+   `allowance_credits` e `contract_balance_statement`) afirmam lista vazia, então o próximo campo
+   de hora que nascer sem gêmeo é teste vermelho e não relato de usuário. A única exclusão é a
    lista `alerts` de uma entrada de painel, que carrega os números que **justificaram** o
    código (projeção, limiar, resto descartado) atrás do índice `[detail: string]: unknown` de
    `TServiceAlert` — diagnóstico que nenhuma tela lê, e no dia em que ler ganha `_display`.
@@ -2066,9 +2077,9 @@ quebrados foram reportados como verdes.
 
 ## Resumo do que muda no código
 
-| Decisão | Muda código? | Onde                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D68     | **Sim**      | `format_hours_human` e `format_hours` em `service_log_time.py`; `get_equivalent_hours_display` (técnico e cliente) em `serializers/service_log.py`; `issue_client_totals`; `allowance_credits` e `allowance_overage_preview`; `contract_balance_statement` e `overage_billing_preview` em `service_pool.py`; `bucket` e `headline_totals` em `service_reports.py`; `_render_consolidation` em `service_billing.py`; entradas de alerta em `service_pool_alerts.py`; totais do `/preview` em `views/service_log/base.py`; `IServiceLogPreview` e os tipos de relatório; `service-log-form.tsx`; `service-log.store.ts`; `billing-tab.tsx`, `operational-tab.tsx`, `attention-tab.tsx`, `overage-billing-confirmation.tsx`; guardas em `plane/tests/hour_display.py` e `test_service_hour_display_contract.py` |
+| Decisão | Muda código? | Onde                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D68     | **Sim**      | `format_hours_human` e `format_hours` em `service_log_time.py`; `get_equivalent_hours_display` (técnico e cliente) em `serializers/service_log.py`; `issue_client_totals`; `allowance_credits` e `allowance_overage_preview`; `contract_balance_statement` e `overage_billing_preview` em `service_pool.py`; `bucket` e `headline_totals` em `service_reports.py`; `_render_consolidation` em `service_billing.py`; entradas de alerta em `service_pool_alerts.py`; totais do `/preview` em `views/service_log/base.py`; `_service_log_batch_summary` em `bgtasks/issue_activities_task.py`; `IServiceLogPreview` e os tipos de relatório; `service-log-form.tsx`; `service-log.store.ts`; `billing-tab.tsx`, `operational-tab.tsx`, `attention-tab.tsx`, `overage-billing-confirmation.tsx`; guardas em `plane/tests/hour_display.py` e `test_service_hour_display_contract.py` |
 
 ## D69 — A UI de apontamento mede o container, não a janela
 
@@ -2089,18 +2100,35 @@ card ficava com ~50px de interior, contra ~151px em 390px. O layout "de desktop"
 que o de celular exatamente na faixa de 768px a ~1576px.
 
 **A decisão.** Toda medida responsiva **dentro** da seção de apontamento usa **container
-queries** (`@container` + variantes `@sm:`, `@md:`, `@xl:`), que o Tailwind 4 traz nativo e
+queries** (`@container` + variantes `@sm:` e `@lg:`), que o Tailwind 4 traz nativo e
 que `settings/content-wrapper.tsx` já usava neste fork. `ServiceLogSection`,
 `ServiceLogClientSection` e `ServiceAllowanceIndicator` declaram `@container`; os grids e as
 linhas dentro deles perguntam pela largura que realmente têm. As larguras foram escolhidas por
 aritmética, não por gosto:
 
-- totais em quatro colunas a partir de `@xl` (576px): `(576 − 24) / 4 = 138px` por card, 114px
-  dentro do `px-3`, o suficiente para `1h 52min 30s` em `text-base`;
+- totais em quatro colunas a partir de `@lg` (512px): `(512 − 24) / 4 = 122px` por card, 98px
+  dentro do `px-3`, o suficiente para `1h 52min 30s` em `text-base` (~96px);
 - figuras da bolsa em três colunas a partir de `@sm` (384px): três figuras pedem ~110px cada
-  mais dois gaps de 8px, ou seja 346px;
-- linha de um apontamento volta a ser uma linha só a partir de `@xl` (576px), que é
-  aproximadamente o que o antigo `sm:` (janela de 640px) tinha de espaço real dentro do Peek.
+  mais dois gaps de 8px, ou seja 346px. Os cards do cliente e o degrau `text-sm` → `text-base`
+  usam o mesmo `@sm`;
+- linha de um apontamento volta a ser uma linha só a partir de `@lg` (512px), que deixa ~250px
+  para a coluna de texto ao lado de um bloco de badges que já quebra sozinho.
+
+**Por que 512px e não os 576px de `@xl`, que a aritmética também permitiria.** Dentro do Peek
+lateral esse container mede exatamente `janela / 2 − 64`, então **576px é o container de uma
+janela de 1280px** — a largura de notebook mais comum — sem folga alguma, e o Peek rola dentro
+de `.vertical-scrollbar`, cuja folha de estilo esconde a barra do webkit mas devolve a do
+Firefox (~12px). A mesma janela mostraria quatro colunas num navegador e duas no outro. A
+página completa do chamado cai na mesma vizinhança: ~574px dentro do `px-9` com a sidebar
+expandida. `@lg` passa dos dois casos com ~50px de sobra, e o mesmo raciocínio derruba `@md`
+(448px) para `@sm`: 448px é este container numa janela de 1024px. **A regra é escolher um
+limite em que nenhuma janela comum caia exatamente.**
+
+**A consequência aceita de olhos abertos:** entre 1024px e 1279px o Peek lateral agora mostra
+os totais em 2×2 e os apontamentos empilhados onde mostrava quatro colunas e uma linha só. É o
+que cabe (quatro colunas em 448px de container deixariam 82px de interior para um valor que
+pede ~96px), mas é uma mudança visível no desktop, e não a equivalência "byte a byte" que o
+critério da tarefa prometia.
 
 **Onde breakpoint de janela continua certo:** `service-log-form.tsx` e
 `service-log-modal.tsx`. `ModalCore` é renderizado por portal e dimensionado contra a janela,
@@ -2130,6 +2158,6 @@ cheia) contra um build real continua sendo a única verificação de verdade.
 
 ## Resumo do que muda no código
 
-| Decisão | Muda código? | Onde                                                                                                                                                                                                                                                                                                                             |
-| ------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D69     | **Sim**      | `@container` e variantes `@sm:`/`@md:`/`@xl:` em `service-log-section.tsx`, `service-log-totals.tsx`, `service-allowance-indicator.tsx`, `service-log-list-item.tsx`, `service-log-client-section.tsx`; `px-4 md:px-8`, empilhamento e `order-first md:order-none` em `issues/peek-overview/view.tsx`; `report-insight-card.tsx` |
+| Decisão | Muda código? | Onde                                                                                                                                                                                                                                                                                                                      |
+| ------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D69     | **Sim**      | `@container` e variantes `@sm:`/`@lg:` em `service-log-section.tsx`, `service-log-totals.tsx`, `service-allowance-indicator.tsx`, `service-log-list-item.tsx`, `service-log-client-section.tsx`; `px-4 md:px-8`, empilhamento e `order-first md:order-none` em `issues/peek-overview/view.tsx`; `report-insight-card.tsx` |
