@@ -24,12 +24,12 @@ export function TimesheetToolbar({ viewMode, onViewModeChange, periodLabel, onPr
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-subtle bg-surface-1 px-4 py-2 sm:px-6">
       {/* View mode toggle */}
-      <div className="bg-custom-background-80 flex items-center gap-1 rounded-md border border-subtle p-0.5">
+      <div className="bg-custom-background-80 flex items-center gap-0.5 rounded-md border border-subtle p-0.5">
         <button
           type="button"
           onClick={() => onViewModeChange("week")}
           className={cn(
-            "text-xs rounded px-3 py-1 font-medium transition-colors",
+            "text-xs rounded px-2 py-0.5 font-medium transition-colors",
             viewMode === "week" ? "bg-custom-primary-100 text-white" : "text-custom-text-200 hover:text-custom-text-100"
           )}
         >
@@ -39,7 +39,7 @@ export function TimesheetToolbar({ viewMode, onViewModeChange, periodLabel, onPr
           type="button"
           onClick={() => onViewModeChange("month")}
           className={cn(
-            "text-xs rounded px-3 py-1 font-medium transition-colors",
+            "text-xs rounded px-2 py-0.5 font-medium transition-colors",
             viewMode === "month"
               ? "bg-custom-primary-100 text-white"
               : "text-custom-text-200 hover:text-custom-text-100"
@@ -54,22 +54,22 @@ export function TimesheetToolbar({ viewMode, onViewModeChange, periodLabel, onPr
         <button
           type="button"
           onClick={onPrev}
-          className="text-xs text-custom-text-200 hover:bg-custom-background-80 rounded border border-subtle px-2 py-1"
+          className="text-xs text-custom-text-200 hover:bg-custom-background-80 rounded border border-subtle px-2 py-0.5"
         >
           &larr;
         </button>
-        <span className="text-sm text-custom-text-100 min-w-[140px] text-center font-medium">{periodLabel}</span>
+        <span className="text-xs text-custom-text-200 min-w-[140px] text-center font-medium">{periodLabel}</span>
         <button
           type="button"
           onClick={onNext}
-          className="text-xs text-custom-text-200 hover:bg-custom-background-80 rounded border border-subtle px-2 py-1"
+          className="text-xs text-custom-text-200 hover:bg-custom-background-80 rounded border border-subtle px-2 py-0.5"
         >
           &rarr;
         </button>
         <button
           type="button"
           onClick={onToday}
-          className="text-xs text-custom-text-300 hover:bg-custom-background-80 rounded border border-subtle px-2 py-1"
+          className="text-xs text-custom-text-300 hover:bg-custom-background-80 rounded border border-subtle px-2 py-0.5"
         >
           {t("service_timesheet.today")}
         </button>

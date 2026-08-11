@@ -5,7 +5,7 @@
  */
 
 import { observer } from "mobx-react";
-import { Clock, Pencil, Split, Trash2 } from "lucide-react";
+import { Clock, Info, Pencil, Split, Trash2 } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { Tooltip } from "@plane/ui";
@@ -82,7 +82,7 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
           <div className="flex flex-col gap-0.5">
             {batch.segments.map((segment) => (
               <div key={segment.id} className="text-sm flex flex-wrap items-center gap-1.5">
-                <span className="text-custom-text-100 font-medium">{segment.logged_hours_display}</span>
+                <span className="text-custom-text-200 font-medium">{segment.logged_hours_display}</span>
 
                 {segment.hour_type_name && (
                   <span className="text-custom-text-300 flex items-center gap-1">
@@ -105,14 +105,19 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
                   </span>
                 )}
 
-                {segment.classification_reason && (
+                {segment.classification_reason && !segment.is_hour_type_overridden && (
                   <span className="text-xs text-custom-text-400">· {segment.classification_reason}</span>
                 )}
 
                 {segment.is_hour_type_overridden && (
-                  <Tooltip tooltipContent={t("work_item.service_log.badges.overridden")} position="top">
-                    <span className="text-custom-text-400 text-[10px] italic line-through">
-                      {segment.suggested_hour_type_name}
+                  <Tooltip
+                    tooltipContent={[segment.classification_reason, segment.suggested_hour_type_name]
+                      .filter(Boolean)
+                      .join(" — ")}
+                    position="top"
+                  >
+                    <span className="text-custom-text-400 inline-flex items-center">
+                      <Info className="size-3" />
                     </span>
                   </Tooltip>
                 )}

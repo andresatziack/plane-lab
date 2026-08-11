@@ -49,7 +49,7 @@ export function TimesheetGrid({ data, days }: Props) {
 
   if (data.rows.length === 0) {
     return (
-      <div className="text-sm text-custom-text-300 flex h-64 items-center justify-center">
+      <div className="text-xs text-custom-text-300 flex h-64 items-center justify-center">
         {t("service_timesheet.empty")}
       </div>
     );
@@ -57,12 +57,11 @@ export function TimesheetGrid({ data, days }: Props) {
 
   return (
     <>
-      {/* Desktop grid - hidden on mobile */}
       <div className="hidden overflow-x-auto md:block">
         <table className="text-xs w-full min-w-max border-collapse">
           <thead>
             <tr className="bg-custom-background-80 border-b border-subtle">
-              <th className="bg-custom-background-80 text-custom-text-200 sticky left-0 z-10 px-3 py-2 text-left font-medium">
+              <th className="bg-custom-background-80 text-custom-text-300 sticky left-0 z-10 px-3 py-2 text-left font-medium">
                 {t("service_timesheet.technician")}
               </th>
               {days.map((day) => (
@@ -70,13 +69,13 @@ export function TimesheetGrid({ data, days }: Props) {
                   key={day}
                   className={cn(
                     "text-custom-text-300 min-w-[56px] px-2 py-2 text-center font-medium",
-                    isWeekend(day) && "bg-custom-background-90"
+                    isWeekend(day) && "bg-amber-50/50 dark:bg-amber-900/10"
                   )}
                 >
                   {formatDayHeader(day)}
                 </th>
               ))}
-              <th className="text-custom-text-100 min-w-[64px] px-3 py-2 text-center font-semibold">
+              <th className="text-custom-text-300 min-w-[64px] px-3 py-2 text-center font-semibold">
                 {t("service_timesheet.total")}
               </th>
             </tr>
@@ -84,7 +83,7 @@ export function TimesheetGrid({ data, days }: Props) {
           <tbody>
             {data.rows.map((row) => (
               <tr key={row.author_id} className="hover:bg-custom-background-80/50 border-b border-subtle">
-                <td className="text-custom-text-100 sticky left-0 z-10 bg-surface-2 px-3 py-2 font-medium">
+                <td className="text-custom-text-200 sticky left-0 z-10 bg-surface-2 px-3 py-2 font-medium">
                   {row.author_name}
                 </td>
                 {days.map((day) => {
@@ -95,15 +94,15 @@ export function TimesheetGrid({ data, days }: Props) {
                       key={day}
                       className={cn(
                         "text-custom-text-200 px-2 py-2 text-center",
-                        isWeekend(day) && "bg-custom-background-90/50",
-                        hours && "text-custom-text-100 font-medium"
+                        isWeekend(day) && "bg-amber-50/50 dark:bg-amber-900/10",
+                        hours && "text-custom-text-200 font-medium"
                       )}
                     >
                       {hours}
                     </td>
                   );
                 })}
-                <td className="text-custom-text-100 px-3 py-2 text-center font-semibold">
+                <td className="text-custom-text-200 px-3 py-2 text-center font-semibold">
                   {formatHours(row.total_logged)}
                 </td>
               </tr>
@@ -111,18 +110,18 @@ export function TimesheetGrid({ data, days }: Props) {
           </tbody>
           <tfoot>
             <tr className="bg-custom-background-80 border-t border-subtle">
-              <td className="bg-custom-background-80 text-custom-text-100 sticky left-0 z-10 px-3 py-2 font-semibold">
+              <td className="bg-custom-background-80 text-custom-text-200 sticky left-0 z-10 px-3 py-2 font-semibold">
                 {t("service_timesheet.total")}
               </td>
               {days.map((day) => {
                 const col = data.column_totals[day];
                 return (
-                  <td key={day} className="text-custom-text-100 px-2 py-2 text-center font-semibold">
+                  <td key={day} className="text-custom-text-200 px-2 py-2 text-center font-semibold">
                     {formatHours(col?.logged_hours)}
                   </td>
                 );
               })}
-              <td className="text-custom-text-100 px-3 py-2 text-center font-bold">
+              <td className="text-custom-text-200 px-3 py-2 text-center font-bold">
                 {formatHours(data.grand_total.logged_hours)}
               </td>
             </tr>
@@ -135,7 +134,7 @@ export function TimesheetGrid({ data, days }: Props) {
         {data.rows.map((row) => (
           <div key={row.author_id} className="rounded-lg border border-subtle bg-surface-2 p-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm text-custom-text-100 font-medium">{row.author_name}</span>
+              <span className="text-xs text-custom-text-200 font-medium">{row.author_name}</span>
               <span className="text-xs text-custom-text-200 font-semibold">
                 {formatHours(row.total_logged)}h {t("service_timesheet.total").toLowerCase()}
               </span>
@@ -151,7 +150,7 @@ export function TimesheetGrid({ data, days }: Props) {
                       key={day}
                       className={cn(
                         "flex flex-col items-center rounded p-1",
-                        isWeekend(day) && "bg-custom-background-90/50",
+                        isWeekend(day) && "bg-amber-50/50 dark:bg-amber-900/10",
                         hours && "bg-custom-primary-100/10"
                       )}
                     >

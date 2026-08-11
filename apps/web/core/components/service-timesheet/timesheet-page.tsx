@@ -147,7 +147,7 @@ export const TimesheetPage = observer(function TimesheetPage() {
         ) : data ? (
           <TimesheetGrid data={data} days={days} />
         ) : (
-          <div className="text-sm text-custom-text-300 flex h-64 items-center justify-center">
+          <div className="text-xs text-custom-text-300 flex h-64 items-center justify-center">
             {t("service_timesheet.empty")}
           </div>
         )}
