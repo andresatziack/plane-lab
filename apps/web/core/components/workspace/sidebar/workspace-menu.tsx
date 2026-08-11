@@ -7,6 +7,7 @@
 import React from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
+import { Clock } from "lucide-react";
 import { Disclosure, Transition } from "@headlessui/react";
 // plane imports
 import { AnalyticsIcon, CycleIcon, ProjectIcon, ViewsIcon } from "@plane/propel/icons";
@@ -70,7 +71,7 @@ export const SidebarWorkspaceMenu = observer(function SidebarWorkspaceMenu() {
       labelTranslationKey: "sidebar.service_timesheet",
       href: `/${workspaceSlug}/service-timesheet`,
       access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
-      Icon: AnalyticsIcon,
+      Icon: Clock,
     },
   ];
 
