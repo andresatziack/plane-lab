@@ -491,7 +491,8 @@
         "not_billable": "Not charged",
         "overridden": "Hour type changed manually",
         "no_price": "No price",
-        "billed_as_standalone": "Billed as standalone"
+        "billed_as_standalone": "Billed as standalone",
+        "suggested_classification": "Suggested classification: {{name}}"
       },
       "delete": {
         "title": "Delete work log",
