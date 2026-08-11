@@ -39,6 +39,7 @@ from plane.db.models import (
     User,
     WorkspaceMember,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 
 CLIENT_URL = "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/service-logs/client/"
 MEMBER_URL = "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/service-logs/"
@@ -257,12 +258,26 @@ class TestR11TheClientNeverReceivesTheHiddenQuantities:
 
         for row in response.data["service_logs"]:
             assert row["equivalent_hours"] == "1.5000"
-            assert row["equivalent_hours_display"]
+            # The exact string, not merely a truthy one: the whole point of D68 is WHICH
+            # string, and a truthiness check passes just as happily on "1,5h".
+            assert row["equivalent_hours_display"] == "1h 30min"
             assert "debited_hours" in row
             assert row["hour_type_name"] == "Fora do expediente"
             assert row["author_detail"]["id"]
 
+            # The one hour on a client ROW with no rendered twin, pinned rather than left
+            # unsaid: `debited_hours` is what the section compares against "0.0000" to say
+            # "não cobrado", and no screen prints it. Asserted as an exact list so a NEW bare
+            # hour field on this row -- the shape of every previous round of this defect --
+            # fails here, and so that giving `debited_hours` a display later has to come
+            # through this line.
+            assert hour_fields_missing_a_rendered_twin(row) == ["payload.debited_hours"]
+
         assert response.data["totals"]["equivalent_hours"] == "3.0000"
+        assert response.data["totals"]["equivalent_hours_display"] == "3h"
+        # D68 structurally, on the payload that produced the reported "32,25h": every hour the
+        # client is handed in the totals ships its rendered twin.
+        assert hour_fields_missing_a_rendered_twin(response.data["totals"]) == []
 
     @pytest.mark.django_db
     def test_a_member_still_receives_everything(self, project, issue, technician, pool_log, billed_log):

@@ -46,7 +46,7 @@ from plane.db.models import (
     ServiceOverageSettlement,
     ServicePeriodStatus,
 )
-from plane.utils.service_log_time import ZERO_HOURS, format_hours
+from plane.utils.service_log_time import ZERO_HOURS, format_hours_human
 
 # Imported under the module-private name the ~40 call sites below already use. The
 # implementation moved to `service_log_time` when Phase 5's allowance domain needed the
@@ -1092,6 +1092,10 @@ def overage_billing_preview(period):
 
     return {
         "overage_hours": str(owed),
+        # The confirmation modal prints the hours it is about to bill, so they ship rendered
+        # too (D68). An irreversible action is the last place to show "2.0000" and hope the
+        # Admin reads it as two hours.
+        "overage_hours_display": format_hours_human(owed),
         "overage_hour_rate": str(quantize_money(rate)),
         "amount": str(overage_amount(overage_hours=owed, overage_hour_rate=rate)),
         "rate_source": ("contract" if contract.overage_hour_rate is not None else "client_base_rate"),
@@ -1788,25 +1792,25 @@ def contract_balance_statement(contract):
             "competence": period.competence_label,
             "status": period.status,
             "contracted_hours": str(_quantize(period.contracted_hours)),
-            "contracted_hours_display": format_hours(period.contracted_hours),
+            "contracted_hours_display": format_hours_human(period.contracted_hours),
             "carried_hours": str(_quantize(period.carried_hours)),
-            "carried_hours_display": format_hours(period.carried_hours),
+            "carried_hours_display": format_hours_human(period.carried_hours),
             "consumed_hours": str(_quantize(period.consumed_hours)),
-            "consumed_hours_display": format_hours(period.consumed_hours),
+            "consumed_hours_display": format_hours_human(period.consumed_hours),
             "granted_hours": str(_quantize(period.granted_hours)),
-            "granted_hours_display": format_hours(period.granted_hours),
+            "granted_hours_display": format_hours_human(period.granted_hours),
             "balance_hours": str(_quantize(period.balance_hours)),
-            "balance_hours_display": format_hours(period.balance_hours),
+            "balance_hours_display": format_hours_human(period.balance_hours),
             "discarded_by_cap_hours": str(_quantize(period.discarded_by_cap_hours)),
-            "discarded_by_cap_hours_display": format_hours(period.discarded_by_cap_hours),
+            "discarded_by_cap_hours_display": format_hours_human(period.discarded_by_cap_hours),
             "overage_hours": str(_quantize(period.overage_hours)),
-            "overage_hours_display": format_hours(period.overage_hours),
+            "overage_hours_display": format_hours_human(period.overage_hours),
             "overage_settlement": period.overage_settlement,
             "parcels": [
                 {
                     "origin_competence": origin.competence_label,
                     "hours": str(_quantize(hours)),
-                    "hours_display": format_hours(hours),
+                    "hours_display": format_hours_human(hours),
                 }
                 for origin, hours in remaining_parcels(
                     period, parcels=parcels_by_period.get(period.pk, [])

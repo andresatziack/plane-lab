@@ -36,6 +36,7 @@ from plane.db.models import (
 from plane.settings.redis import redis_instance
 from plane.utils.exception_logger import log_exception
 from plane.utils.issue_relation_mapper import get_inverse_relation
+from plane.utils.service_log_time import format_hours_human
 from plane.utils.uuid import is_valid_uuid
 
 
@@ -1042,11 +1043,16 @@ def _service_log_batch_summary(rows):
 
     total_logged = sum(Decimal(str(row.get("logged_hours") or "0")) for row in rows)
     labels = [row.get("hour_type_name") for row in rows if row.get("hour_type_name")]
-    detail = f"{total_logged} h"
+    # D68: an hour a person reads is a clock duration, so this is "1h 30min" and not
+    # "1.5000 h". This line was the last decimal hour in the tree, and it was invisible only
+    # by accident -- the web activity list switches on `activity.field` and `service_log`
+    # falls through to `return null`, so nothing renders it *yet*. The day it does, it says
+    # what every other surface says.
+    detail = format_hours_human(total_logged)
 
     if labels:
         # dict.fromkeys keeps first-seen order while removing repeats, so a two
-        # segment entry reads "1.5000 h (Horário comercial, Fora do expediente)".
+        # segment entry reads "1h 30min (Horário comercial, Fora do expediente)".
         detail = f"{detail} ({', '.join(dict.fromkeys(labels))})"
 
     return detail, rows[0].get("batch_id")

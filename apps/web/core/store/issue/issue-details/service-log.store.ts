@@ -14,14 +14,20 @@ import { ServiceLogService } from "@/services/service-log.service";
 // local imports
 import type { IIssueDetail } from "./root.store";
 
-/** Zeros at the persisted scale, so an empty work item renders like a populated one. */
+/**
+ * Zeros at the persisted scale, so an empty work item renders like a populated one.
+ *
+ * The displays say `"0min"` and not `"0h"` because that is what the API answers for zero
+ * (`format_hours_human`): a work item nobody has logged on yet and one the server has just
+ * answered "nothing here" for must read identically, or the seed becomes visible as a flicker.
+ */
 const EMPTY_TOTALS: IServiceLogTotals = {
   logged_hours: "0.0000",
   equivalent_hours: "0.0000",
   debited_hours: "0.0000",
-  logged_hours_display: "0h",
-  equivalent_hours_display: "0h",
-  debited_hours_display: "0h",
+  logged_hours_display: "0min",
+  equivalent_hours_display: "0min",
+  debited_hours_display: "0min",
 };
 
 /** A batch and the segments it produced, which is the unit the UI edits and deletes. */

@@ -82,6 +82,10 @@ class ServiceLogExportSchema(ExportSchema):
 
         return format_duration(obj.raw_duration_minutes)
 
+    # The one deliberate survivor of ``format_hours`` after D68: every hour on a SCREEN now
+    # reads as a clock duration ("1h 15min"), but a CSV/XLSX row is read by a spreadsheet and
+    # by invoicing, where "1,25h" is the useful form because it can be summed and multiplied.
+    # Do not "finish the migration" here.
     def prepare_logged_hours(self, obj):
         return format_hours(obj.logged_hours)
 

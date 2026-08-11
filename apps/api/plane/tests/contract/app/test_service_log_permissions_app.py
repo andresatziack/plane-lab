@@ -1199,7 +1199,9 @@ class TestDeletionRemainsInHistory:
         assert recovered.logged_hours == Decimal("2.0000")
 
         entry = IssueActivity.objects.get(field="service_log", verb="deleted")
-        assert "2.0000" in entry.old_value
+        # The trail states the removed time as a clock duration (D68), which is the form every
+        # other surface uses; the soft deleted row above keeps the raw `2.0000` for arithmetic.
+        assert entry.old_value == "2h (Horário comercial)"
 
 
 @pytest.mark.contract

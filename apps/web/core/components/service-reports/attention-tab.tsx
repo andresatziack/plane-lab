@@ -115,7 +115,7 @@ export const AttentionTab = React.memo(function AttentionTab() {
           alertRow(
             alert,
             `${entry.contract_code} — ${entry.service_client_name}`,
-            `${entry.competence} · ${t("service_reports.alerts.balance")}: ${entry.balance_hours}`,
+            `${entry.competence} · ${t("service_reports.alerts.balance")}: ${entry.balance_hours_display}`,
             () => dismissPeriodAlert(entry.period_id, alert.code)
           )
         );
@@ -128,7 +128,7 @@ export const AttentionTab = React.memo(function AttentionTab() {
           alertRow(
             alert,
             entry.issue_name,
-            `${entry.project_name} · ${t("service_reports.alerts.balance")}: ${entry.balance_hours}`,
+            `${entry.project_name} · ${t("service_reports.alerts.balance")}: ${entry.balance_hours_display}`,
             () => dismissAllowanceAlert(entry.allowance_id, alert.code),
             // The action the revised D35 needs: closing is a deliberate human act, and the link
             // goes to the work item where the close endpoint already lives.

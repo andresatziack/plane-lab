@@ -108,7 +108,7 @@ export const BillingTab = React.memo(function BillingTab() {
             project with no client is not billable to anyone, so nobody has to act on it. */}
         <ReportInsightCard
           label={t("service_reports.billing.internal_work")}
-          value={`${data.consolidation.internal_work.hours}h`}
+          value={data.consolidation.internal_work.hours_display}
           hint={t("service_reports.billing.internal_work_hint")}
         />
       </div>
@@ -227,12 +227,16 @@ export const BillingTab = React.memo(function BillingTab() {
           <ul className="space-y-1">
             {clients.flatMap((client) =>
               (
-                client.commercial_pendencies as unknown as { reason: string; hours: string; amount_display: string }[]
+                client.commercial_pendencies as unknown as {
+                  reason: string;
+                  hours_display: string;
+                  amount_display: string;
+                }[]
               ).map((pendency) => (
                 <li key={`${client.service_client_id}-${pendency.reason}`} className="text-13 text-secondary">
                   {client.service_client_name as unknown as string} ·{" "}
                   {t(`service_reports.deviation.${pendency.reason}`, { defaultValue: pendency.reason })} ·{" "}
-                  {pendency.hours}h · {pendency.amount_display}
+                  {pendency.hours_display} · {pendency.amount_display}
                 </li>
               ))
             )}
@@ -249,13 +253,15 @@ export const BillingTab = React.memo(function BillingTab() {
           <p className="mb-3 text-12 text-tertiary">{t("service_reports.billing.registration_pendencies_hint")}</p>
           <ul className="space-y-1">
             {clients.flatMap((client) =>
-              (client.registration_pendencies as unknown as { reason: string; hours: string }[]).map((pendency) => (
-                <li key={`${client.service_client_id}-${pendency.reason}`} className="text-13 text-secondary">
-                  {client.service_client_name as unknown as string} ·{" "}
-                  {t(`service_reports.pricing_failure.${pendency.reason}`, { defaultValue: pendency.reason })} ·{" "}
-                  {pendency.hours}h
-                </li>
-              ))
+              (client.registration_pendencies as unknown as { reason: string; hours_display: string }[]).map(
+                (pendency) => (
+                  <li key={`${client.service_client_id}-${pendency.reason}`} className="text-13 text-secondary">
+                    {client.service_client_name as unknown as string} ·{" "}
+                    {t(`service_reports.pricing_failure.${pendency.reason}`, { defaultValue: pendency.reason })} ·{" "}
+                    {pendency.hours_display}
+                  </li>
+                )
+              )
             )}
           </ul>
         </section>

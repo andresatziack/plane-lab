@@ -49,6 +49,7 @@ from plane.db.models import (
     User,
     WorkspaceMember,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 
 LIST_URL = "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/service-logs/"
 TOTALS_URL = "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/service-logs/totals/"
@@ -212,6 +213,52 @@ class TestParserAndRoundingThroughTheApi:
         assert response.data["was_rounded"] is True
         assert response.data["raw_duration_minutes"] == 68
         assert response.data["totals"]["logged_hours"] == "1.2500"
+
+    def test_the_preview_totals_carry_a_rendered_twin(
+        self, session_client, issue, commercial_hours, contract_billing
+    ):
+        """D68. The form prints these three, so they cannot arrive as "1.2500" only.
+
+        The raw strings stay beside them: the browser compares and sorts on the decimal and
+        renders the twin, which is the contract every other hour payload in this feature has.
+        """
+        response = session_client.post(
+            _urls(issue)["preview"],
+            _payload(commercial_hours, contract_billing, duration="1h 08min"),
+            format="json",
+        )
+
+        totals = response.data["totals"]
+
+        assert totals["logged_hours"] == "1.2500"
+        assert totals["logged_hours_display"] == "1h 15min"
+        assert totals["equivalent_hours_display"] == "1h 15min"
+        assert totals["debited_hours_display"] == "1h 15min"
+
+        # The three exact strings above say the values are right; the walker says a FOURTH hour
+        # added to this dict later cannot arrive bare. `/preview` is the payload that shipped no
+        # twins at all, so it is the one that most needs the structural half of D68 and not only
+        # the three assertions somebody remembered to write.
+        assert hour_fields_missing_a_rendered_twin(totals) == []
+
+    def test_the_preview_renders_a_half_minute_equivalent_as_seconds(
+        self, session_client, issue, after_hours, contract_billing
+    ):
+        """1.25h at a 1.5 multiplier is 1.875h, which is not a whole number of minutes.
+
+        The renderer must say so instead of falling back to the decimal notation the user
+        reported seeing -- this is the case that used to read "1,875h".
+        """
+        response = session_client.post(
+            _urls(issue)["preview"],
+            _payload(after_hours, contract_billing, duration="1h 15min"),
+            format="json",
+        )
+
+        totals = response.data["totals"]
+
+        assert totals["equivalent_hours"] == "1.8750"
+        assert totals["equivalent_hours_display"] == "1h 52min 30s"
 
     def test_an_exact_duration_is_not_reported_as_rounded(
         self, session_client, issue, commercial_hours, contract_billing
@@ -731,9 +778,12 @@ class TestListingAndTotals:
 
         response = session_client.get(_urls(issue)["totals"])
 
-        # R11's dual reading: 1.25 logged becomes 1,875h for the client.
-        assert response.data["logged_hours_display"] == "1,25h"
-        assert response.data["equivalent_hours_display"] == "1,875h"
+        # R11's dual reading, both sides rendered as a clock duration (D68): 1.25 logged
+        # becomes 1.875 equivalent for the client, and 1.875h is 1h 52min 30s -- the half
+        # minute is why the human renderer grew a seconds term instead of falling back to
+        # "1,875h".
+        assert response.data["logged_hours_display"] == "1h 15min"
+        assert response.data["equivalent_hours_display"] == "1h 52min 30s"
 
     def test_the_row_carries_both_readings_of_r11(
         self, session_client, issue, after_hours, contract_billing
@@ -751,7 +801,7 @@ class TestListingAndTotals:
 
         row = response.data["service_logs"][0]
         assert row["logged_hours_display"] == "1h 15min"
-        assert row["equivalent_hours_display"] == "1,875h"
+        assert row["equivalent_hours_display"] == "1h 52min 30s"
         assert row["hour_type_name"] == "Fora do expediente"
 
     def test_logs_of_another_work_item_do_not_leak_in(
@@ -822,6 +872,10 @@ class TestAuditTrail:
         assert activity.verb == "created"
         assert activity.comment == "created a work log"
         assert "Fora do expediente" in activity.new_value
+        # D68 reaches the feed too: the row describes the hour as a clock duration, not as the
+        # "1.0000 h" this line used to persist. Nothing renders `field="service_log"` today, so
+        # this assertion is the only thing standing between that and the next screen that does.
+        assert activity.new_value == "1h (Fora do expediente)"
 
     def test_criterion_16_an_edit_is_recorded_with_both_sides(
         self, session_client, issue, commercial_hours, contract_billing
@@ -837,8 +891,11 @@ class TestAuditTrail:
 
         updated = self._activities(issue).filter(verb="updated").first()
         assert updated is not None
-        assert "1.0000" in updated.old_value
-        assert "2.0000" in updated.new_value
+        # Both sides, each a clock duration (D68). Distinct sums still read distinctly -- logged
+        # hours are quarter-hour multiples -- so the "nothing changed, record nothing" branch
+        # beside this one keeps working on the rendered string.
+        assert updated.old_value == "1h (Horário comercial)"
+        assert updated.new_value == "2h (Horário comercial)"
 
     def test_an_edit_that_changes_nothing_records_nothing(
         self, session_client, issue, commercial_hours, contract_billing
@@ -865,7 +922,10 @@ class TestAuditTrail:
 
         deleted = self._activities(issue).filter(verb="deleted").first()
         assert deleted is not None
-        assert "2.0000" in deleted.old_value
+        # The removed hours as a clock duration (D68), like the created and updated rows above:
+        # the three verbs write through the same summary, so they are asserted the same way and a
+        # renderer change cannot fix two of them and leave the third decimal.
+        assert deleted.old_value == "2h (Horário comercial)"
 
     def test_no_override_activity_is_recorded_when_the_choice_matches_the_suggestion(
         self, session_client, issue, commercial_hours, contract_billing

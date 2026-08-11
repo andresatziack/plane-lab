@@ -1969,3 +1969,195 @@ controle positivo, um erro de tipo fica indistinguível de um escopo funcionando
 | Decisão | Muda código? | Onde                                                                                     |
 | ------- | ------------ | ---------------------------------------------------------------------------------------- |
 | D67     | **Sim**      | `client_project_scope` e `_as_uuids` em `service_portal.py`; `get` do endpoint do portal |
+
+## D68 — Toda hora na tela é duração de relógio; o decimal sobrevive só na exportação
+
+**O que estava errado.** A humanização das horas foi feita pela metade. Os cards de total e
+o indicador de bolsa já liam `1h 15min`, mas a leitura de horas equivalentes na linha do
+técnico, a linha do cliente, a seção do cliente no chamado, o extrato da bolsa e os
+dashboards continuavam em `format_hours` — notação decimal, `32,25h`. O usuário reportou
+exatamente esse número no Peek do chamado, e `32,25h` é `32h 15min`: a mesma grandeza, na
+notação que ninguém lê de cabeça.
+
+Pior que a inconsistência: o endpoint `/preview` do formulário não mandava gêmeo `_display`
+nenhum, então o total da pré-visualização de split imprimia a **string crua** — `1.2500`,
+com ponto e quatro casas — logo abaixo de segmentos que diziam `1h 15min`.
+
+**A decisão.** `format_hours_human` é o renderizador de toda hora que uma pessoa lê:
+listas, totais, indicador de bolsa, seção do cliente, extrato, dashboards, alertas e
+prévias. `format_hours` **continua existindo** e continua sendo o certo em um lugar só —
+`plane/utils/exporters/schemas/service_log.py` —, porque uma célula de planilha e um
+faturamento querem um número que se soma, não uma duração. Essa exceção está comentada no
+código, para que não pareça esquecimento.
+
+Isso **refina a R3, não a contradiz.** A R3 manda "exibir sempre em formato legível pt-BR:
+`1h 15min` nas listas de apontamento, `1,25h` quando o contexto exigir o número". A decisão
+apenas nomeia qual é esse contexto: a exportação, e nada mais. Tela nenhuma "exige o
+número".
+
+**Segundos aparecem, e só quando a grandeza não fecha em minuto inteiro.** A leitura dupla
+da R11 é o caso que forçou isso: 1,25h com multiplicador 1,5 é 1,875h, que é meio minuto —
+`1h 52min 30s`. As alternativas eram arredondar para `1h 53min`, inventando trinta segundos
+de trabalho que ninguém apontou, ou cair de volta no decimal justo no lugar que o usuário
+reclamou. Valor que fecha em minuto não ganha cauda: `1h 15min` continua `1h 15min`, sem
+`0s`.
+
+O arredondamento ao segundo inteiro (`ROUND_HALF_UP`) é último recurso e é seguro por
+construção: hora apontada é múltiplo de 0,25h (R2) e multiplicador tem duas casas, logo todo
+produto é múltiplo de 0,0025h = 9 segundos, e soma desses também. Ele existe para um valor
+migrado ou escrito à mão continuar renderizando como duração, não para o produto real.
+
+**O que a R11 não perdeu.** Mudou como a hora é **escrita**, nunca qual hora cada papel
+recebe. Nenhum payload de cliente ganhou campo: o serializer do cliente e
+`issue_client_totals` expõem exatamente os mesmos nomes de antes, e `logged_hours`,
+`raw_duration_minutes`, `applied_multiplier` e taxa continuam impossíveis de referenciar do
+lado do cliente. A leitura dupla ficou mais honesta, inclusive: as duas pontas — o que o
+técnico vê que o cliente vê, e o que o cliente vê — agora são **a mesma string**.
+
+**Gêmeo `_display` onde faltava.** Um grep do repositório inteiro atrás de string de hora
+crua chegando ao DOM (`totals.*_hours`, `_hours}`, `${...hours}`) achou seis lugares, e todos
+foram fechados **criando o gêmeo no payload**, não formatando no navegador:
+
+- `/preview` passou a mandar os três (`logged_hours_display`,
+  `equivalent_hours_display`, `debited_hours_display`) — era o `1.2500` do formulário;
+- prévia de excedente, de período **e** de bolsa: `overage_hours_display`;
+- entradas do painel de alertas (período e bolsa): `balance_hours_display`, que a lista de
+  alertas imprimia como `-2.0000`;
+- consolidação de faturamento: `hours_display` nas pendências comerciais, nas pendências de
+  cadastro e no trabalho interno — esses três a tela imprimia concatenando um `"h"` literal
+  na string crua, ou seja `1.2500h`. **Nas origens o gêmeo também foi criado, e ali nenhuma
+  tela imprimia nada**: a tabela de origens renderiza só `amount_display`. Ele fica por
+  consistência de payload, não por defeito observado — a regra abaixo é "toda hora que sai
+  para uma tela viaja renderizada", e abrir exceção para o único bucket que hoje ninguém lê
+  é como as quatro rodadas anteriores começaram: com uma string crua que ninguém renderizava
+  **ainda**;
+- média de horas por chamado: `average_equivalent_hours_per_issue_display`, o gêmeo que a
+  média de dinheiro já tinha. É a única grandeza da feature que **não** fecha em bloco de 15
+  minutos (é quociente por uma contagem), então é o caso mais claro do termo de segundos.
+
+A string crua continua ao lado em todos: o navegador compara e ordena pelo decimal e
+renderiza o gêmeo, que é o contrato que `packages/types/src/service-log.ts` já documentava.
+Formatar no navegador seria a segunda implementação da regra R3, e a que ninguém testa.
+
+**A regra virou teste, porque comentário não segura quarta reincidência.** Esta foi a quarta
+rodada do mesmo defeito — `/preview` sem gêmeo nenhum, painel de alertas imprimindo `-2.0000`,
+faturamento imprimindo `1.2500h`, formulário imprimindo `1.2500` — e todas as quatro foram
+descobertas por um usuário lendo a tela, não pela suíte. Dois guardas em
+`plane/tests/unit/utils/test_service_hour_display_contract.py`, sobre os helpers de
+`plane/tests/hour_display.py`:
+
+1. **nenhum módulo de `plane/` pode referenciar `format_hours`**, exceto
+   `service_log_time.py` (que o define) e o schema de exportação (a exceção decidida acima). A
+   varredura é por AST, não por grep, porque meia dúzia de docstrings citam o nome e uma regra
+   que dispara em prosa é apagada pela primeira pessoa que ela incomoda. **O alcance faz parte
+   do guarda**: a primeira versão olhava só `plane/app` e `plane/utils`, e a linha de atividade
+   do apontamento — montada em `plane/bgtasks/issue_activities_task.py`, lida pelo feed — ficava
+   de fora, assim como `plane/space` (deploy público) e `plane/api` (API de token). Hoje a
+   varredura anda a árvore toda menos `tests/` (a suíte cita o nome de propósito) e
+   `migrations/` (história congelada, que não renderiza nada), e um teste afirma por nome quais
+   arquivos ela alcança. **O que ela não vê**: decimal montado à mão. `f"{total_logged} h"`
+   imprimia `1.5000 h` na linha de atividade e não referenciava nada — essa linha agora usa
+   `format_hours_human`, mas o ponto cego é estrutural, e quem cobre o caso inline é o guarda 2
+   mais a leitura do diff;
+2. **`hour_fields_missing_a_rendered_twin`** percorre um payload e devolve toda chave `hours`
+   ou `*_hours` sem irmã `*_hours_display`. Os testes de consolidação, de painel de alertas, de
+   prévia de excedente, de totais de relatório e — desde a resposta à segunda revisão — os
+   quatro payloads com o pior histórico (totais do `/preview`, `issue_client_totals`,
+   `allowance_credits` e `contract_balance_statement`) afirmam lista vazia, então o próximo campo
+   de hora que nascer sem gêmeo é teste vermelho e não relato de usuário. A única exclusão é a
+   lista `alerts` de uma entrada de painel, que carrega os números que **justificaram** o
+   código (projeção, limiar, resto descartado) atrás do índice `[detail: string]: unknown` de
+   `TServiceAlert` — diagnóstico que nenhuma tela lê, e no dia em que ler ganha `_display`.
+
+Os quatro arquivos de teste sem marcador `unit`/`contract` (`test_service_billing.py`,
+`test_service_money.py`, `test_service_pricing.py`, `test_service_pricing_model.py`) ganharam
+o marcador na mesma passada: eram justamente o núcleo de preço e dinheiro, e uma verificação
+com `-m "unit or contract"` os pulava em silêncio — foi assim que três testes de consolidação
+quebrados foram reportados como verdes.
+
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D68     | **Sim**      | `format_hours_human` e `format_hours` em `service_log_time.py`; `get_equivalent_hours_display` (técnico e cliente) em `serializers/service_log.py`; `issue_client_totals`; `allowance_credits` e `allowance_overage_preview`; `contract_balance_statement` e `overage_billing_preview` em `service_pool.py`; `bucket` e `headline_totals` em `service_reports.py`; `_render_consolidation` em `service_billing.py`; entradas de alerta em `service_pool_alerts.py`; totais do `/preview` em `views/service_log/base.py`; `_service_log_batch_summary` em `bgtasks/issue_activities_task.py`; `IServiceLogPreview` e os tipos de relatório; `service-log-form.tsx`; `service-log.store.ts`; `billing-tab.tsx`, `operational-tab.tsx`, `attention-tab.tsx`, `overage-billing-confirmation.tsx`; guardas em `plane/tests/hour_display.py` e `test_service_hour_display_contract.py` |
+
+## D69 — A UI de apontamento mede o container, não a janela
+
+**O que estava errado.** O usuário abriu o chamado pelo celular e as letras saíram das
+caixas: quatro cards de total lado a lado em 390px, o título "Bolsa de horas do chamado"
+colidindo com "161% consumido", três figuras da bolsa em três colunas, e o conteúdo do Peek
+gastando 64px de `px-8` numa tela de 390px. A causa não era falta de `truncate`: item de grid
+e item de flex nascem com `min-width: auto`, então **se recusam a encolher abaixo do próprio
+conteúdo** e empurram o texto para fora da borda. `min-w-0` é o que resolve isso, e
+`break-words` é o que segura a palavra que ainda não couber.
+
+**A primeira tentativa estava sutilmente errada e vale registrar por quê.** A correção óbvia
+é prefixo de breakpoint do Tailwind — `grid-cols-2 md:grid-cols-4`, como os dashboards de
+relatório já fazem. Só que breakpoint de Tailwind mede a **janela**, e o Peek lateral é
+`md:w-[50%]` **dessa** janela: `md` é ao mesmo tempo onde as quatro colunas voltam e onde o
+espaço disponível cai pela metade. Resultado medido pelas classes: em 768px de janela cada
+card ficava com ~50px de interior, contra ~151px em 390px. O layout "de desktop" ficava pior
+que o de celular exatamente na faixa de 768px a ~1576px.
+
+**A decisão.** Toda medida responsiva **dentro** da seção de apontamento usa **container
+queries** (`@container` + variantes `@sm:` e `@lg:`), que o Tailwind 4 traz nativo e
+que `settings/content-wrapper.tsx` já usava neste fork. `ServiceLogSection`,
+`ServiceLogClientSection` e `ServiceAllowanceIndicator` declaram `@container`; os grids e as
+linhas dentro deles perguntam pela largura que realmente têm. As larguras foram escolhidas por
+aritmética, não por gosto:
+
+- totais em quatro colunas a partir de `@lg` (512px): `(512 − 24) / 4 = 122px` por card, 98px
+  dentro do `px-3`, o suficiente para `1h 52min 30s` em `text-base` (~96px);
+- figuras da bolsa em três colunas a partir de `@sm` (384px): três figuras pedem ~110px cada
+  mais dois gaps de 8px, ou seja 346px. Os cards do cliente e o degrau `text-sm` → `text-base`
+  usam o mesmo `@sm`;
+- linha de um apontamento volta a ser uma linha só a partir de `@lg` (512px), que deixa ~250px
+  para a coluna de texto ao lado de um bloco de badges que já quebra sozinho.
+
+**Por que 512px e não os 576px de `@xl`, que a aritmética também permitiria.** Dentro do Peek
+lateral esse container mede exatamente `janela / 2 − 64`, então **576px é o container de uma
+janela de 1280px** — a largura de notebook mais comum — sem folga alguma, e o Peek rola dentro
+de `.vertical-scrollbar`, cuja folha de estilo esconde a barra do webkit mas devolve a do
+Firefox (~12px). A mesma janela mostraria quatro colunas num navegador e duas no outro. A
+página completa do chamado cai na mesma vizinhança: ~574px dentro do `px-9` com a sidebar
+expandida. `@lg` passa dos dois casos com ~50px de sobra, e o mesmo raciocínio derruba `@md`
+(448px) para `@sm`: 448px é este container numa janela de 1024px. **A regra é escolher um
+limite em que nenhuma janela comum caia exatamente.**
+
+**A consequência aceita de olhos abertos:** entre 1024px e 1279px o Peek lateral agora mostra
+os totais em 2×2 e os apontamentos empilhados onde mostrava quatro colunas e uma linha só. É o
+que cabe (quatro colunas em 448px de container deixariam 82px de interior para um valor que
+pede ~96px), mas é uma mudança visível no desktop, e não a equivalência "byte a byte" que o
+critério da tarefa prometia.
+
+**Onde breakpoint de janela continua certo:** `service-log-form.tsx` e
+`service-log-modal.tsx`. `ModalCore` é renderizado por portal e dimensionado contra a janela,
+então ali `sm:` significa o que diz. A regra é essa: se o elemento vive dentro de um shell de
+largura variável, pergunte ao container; se vive contra a janela, pergunte à janela.
+
+**Duas coisas que carregam mais peso do que parecem.** A primeira é o `!` legado em
+`md:!w-[400px]` na trilha de propriedades do Peek em tela cheia: é ele que faz a trilha vencer
+o `w-full` que passou a existir na base. Tirar o `!` ou "modernizar" para `w-[400px]!` devolve
+silenciosamente a trilha para largura total no desktop. A segunda é `order-first
+md:order-none` nessa mesma trilha: empilhada, ela vem **depois** de descrição, apontamentos e
+feed de atividade na ordem do documento, o que deixava estado, responsáveis e datas a vários
+scrolls de distância no celular — justamente os controles por que se abre o chamado.
+
+**O que não foi mexido, e por quê.** `issues/issue-detail/root.tsx` mantém `px-9` em qualquer
+largura: é geometria do Plane que afeta título, descrição e feed igualmente, e com `min-w-0`,
+`break-words` e os grids acima a seção sobrevive aos 318px que sobram. O modo `modal` do Peek
+segue `size-5/6` em qualquer largura. Ambos são candidatos a uma decisão própria, não efeito
+colateral desta.
+
+**Verificação.** Não há navegador nem emulador no ambiente de agente e este fork não tem
+runner de teste JS, então a checagem é a leitura da string de classes emitida contra os
+breakpoints, arquivo por arquivo, registrada no estado da tarefa. `tsc` e `oxlint` não
+enxergam breakpoint algum, o que é exatamente por que o erro janela-versus-container passou na
+primeira rodada. Uma matriz manual (390px, 768px, 1024px, 1440px × side-peek / modal / tela
+cheia) contra um build real continua sendo a única verificação de verdade.
+
+## Resumo do que muda no código
+
+| Decisão | Muda código? | Onde                                                                                                                                                                                                                                                                                                                      |
+| ------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D69     | **Sim**      | `@container` e variantes `@sm:`/`@lg:` em `service-log-section.tsx`, `service-log-totals.tsx`, `service-allowance-indicator.tsx`, `service-log-list-item.tsx`, `service-log-client-section.tsx`; `px-4 md:px-8`, empilhamento e `order-first md:order-none` em `issues/peek-overview/view.tsx`; `report-insight-card.tsx` |

@@ -42,6 +42,7 @@ from plane.tests.factories import (
     ServiceLogFactory,
     UserFactory,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 from plane.utils.service_billing import RevenueOrigin
 from plane.utils.service_pool import resolve_period
 from plane.utils.service_reports import (
@@ -668,6 +669,29 @@ class TestD52AveragesArePresentationOnly:
         # for 600.00 over 9 issues would not round-trip.
         assert totals["amount"] == "600.00"
 
+    def test_the_hours_average_ships_rendered_and_is_the_least_round_hour_in_the_feature(
+        self, world
+    ):
+        """D68 on the one quantity in this feature that is not block-aligned.
+
+        Every other hour is a multiple of 0.25h, or a sum of such multiples times a
+        two-decimal multiplier. A quotient by a count of work items is not: it lands wherever
+        the division puts it, which is why ``format_hours_human`` needed a seconds term at all.
+        ``operational-tab.tsx`` renders this card and used to print ``"0.4286"``.
+        """
+        totals = headline_totals(
+            world["workspace_id"],
+            ServiceLogFilterSet(competence_from=(2026, 3), competence_to=(2026, 3)),
+            ReportViewer.member(),
+        )
+
+        raw = totals["average_equivalent_hours_per_issue"]
+        assert raw == "1.7222", "equivalent hours over the work items that carried them"
+        # 1.7222h is 6199.92s, and the renderer rounds the whole thing to the nearest second
+        # (ROUND_HALF_UP) rather than giving up and printing "1,7222h".
+        assert totals["average_equivalent_hours_per_issue_display"] == "1h 43min 20s"
+        assert hour_fields_missing_a_rendered_twin(totals) == []
+
     def test_an_empty_selection_reports_no_average_rather_than_zero(self, world):
         """Dividing by no issues has no answer, and ``0,00`` would be one."""
         totals = headline_totals(
@@ -678,6 +702,11 @@ class TestD52AveragesArePresentationOnly:
 
         assert totals["entries"] == 0
         assert "average_amount_per_issue" not in totals
+        assert "average_equivalent_hours_per_issue" not in totals
+        assert "average_equivalent_hours_per_issue_display" not in totals, (
+            "no issues means no average, and a rendered '0min' would be an answer where there "
+            "is none (D53)"
+        )
         assert totals["amount"] == "0.00", "a total of nothing IS zero, unlike an average"
 
 

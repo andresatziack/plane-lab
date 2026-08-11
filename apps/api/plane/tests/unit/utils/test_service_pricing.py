@@ -48,7 +48,9 @@ from plane.utils.service_pricing import (
     resolve_price_sheet,
 )
 
-pytestmark = pytest.mark.django_db
+# `unit` beside `django_db`: without the `unit` marker a filtered run (`-m "unit or contract"`)
+# skips the pricing core, which is exactly what a billing or rendering change touches.
+pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
 
 @pytest.fixture

@@ -10,7 +10,7 @@ from rest_framework import serializers
 
 # Module imports
 from plane.db.models import ServiceIssueAllowance
-from plane.utils.service_log_time import format_hours, format_hours_human
+from plane.utils.service_log_time import format_hours_human
 
 from .base import BaseSerializer
 from .user import UserAdminLiteSerializer

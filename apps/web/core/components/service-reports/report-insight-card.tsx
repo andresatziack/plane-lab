@@ -35,8 +35,14 @@ export const ReportInsightCard = React.memo(function ReportInsightCard(props: Pr
   const { label, value, hint, isLoading = false, onDrillDown } = props;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="text-13 text-tertiary">{label}</div>
+    // `min-w-0` and `break-words`: these cards sit in a `grid-cols-2` at 390px, and a grid item
+    // defaults to `min-width: auto`, so it refuses to shrink under its content. The values got
+    // longer when hours became clock durations (D68) -- "1234h 34min 4s" where a decimal used to
+    // read "1234,5678h" -- and `w-fit` on the button would otherwise push the number past the
+    // card. `max-w-full` keeps `w-fit` (so only the number is clickable) without letting it
+    // exceed the column.
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="text-13 break-words text-tertiary">{label}</div>
       {isLoading ? (
         <Loader.Item height="34px" width="100%" />
       ) : (
@@ -45,7 +51,7 @@ export const ReportInsightCard = React.memo(function ReportInsightCard(props: Pr
           disabled={!onDrillDown}
           onClick={onDrillDown}
           className={cn(
-            "w-fit text-left text-20 font-bold text-primary",
+            "w-fit max-w-full text-left text-20 font-bold break-words text-primary",
             onDrillDown && "cursor-pointer hover:underline"
           )}
         >

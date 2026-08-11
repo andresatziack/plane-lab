@@ -30,6 +30,10 @@ from plane.utils.service_money import (
     quantize_money,
 )
 
+# No database here, but the file still needs the `unit` marker: without it a filtered run
+# (`-m "unit or contract"`) skips the monetary core entirely.
+pytestmark = pytest.mark.unit
+
 
 class TestTheBriefsWorkedExamples:
     """Acceptance criteria 1, 2 and 3, taken literally from section 3."""

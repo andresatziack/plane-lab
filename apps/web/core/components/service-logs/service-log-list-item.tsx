@@ -44,7 +44,16 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-subtle px-3 py-2.5">
-      <div className="flex items-start justify-between gap-2">
+      {/* Two blocks -- the reading of the entry and the badge/action cluster -- that together
+          need far more than 390px. They stack while the container is narrow and go back to the
+          original single row from `@lg` (512px) up. Keying off the container rather than the
+          viewport means the row no longer un-stacks at 768px, where the peek halves to ~320px of
+          content; `@container` is declared on `ServiceLogSection`. 512px and not 576px for the
+          same reason the totals grid uses `@lg`: inside the side peek the container is exactly
+          `viewport / 2 - 64`, so 576px is the container of a 1280px window with nothing to spare
+          and Firefox's scrollbar takes ~12px of it -- one window, two layouts. At 512px the text
+          column keeps ~250px beside a cluster that wraps internally anyway. */}
+      <div className="flex flex-col gap-2 @lg:flex-row @lg:items-start @lg:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="text-xs text-custom-text-300 flex flex-wrap items-center gap-2">
             <span className="text-custom-text-200 font-medium">{first.worked_on}</span>
@@ -114,7 +123,11 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
           <p className="text-sm text-custom-text-300 break-words whitespace-pre-wrap">{first.description}</p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        {/* Up to four badges plus the two icon buttons. `flex-wrap` lets them flow onto a second
+            line while the container is narrow; `@lg:shrink-0` restores the class this row had
+            before at the same width the row itself becomes a row again, so once the two blocks
+            share a line the cluster still refuses to be squeezed by the text column. */}
+        <div className="flex flex-wrap items-center gap-1 @lg:shrink-0">
           {/* The badge section 6 asks for whenever the route does not charge. It shows
               the billing type name -- "Garantia" or "Cortesia" -- rather than a generic
               label, because R5 requires the two to stay distinguishable: one is a

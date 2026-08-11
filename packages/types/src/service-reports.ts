@@ -114,6 +114,7 @@ export type TServiceReportTotals = TServiceReportBucket & {
   issues: number;
   filters: TServiceReportFilters;
   average_equivalent_hours_per_issue?: string;
+  average_equivalent_hours_per_issue_display?: string;
   /** Presentation only, decision D53. Never derive a total from it. */
   average_amount_per_issue?: string;
   average_amount_per_issue_display?: string;
@@ -311,8 +312,13 @@ export type TServicePeriodAlertEntry = {
   period_id: string;
   competence: string;
   granted_hours: string;
+  /** Rendered twin. Raw to compare, `_display` to render -- never format an hour here (D68). */
+  granted_hours_display: string;
   consumed_hours: string;
+  consumed_hours_display: string;
   balance_hours: string;
+  /** Rendered twin of `balance_hours`, which is what the alert row prints. */
+  balance_hours_display: string;
   alerts: TServiceAlert[];
   has_high_consumption: boolean;
   has_low_consumption: boolean;
@@ -326,8 +332,13 @@ export type TServiceAllowanceAlertEntry = {
   project_name: string;
   reference: string;
   credited_hours: string;
+  /** Rendered twin. Raw to compare, `_display` to render -- never format an hour here (D68). */
+  credited_hours_display: string;
   consumed_hours: string;
+  consumed_hours_display: string;
   balance_hours: string;
+  /** Rendered twin of `balance_hours`, which is what the alert row prints. */
+  balance_hours_display: string;
   alerts: TServiceAlert[];
 };
 
@@ -351,7 +362,7 @@ export type TServiceBillingReport = {
     clients: unknown[];
     total_amount: string;
     total_amount_display: string;
-    internal_work: { hours: string; entries: number };
+    internal_work: { hours: string; hours_display: string; entries: number };
   };
   revenue_series: TServiceRevenuePoint[];
   totals: TServiceReportTotals;

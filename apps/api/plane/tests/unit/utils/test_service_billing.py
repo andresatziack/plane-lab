@@ -40,6 +40,7 @@ from plane.tests.factories import (
     ServiceHourTypeFactory,
     UserFactory,
 )
+from plane.tests.hour_display import hour_fields_missing_a_rendered_twin
 from plane.utils.service_billing import (
     RevenueOrigin,
     consolidated_billing,
@@ -50,7 +51,11 @@ from plane.utils.service_log import build_batch_rows, create_service_log_batch
 from plane.utils.service_pool import close_period, resolve_period
 from plane.utils.service_pricing import NO_PRICE_SHEET_FOR_CLIENT
 
-pytestmark = pytest.mark.django_db
+# `unit` beside `django_db` on purpose: this file used to carry only the database marker, so
+# `pytest -m "unit or contract"` skipped it silently -- which is how a change to the billing
+# payload was reported green while three tests here were failing. The conventions document
+# runs the suite with no marker filter; this makes the filtered run tell the truth too.
+pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
 
 @pytest.fixture
@@ -448,6 +453,12 @@ class TestTheOveragePreviewSaysItIsIrreversible:
         preview = overage_billing_preview(january)
 
         assert preview["overage_hours"] == "3.0000"
+        # The confirmation modal prints the hours it is about to bill irreversibly, so they
+        # ship rendered as well (D68). An Admin reading "3.0000" and an Admin reading "3h" are
+        # confirming the same charge, and only one of them is being told in the product's own
+        # notation.
+        assert preview["overage_hours_display"] == "3h"
+        assert hour_fields_missing_a_rendered_twin(preview) == []
         assert preview["overage_hour_rate"] == "250.00"
         assert preview["amount"] == "750.00"
         assert preview["rate_source"] == "contract"
@@ -480,6 +491,31 @@ class TestTheConsolidation:
         assert origins[RevenueOrigin.OUT_OF_SCOPE_LOG]["amount"] == "200.00"
         assert result["total_amount"] == "200.00"
 
+    def test_every_hour_in_the_consolidation_ships_a_rendered_twin(self, billing_setup):
+        """D68, asserted structurally on the payload rather than field by field.
+
+        This report is reached through ``as unknown as`` casts in ``billing-tab.tsx``, so
+        TypeScript cannot see a missing key here. The walker is the substitute: any hour added
+        to an origin bucket, a pendency list or the internal-work block without its rendered
+        twin fails here instead of printing "1.2500h" at a client, which is the exact defect
+        D68 was written for.
+        """
+        internal = ProjectFactory(workspace=billing_setup["workspace"], service_client=None)
+        internal.is_time_tracking_enabled = True
+        internal.save()
+
+        settle(billing_setup, billing="avulso", minutes=75, worked_on=date(2026, 3, 10))
+        settle(billing_setup, billing="avulso", worked_on=date(2026, 3, 11), project=internal)
+
+        result = consolidated_billing(billing_setup["workspace"].id, 2026, 3)
+
+        assert hour_fields_missing_a_rendered_twin(result) == []
+        assert result["internal_work"]["hours_display"] == "1h"
+        assert (
+            result["clients"][0]["origins"][RevenueOrigin.OUT_OF_SCOPE_LOG]["hours_display"]
+            == "1h 15min"
+        )
+
     def test_a_deviated_log_is_standalone_with_its_reason_beside_it(self, billing_setup):
         """D33's reason reaches the consolidation, because "avulso by design" and "the
         contract expired" need different people to do different things."""
@@ -491,10 +527,15 @@ class TestTheConsolidation:
         entry = consolidated_billing(billing_setup["workspace"].id, 2026, 3)["clients"][0]
 
         assert entry["origins"][RevenueOrigin.STANDALONE_LOG]["amount"] == "200.00"
+        # Still an EXACT dict, deliberately: `billing-tab.tsx` reaches this payload through
+        # `as unknown as` casts, so TypeScript cannot see a renamed or missing key and this
+        # assertion is the only structural guard the shape has. `hours_display` is D68's
+        # rendered twin -- the screen used to concatenate a literal "h" onto "1.0000".
         assert entry["commercial_pendencies"] == [
             {
                 "reason": ServiceRouteDeviation.CONTRACT_SUSPENDED,
                 "hours": "1.0000",
+                "hours_display": "1h",
                 "amount": "200.00",
                 "amount_display": "R$ 200,00",
                 "entries": 1,
@@ -516,7 +557,11 @@ class TestTheConsolidation:
         result = consolidated_billing(billing_setup["workspace"].id, 2026, 3)
 
         assert result["total_amount"] == "0.00"
-        assert result["internal_work"] == {"hours": "1.0000", "entries": 1}
+        assert result["internal_work"] == {
+            "hours": "1.0000",
+            "hours_display": "1h",
+            "entries": 1,
+        }
         assert result["clients"] == [], "internal work creates no client entry at all"
 
     def test_a_registration_pendency_carries_hours_but_no_amount(self, billing_setup):
@@ -533,8 +578,17 @@ class TestTheConsolidation:
 
         assert entry["total_amount"] == "0.00"
         assert entry["registration_pendencies"] == [
-            {"reason": NO_PRICE_SHEET_FOR_CLIENT, "hours": "1.0000", "entries": 1}
+            {
+                "reason": NO_PRICE_SHEET_FOR_CLIENT,
+                "hours": "1.0000",
+                "hours_display": "1h",
+                "entries": 1,
+            }
         ]
+        assert "amount" not in entry["registration_pendencies"][0], (
+            "no amount exists yet: printing R$ 0,00 would make a missing price sheet look "
+            "like a finished calculation"
+        )
         assert result["total_amount"] == "0.00"
 
     def test_a_contract_overage_lands_in_the_periods_competency_not_the_closing_month(
