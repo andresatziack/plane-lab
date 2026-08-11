@@ -108,7 +108,7 @@ export const ServiceAllowanceIndicator = observer(function ServiceAllowanceIndic
       )}
 
       {consumedPct !== null && (
-        <div className="bg-custom-background-80 h-2 w-full overflow-hidden rounded-full">
+        <div className="bg-custom-background-90 h-2.5 w-full overflow-hidden rounded-full">
           <div
             className={`h-full rounded-full ${isOverrun ? "bg-red-500" : "bg-custom-primary-100"}`}
             style={{ width: `${barWidth}%` }}

@@ -111,7 +111,7 @@ export const ServiceLogListItem = observer(function ServiceLogListItem(props: Pr
 
                 {segment.is_hour_type_overridden && (
                   <Tooltip tooltipContent={t("work_item.service_log.badges.overridden")} position="top">
-                    <span className="bg-custom-background-80 text-custom-text-350 rounded px-1 py-0.5 text-[10px]">
+                    <span className="text-custom-text-400 text-[10px] italic line-through">
                       {segment.suggested_hour_type_name}
                     </span>
                   </Tooltip>
