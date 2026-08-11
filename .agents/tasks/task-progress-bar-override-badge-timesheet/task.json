@@ -1,0 +1,7 @@
+{
+  "task_id": "task-progress-bar-override-badge-timesheet",
+  "task_description": "Three objectives: 1) Fix invisible progress bar in allowance indicator, 2) Make override badge more subtle in service-log-list-item, 3) Implement a Timesheet View page inspired by Tempo (Jira) with weekly/monthly grid, totals, and filters",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

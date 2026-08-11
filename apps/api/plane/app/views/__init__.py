@@ -120,6 +120,7 @@ from .service_reports.base import (
     ServiceConsumptionReportEndpoint,
     ServiceOperationalReportEndpoint,
     ServiceReportLogsEndpoint,
+    ServiceTimesheetEndpoint,
 )
 from .service_pricing.base import (
     ServiceBillingConsolidationEndpoint,

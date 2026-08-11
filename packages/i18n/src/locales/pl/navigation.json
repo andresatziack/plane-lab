@@ -31,6 +31,7 @@
     "upgrade_plan": "Apgrejduj plan",
     "plane_pro": "Plejn Pro",
     "business": "Biznes",
-    "service_consumption": "My consumption"
+    "service_consumption": "My consumption",
+    "service_timesheet": "Timesheet"
   }
 }

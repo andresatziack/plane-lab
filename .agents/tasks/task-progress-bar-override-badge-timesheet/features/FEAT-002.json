@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Implement Timesheet View -- a new workspace-scoped page with weekly/monthly grid showing technician x day hours aggregated from service logs, with filters and totals",
+  "status": "in_progress",
+  "steps": [
+    "Create the API endpoint: Add a new endpoint `GET /api/workspaces/<slug>/service-reports/timesheet/` in apps/api/plane/app/views/service_reports/base.py that aggregates ServiceLog data grouped by author and worked_on date, within a date range from query params. Return a structure like {rows: [{author_id, author_name, days: {date_str: {logged_hours, equivalent_hours}}, total_logged, total_equivalent}], column_totals: {date_str: {logged_hours, equivalent_hours}}, grand_total: {...}}. Permission: ADMIN and MEMBER.",
+    "Register the new endpoint in apps/api/plane/app/urls/service_reports.py with path `workspaces/<str:slug>/service-reports/timesheet/`.",
+    "Export the new view class in apps/api/plane/app/views/service_reports/__init__.py and in apps/api/plane/app/views/__init__.py.",
+    "Add TypeScript types for the timesheet response in packages/types/src/service-reports.ts (TServiceTimesheetReport, TTimesheetRow, etc).",
+    "Add `fetchTimesheet` method to apps/web/core/services/service-reports.service.ts.",
+    "Create the timesheet frontend components directory at apps/web/core/components/service-timesheet/ with: index.ts, timesheet-page.tsx (main container with filters and grid), timesheet-grid.tsx (the responsive grid/table component), timesheet-toolbar.tsx (period navigation and filters).",
+    "The timesheet-page.tsx should: use SWR to fetch timesheet data, provide week/month toggle, prev/next navigation for period, optional project filter and author filter. Use the existing useReportFilters pattern from service-reports.",
+    "The timesheet-grid.tsx should: render a table/grid with rows for each technician, columns for each day in the period, cells showing hours (logged_hours_display). Include row totals and column totals. Responsive: on mobile stack as a list of cards (one per technician per day). On desktop show the full grid.",
+    "Create the route page: apps/web/app/(all)/[workspaceSlug]/(projects)/service-timesheet/layout.tsx and page.tsx following the pattern from service-reports/[tabId]/layout.tsx.",
+    "Register the route in apps/web/app/routes/core.ts following the service-reports pattern.",
+    "Add the sidebar navigation item in apps/web/core/components/workspace/sidebar/workspace-menu.tsx with key 'service-timesheet', access ADMIN and MEMBER only.",
+    "Add i18n translations in packages/i18n/src/locales/en/navigation.json and pt-BR/navigation.json for the sidebar label, and add a service-timesheet.json locale file (or keys in service-reports.json) for page labels, column headers, etc."
+  ],
+  "acceptance_criteria": [
+    "A new API endpoint /api/workspaces/<slug>/service-reports/timesheet/ returns aggregated hours by author and date",
+    "The timesheet page is accessible at /:workspaceSlug/service-timesheet/ and shows in the workspace sidebar",
+    "The grid shows technicians as rows, days as columns, with hours in each cell",
+    "Row totals (per technician) and column totals (per day) are displayed",
+    "Week/month period navigation works (prev/next buttons change the date range)",
+    "Filters by project and author are available",
+    "The layout is responsive: grid on desktop, stacked cards on mobile",
+    "Only ADMIN and MEMBER can access (GUEST is excluded)",
+    "TypeScript types check passes",
+    "Lint passes on all new files"
+  ],
+  "verification": [
+    "Run: REBUILD=1 tools/agent-sandbox/run-web-checks.sh types",
+    "Run: tools/agent-sandbox/run-web-checks.sh lint apps/web/core/components/service-timesheet apps/web/app/(all)/[workspaceSlug]/(projects)/service-timesheet packages/constants/src/workspace.ts",
+    "Run: tools/agent-sandbox/run-web-checks.sh i18n"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

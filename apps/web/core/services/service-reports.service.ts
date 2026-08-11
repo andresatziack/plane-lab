@@ -15,6 +15,7 @@ import type {
   TServicePortalReport,
   TServiceReportFilters,
   TServiceReportLogsPage,
+  TServiceTimesheetReport,
 } from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
@@ -190,6 +191,22 @@ export class ServiceReportsService extends APIService {
     return this.get(`/api/workspaces/${workspaceSlug}/service-reports/portal/issues/`, {
       params: { ...filters, ...pagination, project_ids: projectId },
     })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
+   * Timesheet grid: hours by technician and day within a date range.
+   *
+   * Returns rows (one per author) with per-day cells, column totals, and a grand total.
+   */
+  async fetchTimesheet(
+    workspaceSlug: string,
+    params: { worked_on_from: string; worked_on_to: string; author_ids?: string; project_ids?: string }
+  ): Promise<TServiceTimesheetReport> {
+    return this.get(`/api/workspaces/${workspaceSlug}/service-reports/timesheet/`, { params })
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

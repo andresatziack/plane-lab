@@ -12,6 +12,7 @@ from plane.app.views import (
     ServiceConsumptionReportEndpoint,
     ServiceOperationalReportEndpoint,
     ServiceReportLogsEndpoint,
+    ServiceTimesheetEndpoint,
 )
 
 urlpatterns = [
@@ -64,5 +65,11 @@ urlpatterns = [
         "workspaces/<str:slug>/service-reports/portal/issues/",
         ServiceClientPortalIssuesEndpoint.as_view(),
         name="service-report-portal-issues",
+    ),
+    # Timesheet grid: hours by technician and day, for a date range. ADMIN and MEMBER.
+    path(
+        "workspaces/<str:slug>/service-reports/timesheet/",
+        ServiceTimesheetEndpoint.as_view(),
+        name="service-report-timesheet",
     ),
 ]

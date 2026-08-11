@@ -65,6 +65,13 @@ export const SidebarWorkspaceMenu = observer(function SidebarWorkspaceMenu() {
       access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
       Icon: AnalyticsIcon,
     },
+    {
+      key: "service-timesheet",
+      labelTranslationKey: "sidebar.service_timesheet",
+      href: `/${workspaceSlug}/service-timesheet`,
+      access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+      Icon: AnalyticsIcon,
+    },
   ];
 
   return (

@@ -10,4 +10,5 @@ from .base import (
     ServiceConsumptionReportEndpoint,
     ServiceOperationalReportEndpoint,
     ServiceReportLogsEndpoint,
+    ServiceTimesheetEndpoint,
 )

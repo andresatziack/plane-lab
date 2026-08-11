@@ -83,6 +83,11 @@ export const coreRoutes: RouteConfigEntry[] = [
           ),
         ]),
 
+        // Service timesheet -- Tempo-style grid of technician x day hours.
+        layout("./(all)/[workspaceSlug]/(projects)/service-timesheet/layout.tsx", [
+          route(":workspaceSlug/service-timesheet", "./(all)/[workspaceSlug]/(projects)/service-timesheet/page.tsx"),
+        ]),
+
         // Browse
         layout("./(all)/[workspaceSlug]/(projects)/browse/[workItem]/layout.tsx", [
           route(":workspaceSlug/browse/:workItem", "./(all)/[workspaceSlug]/(projects)/browse/[workItem]/page.tsx"),

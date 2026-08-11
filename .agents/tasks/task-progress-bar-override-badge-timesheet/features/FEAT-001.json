@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "fix",
+  "description": "Fix progress bar visibility in service-allowance-indicator.tsx and make override badge in service-log-list-item.tsx more subtle",
+  "status": "in_progress",
+  "steps": [
+    "In apps/web/core/components/service-logs/service-allowance-indicator.tsx, change the progress bar track from `bg-custom-background-80 h-2` to use a more distinct/darker track color (like `bg-custom-background-90` or a more visible custom class) and increase height to `h-2.5` or `h-3` for better visibility against `bg-surface-2`.",
+    "In apps/web/core/components/service-logs/service-log-list-item.tsx, make the override badge (is_hour_type_overridden section) more subtle. Currently it shows `<span className='bg-custom-background-80 text-custom-text-350 rounded px-1 py-0.5 text-[10px]'>{segment.suggested_hour_type_name}</span>` as a visible badge. Replace it with a tooltip-only approach: show a small subtle inline text (like strikethrough or a dim italic note) instead of a solid background badge. The key goal is that users should NOT mistake the override suggestion for the applied type.",
+    "Also ensure the `classification_reason` text remains subtle (text-custom-text-400, no yellow styling). It currently uses `text-xs text-custom-text-400` which should be fine but verify no other class might override it to a warm/yellow color."
+  ],
+  "acceptance_criteria": [
+    "The progress bar in service-allowance-indicator.tsx has a visually distinct track background that contrasts clearly with bg-surface-2",
+    "The progress bar height is increased (h-2.5 or h-3) making it more noticeable",
+    "The override badge in service-log-list-item.tsx no longer uses a prominent background color; it is rendered as a subtle tooltip-only indicator or very subdued text",
+    "The classification_reason text remains in text-custom-text-400 without any highlighting",
+    "TypeScript types check passes",
+    "Lint passes on the modified files"
+  ],
+  "verification": [
+    "Run: tools/agent-sandbox/run-web-checks.sh types",
+    "Run: tools/agent-sandbox/run-web-checks.sh lint apps/web/core/components/service-logs"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

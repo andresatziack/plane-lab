@@ -23,6 +23,7 @@ export const NAMESPACES = [
   "project",
   "project-settings",
   "service-reports",
+  "service-timesheet",
   "settings",
   "stickies",
   "template",
