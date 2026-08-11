@@ -427,3 +427,34 @@ export type TServicePortalIssuesPage = {
   prev_page_results: boolean;
   extra_stats: { totals: TServiceReportTotals };
 };
+
+// ---------------------------------------------------------------------------
+// Timesheet (Tempo-style grid: technician x day)
+// ---------------------------------------------------------------------------
+
+/** Hours for a single cell in the timesheet grid (one author on one day). */
+export type TTimesheetDayCell = {
+  logged_hours: string;
+  equivalent_hours: string;
+};
+
+/** One row in the timesheet grid (one technician). */
+export type TTimesheetRow = {
+  author_id: string;
+  author_name: string;
+  /** Map from ISO date string (YYYY-MM-DD) to hours for that day. */
+  days: Record<string, TTimesheetDayCell>;
+  total_logged: string;
+  total_equivalent: string;
+};
+
+/** The full timesheet API response. */
+export type TServiceTimesheetReport = {
+  rows: TTimesheetRow[];
+  /** Map from ISO date string (YYYY-MM-DD) to column totals. */
+  column_totals: Record<string, TTimesheetDayCell>;
+  grand_total: {
+    logged_hours: string;
+    equivalent_hours: string;
+  };
+};

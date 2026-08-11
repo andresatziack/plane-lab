@@ -1,0 +1,12 @@
+{
+  "service_timesheet": {
+    "label": "Timesheet",
+    "page_label": "{workspace} - Timesheet",
+    "view_week": "Semana",
+    "view_month": "Mês",
+    "today": "Hoje",
+    "technician": "Técnico",
+    "total": "Total",
+    "empty": "Nenhuma hora registrada para este período."
+  }
+}

@@ -470,6 +470,136 @@ class ServiceReportLogsEndpoint(ServiceReportBaseView, BasePaginator):
 
 
 
+class ServiceTimesheetEndpoint(ServiceReportBaseView):
+    """Timesheet grid: hours by technician and day.
+
+    Returns aggregated logged_hours and equivalent_hours grouped by author and worked_on
+    within a date range, so the frontend can render a Tempo-style grid (rows = technicians,
+    columns = days).
+
+    Query params:
+        worked_on_from (YYYY-MM-DD): start of date range (inclusive)
+        worked_on_to (YYYY-MM-DD): end of date range (inclusive)
+        author_ids: comma-separated UUIDs (optional)
+        project_ids: comma-separated UUIDs (optional)
+    """
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def get(self, request, slug):
+        from django.db.models import Sum, F
+        from datetime import date as date_type, timedelta
+        from decimal import Decimal
+
+        workspace = self._workspace(slug)
+        if workspace is None:
+            return _not_found()
+
+        worked_on_from = request.GET.get("worked_on_from")
+        worked_on_to = request.GET.get("worked_on_to")
+
+        if not worked_on_from or not worked_on_to:
+            return Response(
+                {"error": "worked_on_from and worked_on_to are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            start_date = date_type.fromisoformat(worked_on_from)
+            end_date = date_type.fromisoformat(worked_on_to)
+        except ValueError:
+            return Response(
+                {"error": "Invalid date format. Use YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qs = ServiceLog.objects.filter(
+            workspace=workspace,
+            worked_on__gte=start_date,
+            worked_on__lte=end_date,
+        )
+
+        author_ids = request.GET.get("author_ids")
+        if author_ids:
+            qs = qs.filter(author_id__in=author_ids.split(","))
+
+        project_ids = request.GET.get("project_ids")
+        if project_ids:
+            qs = qs.filter(project_id__in=project_ids.split(","))
+
+        aggregated = (
+            qs.values("author_id", "worked_on")
+            .annotate(
+                total_logged=Sum("logged_hours"),
+                total_equivalent=Sum("equivalent_hours"),
+                author_name=F("author__display_name"),
+            )
+            .order_by("author__display_name", "worked_on")
+        )
+
+        # Build rows keyed by author
+        authors = {}
+        column_totals = {}
+
+        for entry in aggregated:
+            aid = str(entry["author_id"])
+            day_str = entry["worked_on"].isoformat()
+            logged = entry["total_logged"] or Decimal("0")
+            equivalent = entry["total_equivalent"] or Decimal("0")
+
+            if aid not in authors:
+                authors[aid] = {
+                    "author_id": aid,
+                    "author_name": entry["author_name"] or "",
+                    "days": {},
+                    "total_logged": Decimal("0"),
+                    "total_equivalent": Decimal("0"),
+                }
+
+            authors[aid]["days"][day_str] = {
+                "logged_hours": str(logged),
+                "equivalent_hours": str(equivalent),
+            }
+            authors[aid]["total_logged"] += logged
+            authors[aid]["total_equivalent"] += equivalent
+
+            if day_str not in column_totals:
+                column_totals[day_str] = {"logged_hours": Decimal("0"), "equivalent_hours": Decimal("0")}
+            column_totals[day_str]["logged_hours"] += logged
+            column_totals[day_str]["equivalent_hours"] += equivalent
+
+        grand_logged = Decimal("0")
+        grand_equivalent = Decimal("0")
+
+        rows = []
+        for author in authors.values():
+            grand_logged += author["total_logged"]
+            grand_equivalent += author["total_equivalent"]
+            rows.append({
+                "author_id": author["author_id"],
+                "author_name": author["author_name"],
+                "days": author["days"],
+                "total_logged": str(author["total_logged"]),
+                "total_equivalent": str(author["total_equivalent"]),
+            })
+
+        serialized_column_totals = {
+            day: {"logged_hours": str(v["logged_hours"]), "equivalent_hours": str(v["equivalent_hours"])}
+            for day, v in sorted(column_totals.items())
+        }
+
+        return Response(
+            {
+                "rows": rows,
+                "column_totals": serialized_column_totals,
+                "grand_total": {
+                    "logged_hours": str(grand_logged),
+                    "equivalent_hours": str(grand_equivalent),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class ServicePortalBaseView(ServiceReportBaseView):
     """The client's projection and the client's tenancy, for **every** portal route. D63, D67.
 

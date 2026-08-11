@@ -31,6 +31,7 @@
     "upgrade_plan": "Mettre à niveau",
     "plane_pro": "Plane Pro",
     "business": "Business",
-    "service_consumption": "My consumption"
+    "service_consumption": "My consumption",
+    "service_timesheet": "Timesheet"
   }
 }

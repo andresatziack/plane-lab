@@ -31,6 +31,7 @@
     "upgrade_plan": "Апгрейд план",
     "plane_pro": "Плейн Про",
     "business": "Бізнес",
-    "service_consumption": "My consumption"
+    "service_consumption": "My consumption",
+    "service_timesheet": "Timesheet"
   }
 }

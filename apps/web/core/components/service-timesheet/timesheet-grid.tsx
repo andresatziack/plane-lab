@@ -1,0 +1,160 @@
+/**
+ * Copyright (c) 2023-present Plane Software, Inc. and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * See the LICENSE file for details.
+ */
+
+import { useTranslation } from "@plane/i18n";
+import { cn } from "@plane/utils";
+import type { TServiceTimesheetReport } from "@plane/types";
+
+type Props = {
+  data: TServiceTimesheetReport;
+  days: string[];
+};
+
+/** Format a date string as a short weekday + day number (e.g. "Mon 12"). */
+function formatDayHeader(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  return `${weekday} ${d.getDate()}`;
+}
+
+/** Format hours for display: show nothing for zero, otherwise show one decimal place. */
+function formatHours(value: string | undefined): string {
+  if (!value) return "";
+  const num = parseFloat(value);
+  if (num === 0) return "";
+  return num % 1 === 0 ? num.toString() : num.toFixed(1);
+}
+
+/** Check if a date is a weekend (Saturday or Sunday). */
+function isWeekend(dateStr: string): boolean {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+export function TimesheetGrid({ data, days }: Props) {
+  const { t } = useTranslation();
+
+  if (data.rows.length === 0) {
+    return (
+      <div className="text-sm text-custom-text-300 flex h-64 items-center justify-center">
+        {t("service_timesheet.empty")}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Desktop grid - hidden on mobile */}
+      <div className="hidden overflow-x-auto md:block">
+        <table className="text-xs w-full min-w-max border-collapse">
+          <thead>
+            <tr className="bg-custom-background-80 border-b border-subtle">
+              <th className="bg-custom-background-80 text-custom-text-200 sticky left-0 z-10 px-3 py-2 text-left font-medium">
+                {t("service_timesheet.technician")}
+              </th>
+              {days.map((day) => (
+                <th
+                  key={day}
+                  className={cn(
+                    "text-custom-text-300 min-w-[56px] px-2 py-2 text-center font-medium",
+                    isWeekend(day) && "bg-custom-background-90"
+                  )}
+                >
+                  {formatDayHeader(day)}
+                </th>
+              ))}
+              <th className="text-custom-text-100 min-w-[64px] px-3 py-2 text-center font-semibold">
+                {t("service_timesheet.total")}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row) => (
+              <tr key={row.author_id} className="hover:bg-custom-background-80/50 border-b border-subtle">
+                <td className="text-custom-text-100 sticky left-0 z-10 bg-surface-2 px-3 py-2 font-medium">
+                  {row.author_name}
+                </td>
+                {days.map((day) => {
+                  const cell = row.days[day];
+                  const hours = formatHours(cell?.logged_hours);
+                  return (
+                    <td
+                      key={day}
+                      className={cn(
+                        "text-custom-text-200 px-2 py-2 text-center",
+                        isWeekend(day) && "bg-custom-background-90/50",
+                        hours && "text-custom-text-100 font-medium"
+                      )}
+                    >
+                      {hours}
+                    </td>
+                  );
+                })}
+                <td className="text-custom-text-100 px-3 py-2 text-center font-semibold">
+                  {formatHours(row.total_logged)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-custom-background-80 border-t border-subtle">
+              <td className="bg-custom-background-80 text-custom-text-100 sticky left-0 z-10 px-3 py-2 font-semibold">
+                {t("service_timesheet.total")}
+              </td>
+              {days.map((day) => {
+                const col = data.column_totals[day];
+                return (
+                  <td key={day} className="text-custom-text-100 px-2 py-2 text-center font-semibold">
+                    {formatHours(col?.logged_hours)}
+                  </td>
+                );
+              })}
+              <td className="text-custom-text-100 px-3 py-2 text-center font-bold">
+                {formatHours(data.grand_total.logged_hours)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Mobile cards - shown only on small screens */}
+      <div className="flex flex-col gap-3 p-4 md:hidden">
+        {data.rows.map((row) => (
+          <div key={row.author_id} className="rounded-lg border border-subtle bg-surface-2 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm text-custom-text-100 font-medium">{row.author_name}</span>
+              <span className="text-xs text-custom-text-200 font-semibold">
+                {formatHours(row.total_logged)}h {t("service_timesheet.total").toLowerCase()}
+              </span>
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {days.map((day) => {
+                const cell = row.days[day];
+                const hours = formatHours(cell?.logged_hours);
+                return (
+                  <div
+                    key={day}
+                    className={cn(
+                      "flex flex-col items-center rounded p-1",
+                      isWeekend(day) && "bg-custom-background-90/50",
+                      hours && "bg-custom-primary-100/10"
+                    )}
+                  >
+                    <span className="text-custom-text-400 text-[10px]">
+                      {new Date(day + "T00:00:00").toLocaleDateString("en-US", { weekday: "narrow" })}
+                    </span>
+                    <span className="text-xs text-custom-text-200 font-medium">{hours || "-"}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}

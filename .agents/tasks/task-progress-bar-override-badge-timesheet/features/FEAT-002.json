@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Implement Timesheet View -- a new workspace-scoped page with weekly/monthly grid showing technician x day hours aggregated from service logs, with filters and totals",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create the API endpoint: Add a new endpoint `GET /api/workspaces/<slug>/service-reports/timesheet/` in apps/api/plane/app/views/service_reports/base.py that aggregates ServiceLog data grouped by author and worked_on date, within a date range from query params. Return a structure like {rows: [{author_id, author_name, days: {date_str: {logged_hours, equivalent_hours}}, total_logged, total_equivalent}], column_totals: {date_str: {logged_hours, equivalent_hours}}, grand_total: {...}}. Permission: ADMIN and MEMBER.",
     "Register the new endpoint in apps/api/plane/app/urls/service_reports.py with path `workspaces/<str:slug>/service-reports/timesheet/`.",
