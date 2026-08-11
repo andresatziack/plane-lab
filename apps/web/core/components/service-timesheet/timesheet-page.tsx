@@ -7,6 +7,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { observer } from "mobx-react";
 import useSWR from "swr";
+import { Clock } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { Loader } from "@plane/ui";
 import { useWorkspace } from "@/hooks/store/use-workspace";
@@ -147,8 +148,9 @@ export const TimesheetPage = observer(function TimesheetPage() {
         ) : data ? (
           <TimesheetGrid data={data} days={days} />
         ) : (
-          <div className="text-sm text-custom-text-300 flex h-64 items-center justify-center">
-            {t("service_timesheet.empty")}
+          <div className="flex h-64 flex-col items-center justify-center gap-3">
+            <Clock className="text-custom-text-400 size-10" />
+            <p className="text-sm text-custom-text-300">{t("service_timesheet.empty")}</p>
           </div>
         )}
       </div>

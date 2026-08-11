@@ -4,6 +4,7 @@
  * See the LICENSE file for details.
  */
 
+import { Clock } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
 import type { TServiceTimesheetReport } from "@plane/types";
@@ -35,7 +36,7 @@ function isWeekend(dateStr: string): boolean {
   return day === 0 || day === 6;
 }
 
-/** Split an array of day strings into chunks of 7 for weekly rows. */
+/** Split an array of day strings into chunks of 7 for weekly rows on mobile. */
 function chunkDays(days: string[]): string[][] {
   const chunks: string[][] = [];
   for (let i = 0; i < days.length; i += 7) {
@@ -49,8 +50,9 @@ export function TimesheetGrid({ data, days }: Props) {
 
   if (data.rows.length === 0) {
     return (
-      <div className="text-sm text-custom-text-300 flex h-64 items-center justify-center">
-        {t("service_timesheet.empty")}
+      <div className="flex h-64 flex-col items-center justify-center gap-3">
+        <Clock className="text-custom-text-400 size-10" />
+        <p className="text-sm text-custom-text-300">{t("service_timesheet.empty")}</p>
       </div>
     );
   }
@@ -59,70 +61,78 @@ export function TimesheetGrid({ data, days }: Props) {
     <>
       {/* Desktop grid - hidden on mobile */}
       <div className="hidden overflow-x-auto md:block">
-        <table className="text-xs w-full min-w-max border-collapse">
+        <table className="text-sm w-full min-w-max border-collapse">
           <thead>
-            <tr className="bg-custom-background-80 border-b border-subtle">
-              <th className="bg-custom-background-80 text-custom-text-200 sticky left-0 z-10 px-3 py-2 text-left font-medium">
+            <tr className="border-b border-subtle bg-surface-2">
+              <th className="text-xs text-custom-text-300 sticky left-0 z-10 bg-surface-2 px-3 py-2 text-left font-medium">
                 {t("service_timesheet.technician")}
               </th>
               {days.map((day) => (
                 <th
                   key={day}
                   className={cn(
-                    "text-custom-text-300 min-w-[56px] px-2 py-2 text-center font-medium",
-                    isWeekend(day) && "bg-custom-background-90"
+                    "text-xs text-custom-text-300 min-w-[56px] px-2 py-2 text-center font-medium",
+                    isWeekend(day) && "bg-custom-background-80/50"
                   )}
                 >
                   {formatDayHeader(day)}
                 </th>
               ))}
-              <th className="text-custom-text-100 min-w-[64px] px-3 py-2 text-center font-semibold">
+              <th className="text-xs text-custom-text-100 min-w-[64px] px-3 py-2 text-center font-semibold">
                 {t("service_timesheet.total")}
               </th>
             </tr>
           </thead>
           <tbody>
             {data.rows.map((row) => (
-              <tr key={row.author_id} className="hover:bg-custom-background-80/50 border-b border-subtle">
-                <td className="text-custom-text-100 sticky left-0 z-10 bg-surface-2 px-3 py-2 font-medium">
+              <tr key={row.author_id} className="hover:bg-custom-background-80/30 border-b border-subtle">
+                <td className="text-sm text-custom-text-100 sticky left-0 z-10 bg-surface-2 px-3 py-2 font-medium">
                   {row.author_name}
                 </td>
                 {days.map((day) => {
                   const cell = row.days[day];
                   const hours = formatHours(cell?.logged_hours);
+                  const isZero = cell && parseFloat(cell.logged_hours) === 0;
                   return (
                     <td
                       key={day}
                       className={cn(
-                        "text-custom-text-200 px-2 py-2 text-center",
-                        isWeekend(day) && "bg-custom-background-90/50",
-                        hours && "text-custom-text-100 font-medium"
+                        "text-sm px-2 py-2 text-center",
+                        isWeekend(day) && "bg-custom-background-80/50",
+                        hours ? "text-custom-text-100 font-medium" : isZero ? "text-custom-text-400" : ""
                       )}
                     >
-                      {hours}
+                      {hours || (isZero ? "0" : "")}
                     </td>
                   );
                 })}
-                <td className="text-custom-text-100 px-3 py-2 text-center font-semibold">
+                <td className="bg-custom-background-90 text-sm text-custom-text-100 px-3 py-2 text-center font-semibold">
                   {formatHours(row.total_logged)}
                 </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="bg-custom-background-80 border-t border-subtle">
-              <td className="bg-custom-background-80 text-custom-text-100 sticky left-0 z-10 px-3 py-2 font-semibold">
+            <tr className="bg-custom-background-90 border-t border-subtle">
+              <td className="bg-custom-background-90 text-sm text-custom-text-100 sticky left-0 z-10 px-3 py-2 font-semibold">
                 {t("service_timesheet.total")}
               </td>
               {days.map((day) => {
                 const col = data.column_totals[day];
+                const hours = formatHours(col?.logged_hours);
                 return (
-                  <td key={day} className="text-custom-text-100 px-2 py-2 text-center font-semibold">
-                    {formatHours(col?.logged_hours)}
+                  <td
+                    key={day}
+                    className={cn(
+                      "text-sm text-custom-text-100 px-2 py-2 text-center font-semibold",
+                      isWeekend(day) && "bg-custom-background-80/50"
+                    )}
+                  >
+                    {hours}
                   </td>
                 );
               })}
-              <td className="text-custom-text-100 px-3 py-2 text-center font-bold">
+              <td className="text-sm text-custom-text-100 px-3 py-2 text-center font-bold">
                 {formatHours(data.grand_total.logged_hours)}
               </td>
             </tr>
@@ -140,7 +150,6 @@ export function TimesheetGrid({ data, days }: Props) {
                 {formatHours(row.total_logged)}h {t("service_timesheet.total").toLowerCase()}
               </span>
             </div>
-            {/* Group days into weekly chunks of 7 for a clean grid layout */}
             {chunkDays(days).map((weekDays) => (
               <div key={weekDays[0]} className="mb-1 grid grid-cols-7 gap-1">
                 {weekDays.map((day) => {
@@ -151,7 +160,7 @@ export function TimesheetGrid({ data, days }: Props) {
                       key={day}
                       className={cn(
                         "flex flex-col items-center rounded p-1",
-                        isWeekend(day) && "bg-custom-background-90/50",
+                        isWeekend(day) && "bg-custom-background-80/50",
                         hours && "bg-custom-primary-100/10"
                       )}
                     >
@@ -159,7 +168,11 @@ export function TimesheetGrid({ data, days }: Props) {
                         {new Date(day + "T00:00:00").toLocaleDateString(undefined, { weekday: "narrow" })}
                       </span>
                       <span className="text-custom-text-400 text-[10px]">{new Date(day + "T00:00:00").getDate()}</span>
-                      <span className="text-xs text-custom-text-200 font-medium">{hours || "-"}</span>
+                      <span
+                        className={cn("text-xs font-medium", hours ? "text-custom-text-100" : "text-custom-text-400")}
+                      >
+                        {hours || "-"}
+                      </span>
                     </div>
                   );
                 })}
