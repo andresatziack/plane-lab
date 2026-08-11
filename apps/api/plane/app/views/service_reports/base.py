@@ -484,10 +484,12 @@ class ServiceTimesheetEndpoint(ServiceReportBaseView):
         project_ids: comma-separated UUIDs (optional)
     """
 
+    MAX_DATE_RANGE_DAYS = 62
+
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def get(self, request, slug):
-        from django.db.models import Sum, F
-        from datetime import date as date_type, timedelta
+        from django.db.models import Sum
+        from datetime import date as date_type
         from decimal import Decimal
 
         workspace = self._workspace(slug)
@@ -512,6 +514,18 @@ class ServiceTimesheetEndpoint(ServiceReportBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if end_date < start_date:
+            return Response(
+                {"error": "worked_on_to must not be before worked_on_from."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if (end_date - start_date).days > self.MAX_DATE_RANGE_DAYS:
+            return Response(
+                {"error": f"Date range must not exceed {self.MAX_DATE_RANGE_DAYS} days."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         qs = ServiceLog.objects.filter(
             workspace=workspace,
             worked_on__gte=start_date,
@@ -527,11 +541,10 @@ class ServiceTimesheetEndpoint(ServiceReportBaseView):
             qs = qs.filter(project_id__in=project_ids.split(","))
 
         aggregated = (
-            qs.values("author_id", "worked_on")
+            qs.values("author_id", "author__display_name", "worked_on")
             .annotate(
                 total_logged=Sum("logged_hours"),
                 total_equivalent=Sum("equivalent_hours"),
-                author_name=F("author__display_name"),
             )
             .order_by("author__display_name", "worked_on")
         )
@@ -549,7 +562,7 @@ class ServiceTimesheetEndpoint(ServiceReportBaseView):
             if aid not in authors:
                 authors[aid] = {
                     "author_id": aid,
-                    "author_name": entry["author_name"] or "",
+                    "author_name": entry["author__display_name"] or "",
                     "days": {},
                     "total_logged": Decimal("0"),
                     "total_equivalent": Decimal("0"),

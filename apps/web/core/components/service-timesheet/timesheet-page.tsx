@@ -51,10 +51,10 @@ function generateDays(start: Date, end: Date): string[] {
 /** Format the period label for display. */
 function formatPeriodLabel(start: Date, end: Date, mode: TimesheetViewMode): string {
   if (mode === "month") {
-    return start.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+    return start.toLocaleDateString(undefined, { year: "numeric", month: "long" });
   }
-  const startStr = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const endStr = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const startStr = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const endStr = end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   return `${startStr} - ${endStr}`;
 }
 

@@ -16,7 +16,7 @@ type Props = {
 /** Format a date string as a short weekday + day number (e.g. "Mon 12"). */
 function formatDayHeader(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
-  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  const weekday = d.toLocaleDateString(undefined, { weekday: "short" });
   return `${weekday} ${d.getDate()}`;
 }
 
@@ -33,6 +33,15 @@ function isWeekend(dateStr: string): boolean {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.getDay();
   return day === 0 || day === 6;
+}
+
+/** Split an array of day strings into chunks of 7 for weekly rows. */
+function chunkDays(days: string[]): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < days.length; i += 7) {
+    chunks.push(days.slice(i, i + 7));
+  }
+  return chunks;
 }
 
 export function TimesheetGrid({ data, days }: Props) {
@@ -131,27 +140,31 @@ export function TimesheetGrid({ data, days }: Props) {
                 {formatHours(row.total_logged)}h {t("service_timesheet.total").toLowerCase()}
               </span>
             </div>
-            <div className="grid grid-cols-7 gap-1">
-              {days.map((day) => {
-                const cell = row.days[day];
-                const hours = formatHours(cell?.logged_hours);
-                return (
-                  <div
-                    key={day}
-                    className={cn(
-                      "flex flex-col items-center rounded p-1",
-                      isWeekend(day) && "bg-custom-background-90/50",
-                      hours && "bg-custom-primary-100/10"
-                    )}
-                  >
-                    <span className="text-custom-text-400 text-[10px]">
-                      {new Date(day + "T00:00:00").toLocaleDateString("en-US", { weekday: "narrow" })}
-                    </span>
-                    <span className="text-xs text-custom-text-200 font-medium">{hours || "-"}</span>
-                  </div>
-                );
-              })}
-            </div>
+            {/* Group days into weekly chunks of 7 for a clean grid layout */}
+            {chunkDays(days).map((weekDays) => (
+              <div key={weekDays[0]} className="mb-1 grid grid-cols-7 gap-1">
+                {weekDays.map((day) => {
+                  const cell = row.days[day];
+                  const hours = formatHours(cell?.logged_hours);
+                  return (
+                    <div
+                      key={day}
+                      className={cn(
+                        "flex flex-col items-center rounded p-1",
+                        isWeekend(day) && "bg-custom-background-90/50",
+                        hours && "bg-custom-primary-100/10"
+                      )}
+                    >
+                      <span className="text-custom-text-400 text-[10px]">
+                        {new Date(day + "T00:00:00").toLocaleDateString(undefined, { weekday: "narrow" })}
+                      </span>
+                      <span className="text-custom-text-400 text-[10px]">{new Date(day + "T00:00:00").getDate()}</span>
+                      <span className="text-xs text-custom-text-200 font-medium">{hours || "-"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         ))}
       </div>
