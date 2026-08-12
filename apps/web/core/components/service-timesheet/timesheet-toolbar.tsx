@@ -31,7 +31,7 @@ export function TimesheetToolbar({ viewMode, onViewModeChange, periodLabel, onPr
           type="button"
           onClick={() => onViewModeChange("week")}
           className={cn(
-            "text-xs flex items-center gap-1 rounded px-2.5 py-1 font-medium transition-colors",
+            "flex items-center gap-1 rounded px-3 py-1 text-13 leading-5 font-medium transition-colors",
             viewMode === "week" ? "bg-custom-primary-100 text-white" : "text-custom-text-200 hover:text-custom-text-100"
           )}
         >
@@ -42,7 +42,7 @@ export function TimesheetToolbar({ viewMode, onViewModeChange, periodLabel, onPr
           type="button"
           onClick={() => onViewModeChange("month")}
           className={cn(
-            "text-xs flex items-center gap-1 rounded px-2.5 py-1 font-medium transition-colors",
+            "flex items-center gap-1 rounded px-3 py-1 text-13 leading-5 font-medium transition-colors",
             viewMode === "month"
               ? "bg-custom-primary-100 text-white"
               : "text-custom-text-200 hover:text-custom-text-100"
@@ -58,7 +58,9 @@ export function TimesheetToolbar({ viewMode, onViewModeChange, periodLabel, onPr
         <Button variant="secondary" size="sm" onClick={onPrev}>
           <ChevronLeft className="size-3.5" />
         </Button>
-        <span className="text-sm text-custom-text-100 min-w-[140px] text-center font-medium">{periodLabel}</span>
+        <span className="text-custom-text-200 min-w-[140px] text-center text-13 leading-5 font-medium">
+          {periodLabel}
+        </span>
         <Button variant="secondary" size="sm" onClick={onNext}>
           <ChevronRight className="size-3.5" />
         </Button>
